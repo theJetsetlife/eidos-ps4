@@ -1795,6 +1795,17 @@ void *NNS_SndArcGetFileAddress(u32 fileId)
         source = _need(source,
                        "fileTable->entries[fileId].loadedData = (uptr)address;",
                        "(void)bw_snd_loaded_address(arc, fileId, address, 1);")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/gfl_use.c"):
+        # _SndStack and _SndSlots are adjacent objects in the same DS data
+        # image: the latter begins exactly 12 bytes after the former. Keep
+        # the DS object layout intact and hold its native pointer separately.
+        source = "struct SndHeap;\nstatic struct SndHeap **sBwNativeSndStackHeap;\n" + source
+        source = _need(source, "_SndStack.heapPtr = heapPtr;",
+                       "sBwNativeSndStackHeap = heapPtr;")
+        source = source.replace("(*_SndStack.heapPtr)",
+                                "(*sBwNativeSndStackHeap)")
+        source = source.replace("(NNSSndHeap *)*_SndStack.heapPtr",
+                                "(NNSSndHeap *)*sBwNativeSndStackHeap")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/savedata.c"):
         # SaveBlockDef is cartridge data: ID, size callback, init callback,
         # each one DS word. Resolve callbacks at the call boundary on LP64.

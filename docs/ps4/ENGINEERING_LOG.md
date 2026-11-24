@@ -270,3 +270,15 @@ progress past `SND_AssignWaveArc` are verified. The latest run faults in
 the sound-stack global; investigation of the native global layout is ongoing.
 No complete frame, audible output, PS4 compile, package, or hardware test is
 claimed.
+
+GDB watchpoint caught the stack corruption during `GFL_USE_InitSndStack`: the
+native pointer write at `_SndStack.heapPtr` spans bytes belonging to the next DS
+global, `_SndSlots` (whose DS address is exactly `_SndStack + 0x0C`). The
+generated `gfl_use.c` copy now stores that host-only pointer in a native static
+and routes its uses there, leaving the cartridge data block at DS width. C99
+syntax and full host build/link pass. Startup now reaches
+`GFL_USE_SetStereoOutput -> NNS_SndSetMasterPan -> AllocCommand`; the current
+fault is a corrupt command free-list pointer in the recovered `sFreeList` /
+`sCommandArray` data layout. A hardware watchpoint confirmed the stack field
+stays full-width through initialization. No complete frame or audio output is
+claimed.
