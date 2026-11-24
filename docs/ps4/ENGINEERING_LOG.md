@@ -47,3 +47,11 @@ performed.
 State: host compiled and linked; host runtime reached initialization but is not
 gameplay-capable on LP64. Orbis target remains uncompiled, unlinked, unpackaged,
 and untested because the installed official tools are Windows host executables.
+
+Host regression pass after the integration commits: 85 of 87 enabled tests
+passed (nine data/interactive tests disabled and two skipped). `test_overlay`
+failed because this checkout's real-data assertions describe the pinned English
+Black layout while the private cartridge is White. `test_armdata_real` failed
+three native-address assertions after reporting 750 refused relocations on
+LP64; this independently reproduces the x86-64 blocker seen by `eidos_boot`.
+The generator-focused `test_dsaddr` and `test_armdata_gen` tests passed.
