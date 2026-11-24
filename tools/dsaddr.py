@@ -1574,6 +1574,15 @@ def _need_re(pattern, repl, source: str, flags: int = 0) -> str:
 
 def native_matched_types(source: str, path: str) -> str:
     """Keep recovered DS scalar names fixed-width in generated host copies."""
+    if path.replace("\\", "/").endswith("/src/matched/arm9/func_02049578.c"):
+        # The game creator embeds native FSFile. A fixed 0x48-byte matched
+        # placeholder reads metadata from inside that larger file object.
+        root = path.replace("\\", "/").split("/src/matched/", 1)[0]
+        header = root + "/src/game/arm9/g3d_util_shared_types.h"
+        source = _need_re(r"struct ArcFile\s*\{.*?\};",
+                          "", source, flags=re.S)
+        source = source.replace("struct ArcFile", "struct ArcHandle")
+        source = '#include "' + header + '"\n' + source
     source = re.sub(
         r"(?m)^([ \t]*typedef[ \t]+(?:volatile[ \t]+)?(?:unsigned[ \t]+|signed[ \t]+)?)"
         r"long([ \t]+(?:u32|s32|vu32|vs32)[ \t]*;)", r"\1int\2", source)

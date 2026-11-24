@@ -197,3 +197,11 @@ construction proceeds to `SAVEDATA_InitBuffer -> BOX_SAVEDATA_Init ->
 BOX_SAVEDATA_InitHeader -> MSGDATA_CreateFromArchive`, where an archive-member
 assertion in `ARC_TOOL_GetHandleMemberOffset` now stops execution. Save
 initialization, a complete frame, and PS4 execution remain unverified.
+
+The archive assertion requests member 9. The linked accessor comes from
+`src/matched/arm9/func_02049578.c`, whose `ArcFile` embeds `u8 file[0x48]`.
+The game-side creator's shared `ArcHandle` embeds native `FSFile`, whose
+pointer fields widen. The accessor therefore reads count and offsets from
+the wrong positions. Its generated native copy now includes the same
+`g3d_util_shared_types.h` declaration and uses `ArcHandle`. Generated-source
+C99 syntax checks passed; full build/runtime verification is pending.
