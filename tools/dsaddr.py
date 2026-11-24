@@ -1669,12 +1669,31 @@ def main(argv=None) -> int:
         source = _need(source, "NNSi_FndFindListContainHeap(u32 a)", "NNSi_FndFindListContainHeap(uptr a)")
         source = _need(source, "NNSi_FndInitMBlock(int *p", "NNSi_FndInitMBlock(sptr *p")
         source = _need(source, "int  pair[2];", "sptr pair[2];")
+        # MemRegion contains native-width addresses after the structure
+        # promotion above.  Preserve the DS source casts, but make every
+        # region passed to the widened helper use its native element type.
+        source = source.replace("NNSi_FndInitMBlock((int *)&", "NNSi_FndInitMBlock((sptr *)&")
+        source = source.replace("NNSi_FndInitMBlock((int *)(&", "NNSi_FndInitMBlock((sptr *)(&")
+        source = source.replace("NNSi_FndInitMBlock((int *)r,", "NNSi_FndInitMBlock((sptr *)r,")
         source = _need(source, "(u8 *)heap + 0x38", "(u8 *)heap + sizeof(struct ExpHeap)")
         source = _need(source, "(char *)q + 0x10", "(char *)q + sizeof(struct MBlock)")
         source = _need(source, "NNS_FndInitList(&pHeapHd->childList, 4)",
                                 "NNS_FndInitList(&pHeapHd->childList, offsetof(NNSiFndHeapHead, link))")
         source = _need(source, "NNS_FndInitList(&sRootList, 4)",
                                 "NNS_FndInitList(&sRootList, offsetof(NNSiFndHeapHead, link))")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/msl_printf.c"):
+        # On SysV x86-64 va_list is an array type.  A function parameter of
+        # that type has already decayed to the pointer parse_format needs;
+        # taking its address creates a pointer-to-pointer.  Adapt only the
+        # generated native copy and leave aletheia's scalar ARM va_list form
+        # untouched for matching builds.
+        source = _need(source,
+                       "parse_format(const uchar *format_string, va_list *arg",
+                       "parse_format(const uchar *format_string, va_list arg")
+        source = source.replace("va_arg(*arg,", "va_arg(arg,")
+        source = _need(source,
+                       "parse_format(format_ptr, &arg, &format)",
+                       "parse_format(format_ptr, arg, &format)")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/os_arena.c"):
         # The recovered host form widened the arena pointer but left its
         # unsigned alignment mask at 32 bits, clearing the high address.

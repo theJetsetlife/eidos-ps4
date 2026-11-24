@@ -40,9 +40,22 @@ def main():
         return
     with open(os.path.join(root, "layout", "layout.json"), encoding="utf-8") as fh:
         layout = json.load(fh)
-    match._REGION_CACHE["regions"] = match.load_regions(layout, extract, overlays=True)
+    regions = match.load_regions(layout, extract, overlays=True)
+    match._REGION_CACHE["regions"] = regions
+    available = {r.name for r in regions}
     for n in todo:
         addr, size, region = gendata.SPECS[n]
+        # A normal user ROM extraction has encrypted arm9i.bin but not the
+        # keyed DSi-mode arm9i_dec.bin.  Eidos does not compile Aletheia's TWL
+        # card-ROM unit, so its embedded key table is not part of the native
+        # boot or overlay closure.  Leave that include absent: a future target
+        # that really adds the unit will fail at its #include instead of
+        # receiving invented bytes.  All regions used by the current closure
+        # remain mandatory.
+        if region == "twl" and region not in available:
+            print("aletheiagen.py: skip %s (no keyed DSi TWL extraction; "
+                  "not used by the native closure)" % n)
+            continue
         print("aletheiagen.py: %s" % gendata.generate(n, addr, size, region,
                                                       os.path.join(out_dir, n + ".inc")))
 

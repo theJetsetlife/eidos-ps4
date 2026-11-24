@@ -2601,9 +2601,11 @@ static void boot_frame(void *user)
     if (eidos_frame_count(&run->loop) >= run->limit) {
         boot_finish(0, "ran");
     }
+#if EIDOS_BOOT_SDL
     if (eidos_ui_script_quit()) {
         boot_finish(eidos_ui_script_quit() == 2 ? 3 : 0, "the test script ended");
     }
+#endif
 
     if (eidos_prof_on && g_game_since != 0) {
         unsigned long long now = eidos_prof_begin();
