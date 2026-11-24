@@ -24,6 +24,7 @@ function(eidos_ps4_compile_shader source profile)
     get_filename_component(_name "${source}" NAME_WE)
     set(_input "${_eidos_pssl_sources}/${source}")
     set(_output "${_eidos_pssl_output_dir}/${_name}.sb")
+    set(_embedded "${_eidos_pssl_output_dir}/${_name}.h")
     add_custom_command(OUTPUT "${_output}"
         COMMAND "${Python3_EXECUTABLE}" "${_eidos_pssl_script}"
             --compiler "${_eidos_psslc}"
@@ -36,13 +37,29 @@ function(eidos_ps4_compile_shader source profile)
             ${_eidos_pssl_include_files}
         COMMENT "Compiling ${source} with the official Orbis PSSL compiler"
         VERBATIM)
+    string(REPLACE "." "_" _symbol "eidos_ps4_${_name}_sb")
+    add_custom_command(OUTPUT "${_embedded}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ps4/embed_shader.py"
+            --input "${_output}"
+            --output "${_embedded}"
+            --symbol "${_symbol}"
+        DEPENDS "${_output}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ps4/embed_shader.py"
+        COMMENT "Embedding ${source} PSSL binary in the PS4 application"
+        VERBATIM)
     set_property(GLOBAL APPEND PROPERTY EIDOS_PS4_SHADER_OUTPUTS "${_output}")
+    set_property(GLOBAL APPEND PROPERTY EIDOS_PS4_SHADER_HEADER_OUTPUTS "${_embedded}")
 endfunction()
 
 eidos_ps4_compile_shader(fullscreen_vs.pssl sce_vs_vs_lvp)
 eidos_ps4_compile_shader(fullscreen_ps.pssl sce_ps_lvp)
 get_property(_eidos_pssl_outputs GLOBAL PROPERTY EIDOS_PS4_SHADER_OUTPUTS)
 add_custom_target(eidos_ps4_shaders ALL DEPENDS ${_eidos_pssl_outputs})
+get_property(_eidos_pssl_header_outputs GLOBAL PROPERTY EIDOS_PS4_SHADER_HEADER_OUTPUTS)
+add_custom_target(eidos_ps4_shader_headers ALL DEPENDS ${_eidos_pssl_header_outputs})
+add_dependencies(eidos_platform_ps4 eidos_ps4_shader_headers)
+target_sources(eidos_platform_ps4 PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4/shader_blobs_ps4.cpp")
+target_include_directories(eidos_platform_ps4 PRIVATE "${_eidos_pssl_output_dir}")
 
 unset(_eidos_psslc)
 unset(_eidos_pssl_sources)
@@ -51,3 +68,4 @@ unset(_eidos_pssl_output_dir)
 unset(_eidos_pssl_cache_dir)
 unset(_eidos_pssl_include_files)
 unset(_eidos_pssl_outputs)
+unset(_eidos_pssl_header_outputs)

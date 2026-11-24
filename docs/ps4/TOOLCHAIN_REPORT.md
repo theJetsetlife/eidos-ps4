@@ -40,11 +40,11 @@ Linux host cannot execute the SDK's Windows compiler.
 
 - Target includes are `target/include` and `target/include_common`.
 - Target libraries are under `target/lib`.
-- The Sample Browser XML catalogs a GNM/GNMX Basic Quad tutorial, but the
-  referenced graphics project sources are absent from `target/samples` and
-  from the provided SDK archive. The installed sample source tree contains
-  only the `api_libsecure` sample. This target has not been implemented from
-  an unavailable sample.
+- The installed `target/samples` tree is partial, but the user-provided SDK
+  distribution contains the official 12.508 sample archive. It includes GNM
+  `api_gnm/basic-sample` and `tutorial_graphics_programming/basic_quad`, plus
+  AudioOut stream and user-service samples. These were inspected as references;
+  proprietary sample source and assets remain outside this repository.
 - Installed VideoOut/GNM/GNMX headers and GNMX implementation sources expose
   the APIs used by the diagnostic and the fullscreen-quad helper. Header
   documentation specifies that `GfxContext` requires caller-provided CUE heap,
@@ -66,7 +66,7 @@ Linux host cannot execute the SDK's Windows compiler.
 | CMake cross-toolchain | Implemented; preset configure attempted and stopped during SDK compiler detection |
 | Preset listing/schema | Verified with bundled CMake 4.4.1; seven configure presets are visible, including both game presets |
 | Minimal video/input source | Implemented, not compiled with the SDK |
-| PSSL build graph | Generated with standalone host CMake and official SDK paths; profile names match the SDK PSSL MSBuild schema; PSSL compiler not executed |
+| PSSL build graph | Generated with host CMake and official SDK paths; profile names match the SDK PSSL schema; `.sb` outputs now generate aligned C++ byte arrays linked into `eidos_platform_ps4`; shader embedding tests pass; PSSL compiler not executed |
 | Target object compile | Confirmed blocked: Linux reports `Permission denied` when CMake invokes the Windows PE compiler |
 | Link | Not attempted |
 | FSELF/`eboot.bin` | Not attempted |

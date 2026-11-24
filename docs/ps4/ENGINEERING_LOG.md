@@ -91,6 +91,23 @@ SDK 12.508 headers passes, the regular host `eidos_boot` target remains up to
 date, and `git diff --check` passes. These checks do not compile or execute the
 Orbis AudioOut backend.
 
+## 2026-11-24 — Embed compiled PSSL binaries in the native target
+
+Added `tools/ps4/embed_shader.py` to convert nonempty official `.sb` build
+outputs into aligned C++ byte arrays without parsing or rewriting Sony's
+binary format. `shader_blobs_ps4.cpp/.h` expose the embedded fullscreen vertex
+and pixel binaries through a small accessor API for the forthcoming GNM shader
+loader. The PS4 CMake graph now generates both headers after the PSSL outputs
+and makes `eidos_platform_ps4` depend on and compile the blob accessors.
+
+Validation: synthetic binary fixtures pass the embedder's empty-input failure
+case, compile as strict C11 and C++14 with warnings as errors, and link through
+both blob accessors with byte-for-byte size/content checks. Host CMake generated
+the PS4 graph with `EIDOS_SDL=OFF`; Ninja confirms both `.sb` to header edges
+feed the PS4 platform library. This is build-graph and generator evidence only:
+the official Windows PSSL compiler and Orbis compiler did not run, and no GPU
+shader has been loaded or submitted on hardware.
+
 ## 2026-11-24 — Per-user PS4 SaveData mount
 
 Added `engine/platform/ps4/save_ps4.c/.h`, which calls the SDK-declared
