@@ -255,3 +255,18 @@ checks the combined native header size, and uses `sizeof(NNSiFndHeapHead)`
 instead of the DS `+0x24` allocation offset. Head/tail allocation masks were
 widened as well. Generated C99 syntax checks pass; full rebuild/runtime and
 audio playback verification remain pending.
+
+Full host rebuild/link after the sound-frame alignment correction still faulted
+at `NNSi_FndInitHeapHead`. Runtime registers showed `NNS_SndHeapCreate` had
+again truncated the host pointer through `~3u`; its generated native copy now
+uses a pointer-width mask. The next run completed frame-heap construction and
+initial sound-group loading, then exposed a second fixed-width pointer field:
+`NNSSndArcFatEntry.loadedData` is part of the 16-byte DS FAT record and cannot
+hold a native pointer. The generated native copy of `nns_snd_arc.c` now keeps
+that cartridge record unchanged and stores loaded host pointers in a per-arc
+side table. Source generation, C99 syntax, full host build/link, and runtime
+progress past `SND_AssignWaveArc` are verified. The latest run faults in
+`GFL_USE_InitSndStack` while dereferencing a sound heap pointer recovered from
+the sound-stack global; investigation of the native global layout is ongoing.
+No complete frame, audible output, PS4 compile, package, or hardware test is
+claimed.

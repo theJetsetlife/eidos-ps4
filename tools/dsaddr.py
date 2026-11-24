@@ -1747,6 +1747,54 @@ def main(argv=None) -> int:
         source = _need(source, "end - start < 0x30",
                        "end - start < sizeof(NNSiFndHeapHead) + sizeof(NNSiFndFrmHeapHead)")
         source = _need(source, "p += 0x24;", "p += sizeof(NNSiFndHeapHead);")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/nns_snd_arc.c"):
+        # The sound heap's four-byte alignment expression is a 32-bit DS
+        # pointer operation in the source.  The native boot process passes a
+        # real host pointer, so keep the complement at pointer width.
+        source = _need(source, "((uptr)start + 3) & ~3u",
+                       "((uptr)start + 3) & ~(uptr)3u")
+        source = source.replace(
+            "void *NNS_SndArcGetFileAddress(u32 fileId)\n{",
+            """#include <stdlib.h>
+typedef struct BwSndLoadedAddress {
+    NNSSndArc *arc;
+    u32 count;
+    void **entries;
+    struct BwSndLoadedAddress *next;
+} BwSndLoadedAddress;
+static BwSndLoadedAddress *sBwSndLoadedAddresses;
+static void *bw_snd_loaded_address(NNSSndArc *arc, u32 fileId, void *value, int writeValue)
+{
+    BwSndLoadedAddress *item;
+    if (sizeof(void *) == 4) {
+        if (writeValue) arc->fatBlock->entries[fileId].loadedData = (u32)(uptr)value;
+        return writeValue ? value : (void *)(uptr)arc->fatBlock->entries[fileId].loadedData;
+    }
+    for (item = sBwSndLoadedAddresses; item != 0; item = item->next)
+        if (item->arc == arc) break;
+    if (item == 0) {
+        item = (BwSndLoadedAddress *)calloc(1, sizeof(*item));
+        if (item == 0) return 0;
+        item->count = arc->fatBlock->count;
+        item->entries = (void **)calloc(item->count, sizeof(*item->entries));
+        if (item->entries == 0) { free(item); return 0; }
+        item->arc = arc;
+        item->next = sBwSndLoadedAddresses;
+        sBwSndLoadedAddresses = item;
+    }
+    if (fileId >= item->count) return 0;
+    if (writeValue) item->entries[fileId] = value;
+    return item->entries[fileId];
+}
+
+void *NNS_SndArcGetFileAddress(u32 fileId)
+{""")
+        source = _need(source,
+                       "return (void *)(uptr)fileTable->entries[fileId].loadedData;",
+                       "return bw_snd_loaded_address(arc, fileId, 0, 0);")
+        source = _need(source,
+                       "fileTable->entries[fileId].loadedData = (uptr)address;",
+                       "(void)bw_snd_loaded_address(arc, fileId, address, 1);")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/savedata.c"):
         # SaveBlockDef is cartridge data: ID, size callback, init callback,
         # each one DS word. Resolve callbacks at the call boundary on LP64.
