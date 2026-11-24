@@ -2708,6 +2708,34 @@ class Link:
         # Static initialisers.
         for a in overlay_table.KNOWN_SINIT.get(ov.id, [])[:ov.sinit_count]:
             st.sinits.append(self.own_code(st, a & ~1))
+        # The Wi-Fi operations table is consumed as native function pointers
+        # by net.c. Keeping it in the cartridge byte image concatenates two
+        # DS words into each LP64 pointer. Reconstruct all 51 slots from the
+        # authoritative metadata; null slots remain null.
+        st.native_callback_tables = {}
+        if ov.id == 9 and "_wifiDeviceTable" in st.data:
+            entry = st.data["_wifiDeviceTable"]
+            _rng, objects, _ext = armdata.load_data_objects(self.root, "ov009")
+            obj = next((o for o in objects if int(o["addr"], 16) == entry["addr"]), None)
+            if obj is None or obj.get("kind") != "pointer_table" or obj.get("count") != 51:
+                raise SystemExit("ovlink.py: Wi-Fi callback table metadata changed; review native layout")
+            targets = [int(t, 16) if isinstance(t, str) else t for t in obj["targets"]]
+            if len(targets) != 51:
+                raise SystemExit("ovlink.py: incomplete Wi-Fi callback table metadata")
+            relocs = {r["where"]: r for r in st.relocs}
+            callbacks = []
+            for i, target in enumerate(targets):
+                if not target:
+                    callbacks.append(None)
+                    continue
+                reloc = relocs.get(entry["addr"] + i * 4)
+                if reloc is None or reloc["kind"] != "CODE" or not reloc.get("fn"):
+                    raise SystemExit("ovlink.py: unresolved Wi-Fi callback slot %d" % i)
+                callbacks.append(reloc["fn"])
+            name = "bw_native_ov009_wifi_ops"
+            st.native_callback_tables[name] = callbacks
+            entry["bind"] = "HOST"
+            entry["host"] = (name, entry["addr"], 0)
 
     def declared_signature(self, rid, addr, dname):
         """The normalised prototype of a declared row whose overlay is not
@@ -2964,7 +2992,13 @@ def write_overlay_c(link, st, path):
         if r["kind"] == "HOST":
             anchors[r["anchor"][0]] = (r["anchor"][1], r["anchor"][2])
     for n in sorted(anchors):
-        w("extern char %s[];" % n)
+        if n in getattr(st, "native_callback_tables", {}):
+            w("BwDataFn %s[] = {" % n)
+            for callback in st.native_callback_tables[n]:
+                w("    %s," % (fnref(callback) if callback else "NULL"))
+            w("};")
+        else:
+            w("extern char %s[];" % n)
     if anchors:
         w("")
     refs = [n for n in sorted(st.data) if st.data[n]["bind"] != "OBJECT"]

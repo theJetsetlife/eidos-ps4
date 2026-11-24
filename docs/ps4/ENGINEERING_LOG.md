@@ -80,3 +80,21 @@ Fixed the PS4 diagnostic's direct-memory cleanup ownership: a failed allocation
 no longer attempts to release an unowned offset. A negative flip-pending query
 also no longer enters the pending-flip drain loop. These source changes remain
 uncompiled with the official target compiler due to the recorded host mismatch.
+
+## 2026-11-23 — Native Wi-Fi callback table compiled and exercised
+
+- `ovlink.py` reconstructs all 51 Wi-Fi operations slots from the pinned
+  metadata and native callback symbols, failing generation on missing metadata
+  or unresolved callbacks. `_wifiDeviceTable` binds to native storage.
+- `dsaddr.py` widens reserved callback slots in the generated `net_types.h`,
+  preserving their counts. Aletheia remains clean at its pin.
+- `tests/ps4/net_ops_layout.c` verifies table size and slots 0, 1, 10, 14, 39,
+  and 50. It compiled against both isolated and full-build generated headers.
+- Full host configuration, compilation, and linking succeeded with all 180
+  overlays. Three synthetic overlay tests passed.
+- GDB confirms startup passes the original indirect-call fault and enters
+  DWC initialization. The next failure is an invalid free through
+  `bw_block_free <- NNS_FndFreeToExpHeap <- ov009_DWC_RAPCOMMON_Free <- DWC_Free`.
+  No complete simulation frame or gameplay has yet been verified.
+
+Orbis compilation and hardware testing remain unavailable on this host.

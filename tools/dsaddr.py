@@ -1820,6 +1820,15 @@ def _header_text(hp):
     and whether that differs from the header."""
     own = _read(hp)
     text = _rewrite_with_defines(own, hp, hp)
+    if hp.replace("\\", "/").endswith("/src/game/arm9/net_types.h"):
+        # These are unused callback slots, not serialized byte padding.
+        # Keep their slot count when the surrounding function pointers grow.
+        text = _need(text, "u8    unusedSlots7To9[0x28 - 0x1C];",
+                     "uptr  unusedSlots7To9[3];")
+        text = _need(text, "u8    unusedSlots12To13[0x38 - 0x30];",
+                     "uptr  unusedSlots12To13[2];")
+        text = _need(text, "u8    wifiOnlySlots37To38[0x9C - 0x94];",
+                     "uptr  wifiOnlySlots37To38[2];")
     if hp.replace("\\", "/").endswith("/src/game/arm9/card_common.h"):
         # Only the shared command is wire data. CARDiCommon's working
         # pointers remain pointer-sized on the host.
