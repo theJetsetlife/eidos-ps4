@@ -373,6 +373,7 @@ list(APPEND EIDOS_BOOT_PORT_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/boot/rtc.c
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/boot/os.c
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/boot/dwc_memfunc.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/snd_command_native.c
     ${CMAKE_CURRENT_SOURCE_DIR}/stubs/reimpl_02036FD8.c
     ${CMAKE_CURRENT_SOURCE_DIR}/stubs/reimpl_0203064C.c
     ${CMAKE_CURRENT_SOURCE_DIR}/stubs/reimpl_02030678.c
@@ -716,6 +717,7 @@ add_library(eidos_boot_game OBJECT
 add_dependencies(eidos_boot_game eidos_boot_copies)
 target_include_directories(eidos_boot_game PRIVATE
     $<TARGET_PROPERTY:eidos,INTERFACE_INCLUDE_DIRECTORIES>
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk
     ${CMAKE_CURRENT_SOURCE_DIR}/stubs)
 target_compile_definitions(eidos_boot_game PRIVATE
     $<TARGET_PROPERTY:eidos,INTERFACE_COMPILE_DEFINITIONS>)

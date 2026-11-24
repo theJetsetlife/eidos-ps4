@@ -282,3 +282,15 @@ fault is a corrupt command free-list pointer in the recovered `sFreeList` /
 `sCommandArray` data layout. A hardware watchpoint confirmed the stack field
 stays full-width through initialization. No complete frame or audio output is
 claimed.
+
+The native boot runner now completes 60 simulated frames for the extracted
+English Black data set. Startup exercised overlay 88's title/logo path,
+including archive-backed character and palette uploads. The host-only
+translation keeps DS `NNSG2dPaletteData` and `UnpackedGfxBlock` offsets at
+32-bit width, resolves their payloads relative to the resource block, and
+dispatches palette loaders through the native ARM9 code map. It also retains
+the archive allocation pointer separately for correct cleanup. A full
+`eidos_boot` build/link and `--frames 60 --no-window --watchdog 10` run passed
+with 60 VBlank interrupts. This validates reconstructed game startup on the
+host diagnostic runner only; it does not verify graphics presentation,
+OrbisOS compilation, SDK packaging, audio output, a PS4 device, or gameplay.

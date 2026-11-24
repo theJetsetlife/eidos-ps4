@@ -41,6 +41,19 @@ OSi_IrqThreadQueue         0x02FE00A0  0x08   sdk/os_interrupt.c   # DTCM .bss
 FifoCtrlInit               0x021513A4  0x04   sdk/pxi.c
 FifoRecvCallbackTable      0x021513A8  0x80   sdk/pxi.c
 
+# Host-native linked sound-command state and pool. The DS backing contains
+# pointer fields at four-byte stride, so native state lives in these objects.
+sFreeList                  0x0215146C  0x24   sdk/snd_command_native.c
+sWaitingCommandListQueue   0x02151490  0x24   sdk/snd_command_native.c
+sCommandArray              0x02151740  0x1800 sdk/snd_command_native.c
+_pNetState                 0x021469DC  0x04   sdk/snd_command_native.c
+_pNetLdataWork             0x021469F4  0x04   sdk/snd_command_native.c
+SNDi_SharedWork            0x02152FA0  0x04   sdk/snd_command_native.c
+gSndFreeSeqList            0x0214E00C  0x0C   sdk/snd_command_native.c
+gSndActiveSeqList          0x0214E018  0x0C   sdk/snd_command_native.c
+gSndSeqPlayers             0x0214E024  0x440  sdk/snd_command_native.c
+gSndPlayers                0x0214E464  0x480  sdk/snd_command_native.c
+
 # sdk/game_globals.c (registered there with bw_ds_register, except where
 # noted).  The text objects are the port's own strings, not the ROM's; their
 # sizes are the ranges game_globals.c registers.

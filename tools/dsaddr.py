@@ -1806,6 +1806,89 @@ void *NNS_SndArcGetFileAddress(u32 fileId)
                                 "(*sBwNativeSndStackHeap)")
         source = source.replace("(NNSSndHeap *)*_SndStack.heapPtr",
                                 "(NNSSndHeap *)*sBwNativeSndStackHeap")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/snd_command.c"):
+        source = _need(source,
+                       "/* snd_command.o's .bss statics from sFreeList on, in their laid-out order */\ntypedef struct {\n    SNDCommand *freeList;\n    u32 finishedTag;\n    SNDCommand *reserveList;\n    SNDCommand *reserveListEnd;\n    SNDCommand *freeListEnd;\n    int waitingCommandListQueueRead;\n    int waitingCommandListQueueWrite;\n    int waitingCommandListCount;\n    u32 currentTag;\n} SNDCommandState;",
+                       "#include <snd_command_native.h>")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/arc_util.c"):
+        source = _need(source, "    void *data;\n};\n\nstruct UnpackedPalette",
+                       "    u32 data;\n};\n\nstatic void *bw_unpacked_gfx_data(const struct UnpackedGfxBlock *res)\n{\n    if (sizeof(void *) == 4) return (void *)(uptr)res->data;\n    return (u8 *)res + res->data;\n}\n\nstruct UnpackedPalette")
+        source = source.replace("(const void *)res->data",
+                                "(const void *)bw_unpacked_gfx_data(res)")
+        source = source.replace("DC_FlushRange(res->data, size)",
+                                "DC_FlushRange(bw_unpacked_gfx_data(res), size)")
+        source = source.replace("ARC_UTIL_gScreenLoadFns[kind](res->data, dest, size)",
+                                "ARC_UTIL_gScreenLoadFns[kind](bw_unpacked_gfx_data(res), dest, size)")
+        # TTLP palette data stores a 32-bit self-relative offset at +0x0c.
+        # A native pointer there would overwrite the following bytes in the
+        # packed resource. Resolve it at the upload boundary on LP64.
+        source = source.replace("void ARC_UTIL_UploadPalette(void *file, u32 kind, u32 offset, u32 dest, u32 size)\n{",
+                                "static void *bw_palette_raw_data(const NNSG2dPaletteData *pltt)\n{\n    if (sizeof(void *) == 4) return pltt->pRawData;\n    return (u8 *)pltt + (u32)(uptr)pltt->pRawData;\n}\n\nvoid ARC_UTIL_UploadPalette(void *file, u32 kind, u32 offset, u32 dest, u32 size)\n{")
+        source = source.replace("pltt->pRawData = (u8 *)pltt->pRawData + offset;",
+                                "if (sizeof(void *) == 4) pltt->pRawData = (u8 *)pltt->pRawData + offset;\n        else bw_raw = (u8 *)bw_palette_raw_data(pltt) + offset;")
+        source = source.replace("DC_FlushRange(pltt->pRawData, size);",
+                                "DC_FlushRange(sizeof(void *) == 4 ? pltt->pRawData : bw_raw, size);")
+        source = source.replace("ARC_UTIL_gPaletteLoadFns[kind](pltt->pRawData, dest, size)",
+                                "ARC_UTIL_gPaletteLoadFns[kind](sizeof(void *) == 4 ? pltt->pRawData : file, dest, size)")
+        source = source.replace("static void *bw_palette_raw_data(const NNSG2dPaletteData *pltt)\n{",
+                                "struct BwDataImage;\nextern const struct BwDataImage *bw_data_installed(void);\nextern void (*bw_arm9_code_entry(const struct BwDataImage *, unsigned int))(void);\nextern void bw_panic(const char *, unsigned int, const char *);\n\nstatic void bw_palette_load(u32 kind, const void *data, u32 dest, u32 size)\n{\n    GfxLoadFn fn;\n    if (sizeof(void *) == 4) { ARC_UTIL_gPaletteLoadFns[kind](data, dest, size); return; }\n    fn = (GfxLoadFn)bw_arm9_code_entry(bw_data_installed(), ((const u32 *)(const void *)ARC_UTIL_gPaletteLoadFns)[kind]);\n    if (fn == 0) bw_panic(\"arc_util.c\", kind, \"unresolved palette loader\");\n    fn(data, dest, size);\n}\n\nstatic void *bw_palette_raw_data(const NNSG2dPaletteData *pltt)\n{")
+        source = source.replace("ARC_UTIL_gPaletteLoadFns[kind](sizeof(void *) == 4 ? pltt->pRawData : file, dest, size)",
+                                "bw_palette_load(kind, sizeof(void *) == 4 ? pltt->pRawData : bw_raw, dest, size)")
+        source = source.replace("    int cmp;\n\n    if (file == 0)",
+                                "    int cmp;\n    void *bw_raw = 0;\n\n    if (file == 0)")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/nns_g2d_anim_bank.c"):
+        source = _need(source,
+                       "((NNSG2dPaletteData *)block)->pRawData = (void *)((uptr)((NNSG2dPaletteData *)block)->pRawData + (uptr)block);",
+                       "if (sizeof(void *) == 4)\n        ((NNSG2dPaletteData *)block)->pRawData = (void *)((uptr)((NNSG2dPaletteData *)block)->pRawData + (uptr)block);")
+    if src_path.replace("\\", "/").endswith("/src/matched/arm9/func_02062B20.c"):
+        # Keep the DS self-relative field intact on LP64. Consumers resolve
+        # the offset against the palette body; 32-bit builds retain the exact
+        # original pointer fixup.
+        source = _need(source,
+                       "((struct Obj11521 *)block)->fC = ((struct Obj11521 *)block)->fC + (u32)block;",
+                       "if (sizeof(void *) == 4)\n        ((struct Obj11521 *)block)->fC = ((struct Obj11521 *)block)->fC + (u32)block;")
+    if src_path.replace("\\", "/").endswith("/src/matched/arm9/func_02062A88.c"):
+        # G2d character blocks contain a 32-bit self-relative data offset.
+        # Keep that cartridge field fixed-width on LP64; consumers translate
+        # it relative to the block instead of writing a truncated native ptr.
+        source = _need(source,
+                       "((struct Obj11517 *)block)->f14 = ((struct Obj11517 *)block)->f14 + (u32)block;",
+                       "if (sizeof(void *) == 4)\n        ((struct Obj11517 *)block)->f14 = ((struct Obj11517 *)block)->f14 + (u32)block;")
+    if src_path.replace("\\", "/").endswith("/src/matched/arm9_sdk/func_02089F00.c"):
+        source = _need(source,
+                       "/* snd_command.o's .bss statics from sFreeList on, in their laid-out order */\ntypedef struct {\n    SNDCommand *freeList;\n    u32 finishedTag;\n    SNDCommand *reserveList;\n    SNDCommand *reserveListEnd;\n    SNDCommand *freeListEnd;\n    u32 unk14;\n    int waitingCommandListQueueWrite;\n    int waitingCommandListCount;\n    u32 currentTag;\n} SNDCommandState;",
+                       "#include <snd_command_native.h>")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/procsys.c"):
+        source = _need(source, "u32 PROCSYS_StepProc(Proc *proc)\n{",
+                       """struct BwDataImage;
+extern const struct BwDataImage *bw_data_installed(void);
+extern void (*bw_arm9_code_entry(const struct BwDataImage *, unsigned int))(void);
+extern void (*bw_ovl_code_entry(unsigned int))(void);
+extern void bw_panic(const char *, unsigned int, const char *);
+
+static ProcFunc bw_proc_callback(const ProcData *data, unsigned int slot)
+{
+    unsigned int address;
+    void (*entry)(void);
+    if (sizeof(void *) == 4) return ((const ProcFunc *)data)[slot];
+    address = ((const unsigned int *)data)[slot];
+    entry = bw_arm9_code_entry(bw_data_installed(), address);
+    if (entry == 0) entry = bw_ovl_code_entry(address);
+    if (entry == 0) bw_panic("procsys.c", address, "unresolved ProcData callback");
+    return (ProcFunc)entry;
+}
+
+u32 PROCSYS_StepProc(Proc *proc)
+{""")
+        source = _need(source,
+                       "proc->data->init(proc, &proc->subSeq, proc->procWork, proc->work)",
+                       "bw_proc_callback(proc->data, 0)(proc, &proc->subSeq, proc->procWork, proc->work)")
+        source = _need(source,
+                       "proc->data->main(proc, &proc->subSeq, proc->procWork, proc->work)",
+                       "bw_proc_callback(proc->data, 1)(proc, &proc->subSeq, proc->procWork, proc->work)")
+        source = _need(source,
+                       "proc->data->end(proc, &proc->subSeq, proc->procWork, proc->work)",
+                       "bw_proc_callback(proc->data, 2)(proc, &proc->subSeq, proc->procWork, proc->work)")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/savedata.c"):
         # SaveBlockDef is cartridge data: ID, size callback, init callback,
         # each one DS word. Resolve callbacks at the call boundary on LP64.
