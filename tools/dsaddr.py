@@ -1704,6 +1704,14 @@ def main(argv=None) -> int:
                        "((uptr)rawBlock + 0x20) & ~(uptr)0x1fu")
         source = _need(source, "alignedBlock - 4", "alignedBlock - sizeof(void *)")
         source = _need(source, "(u8 *)block - 4", "(u8 *)block - sizeof(void *)")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/backup_system.c"):
+        # SaveAreaDesc is serialized as six DS words. The first word is a
+        # DS address, not an in-process pointer; preserve the following count
+        # and flash offsets at their original positions on every host ABI.
+        source = "extern void *bw_ds_ptr(unsigned int);\n" + source
+        source = _need(source, "const void *table_def;", "u32 table_def;")
+        source = _need(source, "(struct SaveBlockDef *)param->table_def",
+                       "(struct SaveBlockDef *)bw_ds_ptr(param->table_def)")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/os_arena.c"):
         # The recovered host form widened the arena pointer but left its
         # unsigned alignment mask at 32 bits, clearing the high address.

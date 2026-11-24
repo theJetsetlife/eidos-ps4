@@ -164,3 +164,11 @@ field. Thus the previous accessor assertion is downstream of invalid constructor
 arguments, not proof that the allocated table itself was constructed in DS
 layout. Required correction: decode/reconstruct the descriptor and its record
 callback definitions consistently before constructing the native save table.
+
+The native generator now preserves `SaveDataParam.table_def` as a 32-bit DS
+address and translates it with `bw_ds_ptr` at the constructor call. This keeps
+all six descriptor words at their serialized offsets and prevents the record
+count from being consumed by an LP64 pointer load. Generation against the
+pinned backup source and Python syntax checks passed. Full compilation/runtime
+verification remains pending, as does decoding the pointed-to record callback
+definitions; the descriptor correction alone is not complete save integration.
