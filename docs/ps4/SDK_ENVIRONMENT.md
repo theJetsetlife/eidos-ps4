@@ -9,6 +9,8 @@ Status date: 2026-11-24.
 - Current shell: the variable is not set.
 - Host: x86-64 Linux.
 - Installed SDK host tools: Windows x86-64 PE executables.
+- No Wine or WSL command is available in the current shell, so there is no
+  compatibility route for invoking those tools from this host.
 - Target tree: present (headers, common graphics headers, libraries, modules,
   SDK implementation sources, and a limited installed sample set).
 - The user-provided SDK distribution archive also contains the official
