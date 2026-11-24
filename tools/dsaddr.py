@@ -1712,6 +1712,30 @@ def main(argv=None) -> int:
         source = _need(source, "const void *table_def;", "u32 table_def;")
         source = _need(source, "(struct SaveBlockDef *)param->table_def",
                        "(struct SaveBlockDef *)bw_ds_ptr(param->table_def)")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/savedata.c"):
+        # SaveBlockDef is cartridge data: ID, size callback, init callback,
+        # each one DS word. Resolve callbacks at the call boundary on LP64.
+        source = _need(source, "BlockSizeFunc size_func;\n    BlockInitFunc init_func;",
+                       "u32 size_func;\n    u32 init_func;")
+        source = _need(source, "table[i].init_func(buffer + offset);",
+                       "((BlockInitFunc)bw_save_callback(table[i].init_func))(buffer + offset);")
+        source = _need(source, "size_func = table[id].size_func;",
+                       "size_func = (BlockSizeFunc)bw_save_callback(table[id].size_func);")
+        source = """struct BwDataImage;
+extern const struct BwDataImage *bw_data_installed(void);
+extern void (*bw_arm9_code_entry(const struct BwDataImage *, unsigned int))(void);
+extern void bw_panic(const char *, unsigned int, const char *);
+static void (*bw_save_callback(unsigned int address))(void)
+{
+    void (*callback)(void);
+    if (sizeof(void *) == 4)
+        return (void (*)(void))(__UINTPTR_TYPE__)address;
+    callback = bw_arm9_code_entry(bw_data_installed(), address);
+    if (!callback)
+        bw_panic("save callback", address, "unresolved native save callback");
+    return callback;
+}
+""" + source
     if src_path.replace("\\", "/").endswith("/src/game/arm9/os_arena.c"):
         # The recovered host form widened the arena pointer but left its
         # unsigned alignment mask at 32 bits, clearing the high address.

@@ -172,3 +172,10 @@ count from being consumed by an LP64 pointer load. Generation against the
 pinned backup source and Python syntax checks passed. Full compilation/runtime
 verification remains pending, as does decoding the pointed-to record callback
 definitions; the descriptor correction alone is not complete save integration.
+
+The generated `savedata.c` now keeps each `SaveBlockDef` as three 32-bit words.
+On LP64, size and initializer callbacks resolve through the installed ARM9
+function table at their call boundary, retaining hook lookup and reporting an
+unresolved callback through the panic path. ILP32 retains already-relocated
+callback values. The generated pinned source passed a C99 syntax check.
+Full build/runtime verification of descriptor and callback decoding is pending.
