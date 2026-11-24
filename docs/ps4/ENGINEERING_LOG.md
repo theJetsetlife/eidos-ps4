@@ -1,5 +1,36 @@
 # PS4 engineering log
 
+## 2026-11-24 — Sound command pointer-width and runtime progress
+
+- Reproduced the frame-1006 hang in BGM teardown. PXI callbacks were delivered,
+  but the ARM7 transport could not find command records after the host command
+  pool widened from DS pointers to native pointers.
+- Bound the runtime sound command pool explicitly with its host base, count,
+  and stride. The ARM9 command record now uses pointer-width arguments on
+  64-bit hosts, while `uptr` remains 32-bit for the original DS build. Updated
+  the ARM7 record to match and fixed its shared-work mirror to the exact 640-byte
+  DS layout.
+- Committed the minimal Aletheia source adjustment on
+  `port/ps4-orbis-sdk1250` at `f15bb66a81bd0d234dece1e9111eefd6ba4c5954` and
+  updated Eidos's authoritative Aletheia pin.
+- The complete host `eidos_boot` build links. A clean headless run against the
+  private White data completed 3,600 simulated frames and 3,600 VBlank
+  interrupts; the frame-1006 wait no longer reproduces.
+- The runtime trace also reproduced an earlier pointer truncation in sound
+  commands and motivated widening `PushCommand_impl`; that fix is included in
+  the successful 3,600-frame run.
+- Extending the same run further passes 4,500 frames, then exposes a separate
+  heap failure between frames 4,500 and 4,600. GDB stops in `bw_block_alloc`
+  while `G3D_SYSTEM_Init` initializes overlay 88's title capture; glibc reports
+  `malloc(): invalid size (unsorted)`. This is the next host-runtime blocker,
+  independent of the resolved sound-command wait. No longer run is counted as
+  passed.
+
+State: host-only initialization and a bounded cinematic run are compiled,
+linked, and exercised. This does not establish 1080p rendering, audio output,
+full gameplay, official Orbis compilation, package generation, or PS4 hardware
+behavior. Those gates remain open.
+
 ## 2026-11-24 — Enhanced-edition direction incorporated
 
 Updated architecture and added `ACCEPTANCE_CRITERIA.md` for the superseding

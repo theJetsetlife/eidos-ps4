@@ -1,14 +1,16 @@
 #include "snd_command_native.h"
 #include "nns_snd_types.h"
+#include "../sdk_os.h"
 
 /* DS extents are 32-bit ABI sizes; these host objects keep native pointers. */
 typedef struct SNDCommand {
     struct SNDCommand *next;
     int id;
-    uint32_t arg[4];
+    uintptr_t arg[4];
 } SNDCommand;
 
 SNDCommandState sFreeList;
+OSMutex sSndMutex;
 SNDCommand sCommandArray[256];
 SNDCommand *sWaitingCommandListQueue[9];
 
@@ -25,3 +27,4 @@ NNSFndList gSndFreeSeqList;
 NNSFndList gSndActiveSeqList;
 SndSeqPlayer gSndSeqPlayers[16];
 SndPlayer gSndPlayers[32];
+NNSSndArc *gNNSSndCurrentArc;

@@ -126,20 +126,20 @@
 
 /* SNDSharedWork as the matched code declares it (func_0208A1D0.c).        */
 typedef struct {
-    unsigned long finishCommandTag;
-    unsigned long playerStatus;
+    u32 finishCommandTag;
+    u32 playerStatus;
     unsigned short channelStatus;
     unsigned short captureStatus;
-    unsigned long padding[5];
+    u32 padding[5];
     struct {
         short variable[16];
-        unsigned long tickCounter;
+        u32 tickCounter;
     } player[16];
     short globalVariable[16];
 } SharedWork;
 
-/* 640 bytes, the DWARF's size, wherever unsigned long is four bytes.     */
-typedef char bw_shared_work_size[(sizeof(unsigned long) != 4 || sizeof(SharedWork) == 640) ? 1 : -1];
+/* SNDSharedWork is a serialized ARM9/ARM7 block: always use its DS widths. */
+typedef char bw_shared_work_size[(sizeof(SharedWork) == 640) ? 1 : -1];
 
 typedef struct {
     int armed;

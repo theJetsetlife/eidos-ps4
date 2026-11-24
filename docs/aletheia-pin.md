@@ -8,9 +8,18 @@ This file records that revision.
 
 ## The pin
 
-- Revision: `50731dd699fb0fb3f881cd028a67d8f6aa649a88`
-- Date: 2026-11-17
-- Subject: Host guard for the diamond dust divide by 0 (Icirrus City, 31 December); CLACT_GetActorAnimIndex (was GetActorAnimSeqCount)
+- Revision: `f15bb66a81bd0d234dece1e9111eefd6ba4c5954`
+- Date: 2026-11-24
+- Subject: Store sound command arguments at native pointer width
+
+The step from `50731dd699fb0fb3f881cd028a67d8f6aa649a88`: sound command
+records are native runtime state, not serialized cartridge data. Their argument
+slots now use `uptr`, and `PushCommand_impl` accepts pointer-width arguments.
+On the Nintendo DS, `uptr` remains 32-bit and preserves the original record
+layout. On 64-bit hosts, pointers passed through the sound command queue are no
+longer truncated. Eidos's native ARM7 transport uses the same host layout.
+
+The previous pin's changes continue below.
 
 The step from `ce8fb59a0e`: one host guard and names; the ROM is byte-identical.
 WEATHER_DIAMOND_DUST_UpdateParticle (ov025) takes a sparkle's age modulo two

@@ -28,6 +28,7 @@
 #define BW_PORT_ARM7_SND_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include "types.h"
 
@@ -79,20 +80,15 @@ enum {
 };
 
 /*
- * struct SNDCommand as the matched ARM9 files declare it (SND_FlushCommand.c,
- * func_02089B00.c, func_02089804.c): a next pointer, the id, four argument
- * words in the files' own `u32`, which they typedef as unsigned long.  The
- * port declares it the same way so that whatever the host's widths, the
- * stride and the field offsets are the ones the matched code wrote with:
- * 24 bytes on the DS and on every ILP32 host.  Pointer arguments are
- * `(u32)pointer` casts in the matched senders, so they carry a whole host
- * pointer exactly where pointers are 32 bits wide or unsigned long is 64
- * (sdk/arm7/snd_driver.c, "Addresses in arguments").
+ * The DS command records use 32-bit arguments. On the host these are native
+ * runtime objects, so pointer-valued arguments need the host pointer width.
+ * `uptr` is 32-bit on the DS and pointer-width on hosts. The command pool,
+ * game-side declaration, and this transport declaration must stay identical.
  */
 typedef struct BwSndCommandWire {
     struct BwSndCommandWire *next;
     int id;
-    unsigned long arg[4];
+    uintptr_t arg[4];
 } BwSndCommandWire;
 
 /* One command as the transport hands it to a driver.                      */

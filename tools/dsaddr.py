@@ -1572,6 +1572,29 @@ def _need_re(pattern, repl, source: str, flags: int = 0) -> str:
     return out
 
 
+def _replace_body(source: str, signature: str, body: str) -> str:
+    """Replace one C function body while preserving its checked signature."""
+    # A translation unit may contain a forward declaration before the
+    # definition. Match the opening brace after the signature so we never
+    # mistake a later function body for the declaration's body.
+    import re
+    match = re.search(re.escape(signature) + r"\s*\{", source)
+    if not match:
+        raise SystemExit("dsaddr.py: function signature disappeared: %r" % signature)
+    opening = source.find("{", match.start(), match.end())
+    if opening < 0:
+        raise SystemExit("dsaddr.py: function body disappeared: %r" % signature)
+    depth = 0
+    for pos in range(opening, len(source)):
+        if source[pos] == "{":
+            depth += 1
+        elif source[pos] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[:opening] + "{\n" + body + "\n}" + source[pos + 1:]
+    raise SystemExit("dsaddr.py: unterminated function body: %r" % signature)
+
+
 def native_matched_types(source: str, path: str) -> str:
     """Keep recovered DS scalar names fixed-width in generated host copies."""
     if path.replace("\\", "/").endswith("/src/matched/arm9/func_02049578.c"):
@@ -1764,6 +1787,8 @@ def main(argv=None) -> int:
                                 "NNS_FndInitList(&heap->levelList, sizeof(NNSFndList));")
         source = source.replace("NNS_FndAllocFromFrmHeapEx((char *)heap->handle, 0x14, 4)",
                                 "NNS_FndAllocFromFrmHeapEx((char *)heap->handle, sizeof(NNSiSndHeapLevel), sizeof(void *))")
+        source = source.replace("(u8 *)block + 0x20",
+                                "(u8 *)block + sizeof(*block)")
         source = source.replace(
             "void *NNS_SndArcGetFileAddress(u32 fileId)\n{",
             """#include <stdlib.h>
@@ -1806,6 +1831,138 @@ void *NNS_SndArcGetFileAddress(u32 fileId)
         source = _need(source,
                        "fileTable->entries[fileId].loadedData = (uptr)address;",
                        "(void)bw_snd_loaded_address(arc, fileId, address, 1);")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/nns_snd_player.c"):
+        # NNS_FndList stores the offset to the owning object's link member.
+        # The recovered DS constants describe 12-byte pointers and therefore
+        # miss the native link fields after pointer-bearing members widen.
+        source = "#include <stddef.h>\n" + source
+        source = source.replace("NNS_FndInitList(&gSndActiveSeqList, 0x14);",
+                                "NNS_FndInitList(&gSndActiveSeqList, offsetof(SndSeqPlayer, activeLink));")
+        source = source.replace("NNS_FndInitList(&gSndFreeSeqList, 0x14);",
+                                "NNS_FndInitList(&gSndFreeSeqList, offsetof(SndSeqPlayer, activeLink));")
+        source = source.replace("NNS_FndInitList(&player->seqList, 0xc);",
+                                "NNS_FndInitList(&player->seqList, offsetof(SndSeqPlayer, playerLink));")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/snd_bank.c"):
+        # Keep native pointers out of the serialized 8-byte DS bank link records.
+        source = "#include <stdlib.h>\n" + source
+        helper = r"""typedef struct BwNativeBankWaveLink {
+    SNDBankData *bank;
+    int index;
+    SNDWaveArc *waveArc;
+    struct BwNativeBankWaveLink *next;
+} BwNativeBankWaveLink;
+typedef struct BwNativeWaveArcTop {
+    SNDWaveArc *waveArc;
+    BwNativeBankWaveLink *head;
+    struct BwNativeWaveArcTop *next;
+} BwNativeWaveArcTop;
+static BwNativeWaveArcTop *sBwNativeWaveArcTops;
+extern void bw_panic(const char *, unsigned int, const char *);
+static BwNativeWaveArcTop *bw_native_wave_top(SNDWaveArc *waveArc, int create)
+{
+    BwNativeWaveArcTop *top;
+    for (top = sBwNativeWaveArcTops; top; top = top->next)
+        if (top->waveArc == waveArc) return top;
+    if (!create) return 0;
+    top = (BwNativeWaveArcTop *)calloc(1, sizeof(*top));
+    if (!top) bw_panic("snd_bank.c", 0, "wave-arc sidecar allocation failed");
+    top->waveArc = waveArc; top->next = sBwNativeWaveArcTops; sBwNativeWaveArcTops = top;
+    return top;
+}
+static BwNativeBankWaveLink *bw_native_bank_link(SNDBankData *bank, int index)
+{
+    BwNativeWaveArcTop *top; BwNativeBankWaveLink *link;
+    for (top = sBwNativeWaveArcTops; top; top = top->next)
+        for (link = top->head; link; link = link->next)
+            if (link->bank == bank && link->index == index) return link;
+    return 0;
+}
+static void bw_native_unlink_bank(BwNativeBankWaveLink *link)
+{
+    BwNativeWaveArcTop *top = bw_native_wave_top(link->waveArc, 0);
+    BwNativeBankWaveLink **cursor;
+    if (top) for (cursor = &top->head; *cursor; cursor = &(*cursor)->next)
+        if (*cursor == link) { *cursor = link->next; break; }
+    link->waveArc = 0; link->next = 0;
+}
+"""
+        source = source.replace("void SND_AssignWaveArc(SNDBankData *bank, int index, SNDWaveArc *waveArc)\n{",
+                                helper + "\nvoid SND_AssignWaveArc(SNDBankData *bank, int index, SNDWaveArc *waveArc)\n{")
+        source = _replace_body(source, "void SND_AssignWaveArc(SNDBankData *bank, int index, SNDWaveArc *waveArc)", r"""    if (sizeof(void *) == 4) {
+        SNDWaveArcLink *prev, *next;
+        SNDi_LockMutex();
+        if (bank->waveArcLink[index].waveArc) {
+            if (waveArc == bank->waveArcLink[index].waveArc) { SNDi_UnlockMutex(); return; }
+            if (&bank->waveArcLink[index] == bank->waveArcLink[index].waveArc->topLink) {
+                bank->waveArcLink[index].waveArc->topLink = bank->waveArcLink[index].next;
+                DC_StoreRange(bank->waveArcLink[index].waveArc, sizeof(SNDWaveArc));
+            } else {
+                for (prev = bank->waveArcLink[index].waveArc->topLink; prev; prev = prev->next)
+                    if (&bank->waveArcLink[index] == prev->next) break;
+                prev->next = bank->waveArcLink[index].next; DC_StoreRange(prev, sizeof(SNDWaveArcLink));
+            }
+        }
+        next = waveArc->topLink; waveArc->topLink = &bank->waveArcLink[index];
+        bank->waveArcLink[index].next = next; bank->waveArcLink[index].waveArc = waveArc;
+        SNDi_UnlockMutex(); DC_StoreRange(bank, sizeof(SNDBankData)); DC_StoreRange(waveArc, sizeof(SNDWaveArc));
+        return;
+    }
+    BwNativeBankWaveLink *link;
+    BwNativeWaveArcTop *top;
+    if (index < 0 || index >= 4) bw_panic("snd_bank.c", (unsigned int)index, "invalid bank wave-link index");
+    SNDi_LockMutex(); link = bw_native_bank_link(bank, index);
+    if (link && link->waveArc == waveArc) { SNDi_UnlockMutex(); return; }
+    if (link) bw_native_unlink_bank(link);
+    if (!waveArc) { free(link); SNDi_UnlockMutex(); return; }
+    if (!link) {
+        link = (BwNativeBankWaveLink *)calloc(1, sizeof(*link));
+        if (!link) bw_panic("snd_bank.c", (unsigned int)index, "bank wave-link allocation failed");
+        link->bank = bank; link->index = index;
+    }
+    top = bw_native_wave_top(waveArc, 1); link->waveArc = waveArc;
+    link->next = top->head; top->head = link;
+    SNDi_UnlockMutex();""")
+        source = _replace_body(source, "void SND_DestroyBank(SNDBankData *bank)", r"""    int i;
+    if (sizeof(void *) == 4) {
+        SNDWaveArc *waveArc; SNDWaveArcLink *prev;
+        SNDi_LockMutex();
+        for (i = 0; i < 4; i++) {
+            waveArc = bank->waveArcLink[i].waveArc; if (!waveArc) continue;
+            if (&bank->waveArcLink[i] == waveArc->topLink) {
+                waveArc->topLink = bank->waveArcLink[i].next; DC_StoreRange(waveArc, sizeof(SNDWaveArc));
+            } else {
+                for (prev = waveArc->topLink; prev; prev = prev->next)
+                    if (&bank->waveArcLink[i] == prev->next) break;
+                prev->next = bank->waveArcLink[i].next; DC_StoreRange(prev, sizeof(SNDWaveArcLink));
+            }
+        }
+        SNDi_UnlockMutex(); return;
+    }
+    SNDi_LockMutex();
+    for (i = 0; i < 4; i++) {
+        BwNativeBankWaveLink *link = bw_native_bank_link(bank, i);
+        if (link) { bw_native_unlink_bank(link); free(link); }
+    }
+    SNDi_UnlockMutex();""")
+        source = _replace_body(source, "void SND_DestroyWaveArc(SNDWaveArc *waveArc)", r"""    if (sizeof(void *) == 4) {
+        SNDWaveArcLink *link, *next;
+        SNDi_LockMutex();
+        for (link = waveArc->topLink; link; link = next) {
+            next = link->next; link->waveArc = 0; link->next = 0;
+            DC_StoreRange(link, sizeof(SNDWaveArcLink));
+        }
+        SNDi_UnlockMutex(); return;
+    }
+    BwNativeWaveArcTop **cursor;
+    BwNativeWaveArcTop *top;
+    SNDi_LockMutex(); top = bw_native_wave_top(waveArc, 0);
+    if (top) {
+        BwNativeBankWaveLink *link = top->head;
+        while (link) { BwNativeBankWaveLink *next = link->next; free(link); link = next; }
+        for (cursor = &sBwNativeWaveArcTops; *cursor; cursor = &(*cursor)->next)
+            if (*cursor == top) { *cursor = top->next; free(top); break; }
+    }
+    SNDi_UnlockMutex();""")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/gfl_use.c"):
         # _SndStack and _SndSlots are adjacent objects in the same DS data
         # image: the latter begins exactly 12 bytes after the former. Keep
@@ -1821,6 +1978,11 @@ void *NNS_SndArcGetFileAddress(u32 fileId)
         source = _need(source,
                        "/* snd_command.o's .bss statics from sFreeList on, in their laid-out order */\ntypedef struct {\n    SNDCommand *freeList;\n    u32 finishedTag;\n    SNDCommand *reserveList;\n    SNDCommand *reserveListEnd;\n    SNDCommand *freeListEnd;\n    int waitingCommandListQueueRead;\n    int waitingCommandListQueueWrite;\n    int waitingCommandListCount;\n    u32 currentTag;\n} SNDCommandState;",
                        "#include <snd_command_native.h>")
+        source = _need(source, "#include <snd_command_native.h>",
+                       "#include <snd_command_native.h>\n#include <stddef.h>\nextern void bw_arm7_snd_bind_pool(void *, unsigned int, size_t);")
+        source = _need(source,
+                       "sFreeList.freeListEnd = &sCommandArray[SND_COMMAND_NUM - 1];",
+                       "sFreeList.freeListEnd = &sCommandArray[SND_COMMAND_NUM - 1];\n    bw_arm7_snd_bind_pool(sCommandArray, SND_COMMAND_NUM, sizeof(sCommandArray[0]));")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/arc_util.c"):
         source = _need(source, "    void *data;\n};\n\nstruct UnpackedPalette",
                        "    u32 data;\n};\n\nstatic void *bw_unpacked_gfx_data(const struct UnpackedGfxBlock *res)\n{\n    if (sizeof(void *) == 4) return (void *)(uptr)res->data;\n    return (u8 *)res + res->data;\n}\n\nstruct UnpackedPalette")
