@@ -20,8 +20,11 @@ Ordered by the dependency chain, not by perceived difficulty.
    do not establish visual parity or PS4 presentation. `test_boot_run` reaches
    6,000 frames and checks title-related overlay residency, but its LP64 path
    is a diagnostic milestone rather than a rendered menu check. A manual LP64
-   capture through frame 7,999 with scripted START and A presses still shows
-   the title scene; input-driven progression is not verified. LP64 title
+   capture through frame 7,999 still shows the title scene. Debugger evidence
+   confirms scripted START reaches `KEY_GetTrgSys` and moves the title proc to
+   state 4, where it waits for a fanfare voice slot to stop; it remains in
+   that state at frame 7,999. Input reaches game logic, but voice completion
+   and new-game progression are not verified. LP64 title
    character, palette, cell-bank, animation-bank, G3D dispatch, and
    render-surface adaptations still need broader behavioral validation; an
    LP64-only empty-cell guard also needs tracing against original behavior.

@@ -1080,10 +1080,13 @@ the game.
 
 Ran the host boot through 8,000 frames with `START@4800` and `A@5000`, saving
 the two-screen images at frames 5,000 and 7,999. The later capture still shows
-the title scene. This confirms that input-driven progression remains
-unverified and that the overlay-only boot assertion must not be reported as a
-menu or gameplay pass. Captures were written under `/tmp` and are not project
-assets.
+the title scene. GDB then showed `bw_input_frame` holding `START` (`0x8`),
+`KEYINPUT` at `0x3f7`, and `KEY_GetTrgSys` returning `0x8` to
+`STARTMENU_TitleDemoCheckInput`. The title proc changes to state 4. At frame
+7,999 that proc is still in state 4, whose source waits for the fanfare voice
+slot to become inactive. The immediate blocker is therefore past DS input
+delivery; voice completion and a subsequent new-game scene still need
+verification. Captures were written under `/tmp` and are not project assets.
 
 Validation: the existing boot CTest passed; the manual run reported 8,000
 frames/VBlank interrupts and resident overlays `10 11 88`. This is host-side

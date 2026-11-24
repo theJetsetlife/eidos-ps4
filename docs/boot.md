@@ -357,11 +357,12 @@ frame 600), and the title screen (ov088, "PRESS START", from about frame
 4600). With no input the game loops back to the opening, as the cartridge
 does; 20000 frames run without a stop. The current `test_boot_run` sends
 `START@4800` and checks the frame count plus title-related overlays. It does
-not verify that the title menu was drawn or that the press reached the game.
-An LP64 diagnostic capture through frame 7999 with `START@4800` and
-`A@5000` still showed the title scene, so input-driven progression and the
-first new-game scenes remain unverified. What lies past the title scene is
-the next gameplay frontier.
+not verify that the title menu was drawn or that a gameplay scene started.
+An LP64 diagnostic capture through frame 7999 still showed the title scene.
+Debugger evidence confirms the press reaches `KEY_GetTrgSys` and moves the
+title proc into state 4; that state waits for its fanfare voice to become
+inactive, and it was still waiting at frame 7999. The voice completion gate
+and new-game progression remain unverified.
 
 `--press BUTTONS@FRAME[:HOLD]` and `--input SCRIPT` give the run timed
 input (sdk/input.h's script), which joins a window's keys: `bw_input_frame`
