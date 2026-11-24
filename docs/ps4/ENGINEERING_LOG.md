@@ -187,3 +187,13 @@ address `0x0216E475` and stops through `bw_panic`. Its cartridge-version mapping
 and overlay ownership still need validation before expanding resolution beyond
 the ARM9 table. This is an explicit unresolved callback, not successful save
 initialization; no complete frame is claimed.
+
+Metadata identifies `0x0216E475` as overlay 10's
+`FLDMMDL_GetMovedPosSaveSize` (`function_addrs.tsv` and the White match shard).
+Save callbacks now fall back to `bw_ovl_code_entry`, which selects resident
+overlay entries and preserves hook lookup and unresolved-address failure.
+Generated C99 syntax and full host build/link passed. GDB confirms save layout
+construction proceeds to `SAVEDATA_InitBuffer -> BOX_SAVEDATA_Init ->
+BOX_SAVEDATA_InitHeader -> MSGDATA_CreateFromArchive`, where an archive-member
+assertion in `ARC_TOOL_GetHandleMemberOffset` now stops execution. Save
+initialization, a complete frame, and PS4 execution remain unverified.

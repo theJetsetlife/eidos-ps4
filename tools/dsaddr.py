@@ -1724,6 +1724,7 @@ def main(argv=None) -> int:
         source = """struct BwDataImage;
 extern const struct BwDataImage *bw_data_installed(void);
 extern void (*bw_arm9_code_entry(const struct BwDataImage *, unsigned int))(void);
+extern void (*bw_ovl_code_entry(unsigned int))(void);
 extern void bw_panic(const char *, unsigned int, const char *);
 static void (*bw_save_callback(unsigned int address))(void)
 {
@@ -1731,6 +1732,8 @@ static void (*bw_save_callback(unsigned int address))(void)
     if (sizeof(void *) == 4)
         return (void (*)(void))(__UINTPTR_TYPE__)address;
     callback = bw_arm9_code_entry(bw_data_installed(), address);
+    if (!callback)
+        callback = bw_ovl_code_entry(address);
     if (!callback)
         bw_panic("save callback", address, "unresolved native save callback");
     return callback;
