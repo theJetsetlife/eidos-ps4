@@ -98,3 +98,17 @@ uncompiled with the official target compiler due to the recorded host mismatch.
   No complete simulation frame or gameplay has yet been verified.
 
 Orbis compilation and hardware testing remain unavailable on this host.
+
+## 2026-11-23 — DWC allocation prefix width corrected
+
+The next invalid free is explained by `_tagDWCiAllocHeader`: its two
+`unsigned long` fields grow the prefix from 32 to 40 bytes on LP64.
+`DWCi_SetAllocateHeader` returns `header + 1`, while
+`DWCi_GetAllocateHeader` subtracts the fixed 32 bytes, recovering an address
+eight bytes past the original allocation. The generated native source now
+uses `u32` for the magic and size fields. Aletheia remains unchanged.
+
+An isolated x86-64 executable compiled the actual generated DWC source and
+verified prefix size 32, payload offset 32, exact recovery of the allocation
+address, and size recovery. This test passed. Full boot rebuild and runtime
+verification of this change are still pending.

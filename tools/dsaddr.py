@@ -1694,6 +1694,11 @@ def main(argv=None) -> int:
         source = _need(source,
                        "parse_format(format_ptr, &arg, &format)",
                        "parse_format(format_ptr, arg, &format)")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/dwc_memfunc.c"):
+        # This prefix is a fixed 32-byte allocation record. LP64 long would
+        # grow it to 40 bytes while GetAllocateHeader still subtracts 32.
+        source = _need(source, "unsigned long magic;", "u32 magic;")
+        source = _need(source, "unsigned long size;", "u32 size;")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/os_arena.c"):
         # The recovered host form widened the arena pointer but left its
         # unsigned alignment mask at 32 bits, clearing the high address.
