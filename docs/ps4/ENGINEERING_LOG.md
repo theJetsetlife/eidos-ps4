@@ -10,6 +10,12 @@ Added one-to-one reversible asset enhancement, Generation V visual identity,
 comparison criteria. Core native integration retains priority. No functional
 code or platform integration was removed and no enhancement is claimed complete.
 
+The pending PM callback fix subsequently compiled and linked in the full host
+build. GDB confirms sound initialization passes callback registration and reaches
+`NNS_SndHeapCreate -> NNS_FndCreateFrmHeap -> NNSi_FndInitFrmHeap`, then faults
+in `NNSi_FndInitHeapHead`. This is the next heap-initialization issue to trace;
+no complete frame, audio playback, or target execution has been verified.
+
 ## 2026-11-23 — Phase A audit and initial target
 
 - Cloned Eidos, Aletheia, and Kenon from Project Holon.
