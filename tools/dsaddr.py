@@ -1735,6 +1735,18 @@ def main(argv=None) -> int:
                        "&g_02153000.postSleepCallbackList")
         source = _need(source, "&PMi_PostSleepCallbackList, info",
                        "&g_02153000.preSleepCallbackList, info")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/nns_fnd_frameheap.c"):
+        # Address masks must retain all pointer bits. The native common
+        # header and frame header also grow with their pointer fields.
+        source = _need(source, "& ~amask", "& ~(uptr)amask")
+        source = _need(source, "& ~(align - 1)", "& ~(uptr)(align - 1)")
+        source = _need(source, "(size + (uptr)mem) & ~3u",
+                       "(size + (uptr)mem) & ~(uptr)(sizeof(void *) - 1)")
+        source = _need(source, "((uptr)mem + 3) & ~3u",
+                       "((uptr)mem + sizeof(void *) - 1) & ~(uptr)(sizeof(void *) - 1)")
+        source = _need(source, "end - start < 0x30",
+                       "end - start < sizeof(NNSiFndHeapHead) + sizeof(NNSiFndFrmHeapHead)")
+        source = _need(source, "p += 0x24;", "p += sizeof(NNSiFndHeapHead);")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/savedata.c"):
         # SaveBlockDef is cartridge data: ID, size callback, init callback,
         # each one DS word. Resolve callbacks at the call boundary on LP64.

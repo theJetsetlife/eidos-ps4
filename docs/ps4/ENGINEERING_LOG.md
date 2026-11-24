@@ -247,3 +247,11 @@ The first uses `0x0215301C`. These fixed aliases disagree with the widened
 now refer to the named pre/post list fields, including the extended pre-list
 insertion alias. Pinned-source generation and Python syntax checks pass;
 full rebuild/runtime verification remains pending.
+
+Sound frame-heap tracing confirms constructor masks `~3u` truncate the native
+buffer address before `NNSi_FndInitHeapHead`. The generated frame-heap copy
+now preserves pointer-width masks, aligns construction to native pointer size,
+checks the combined native header size, and uses `sizeof(NNSiFndHeapHead)`
+instead of the DS `+0x24` allocation offset. Head/tail allocation masks were
+widened as well. Generated C99 syntax checks pass; full rebuild/runtime and
+audio playback verification remain pending.
