@@ -77,7 +77,8 @@ function(eidos_dsaddr out_var)
         add_custom_command(
             OUTPUT ${out}
             COMMAND ${Python3_EXECUTABLE} ${EIDOS_DSADDR_TOOL}
-                    ${src} -o ${out} --name ${src} ${cut_args}
+                    ${src} -o ${out} --name ${src}
+                    --pointer-width ${CMAKE_SIZEOF_VOID_P} ${cut_args}
             DEPENDS ${src} ${EIDOS_DSADDR_TOOL} ${cut_deps}
             COMMENT "dsaddr ${shown}"
             VERBATIM)

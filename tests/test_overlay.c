@@ -20,9 +20,11 @@
  * lowest-addressed function.
  *
  * Data-gated half (argv[1] a data root whose parent holds y9.bin, fat.bin
- * and overlays_dec/): every FS_LoadOverlayInfo header compared word for
- * word with the ROM's overlay table, the file extents with the FAT, and
- * ov230's initialiser addresses with the words in its decompressed image.
+ * and overlays_dec/): overlay ids, language-mapped RAM addresses and file
+ * ids are checked against the ROM's table; file extents are checked against
+ * the FAT; English Black additionally checks the full y9 header. The mapped
+ * cartridge's sizes/compression/static-init locations can differ, so the
+ * native-layout ov230 initialiser addresses are validated after translation.
  *
  * `test_overlay --load <id>` loads one overlay of the generated table and
  * is expected to panic; ctest's test_overlay_refuses checks the message.
@@ -35,6 +37,7 @@
 #include "port.h"
 #include "fs.h"
 #include "overlay.h"
+#include "langmap.h"
 #include "port_test.h"
 
 extern BOOL FS_LoadOverlayInfo(BwOverlayInfo *info, u32 target, u32 id);
@@ -277,6 +280,23 @@ static u8 *slurp(const char *path, u32 *size)
     return b;
 }
 
+static u32 english_overlay_address(u32 id, u32 address)
+{
+    u32 english;
+
+    if (address != 0 && bw_lang_active() &&
+        bw_lang_to_english(address, (int)id, &english)) {
+        return english;
+    }
+    /* y9 stores several end markers at the exclusive end of a mapped
+     * overlay range. Translate their final byte, then restore the boundary. */
+    if (address > 0 && bw_lang_active() &&
+        bw_lang_to_english(address - 1, (int)id, &english)) {
+        return english + 1;
+    }
+    return address;
+}
+
 static int real_data(const char *root)
 {
     char path[1200];
@@ -302,6 +322,7 @@ static int real_data(const char *root)
     }
     printf("real data: %s\n", root);
     bw_set_data_root(root);
+    bw_lang_init();
     bw_fs_set_tables(NULL, 0, NULL, 0);
     BW_CHECK_EQ("y9.bin has 237 entries", y9_size / 32, 237);
     for (i = 0; i < y9_size / 32; i++) {
@@ -310,10 +331,30 @@ static int real_data(const char *root)
         u32 bottom;
 
         if (!FS_LoadOverlayInfo(&info, 0, i) ||
-            info.id != bw_rd32(e) || info.ram_address != bw_rd32(e + 4) ||
-            info.ram_size != bw_rd32(e + 8) || info.bss_size != bw_rd32(e + 12) ||
-            info.sinit_init != bw_rd32(e + 16) || info.sinit_init_end != bw_rd32(e + 20) ||
-            info.file_id != bw_rd32(e + 24) || info.compressed != bw_rd32(e + 28)) {
+            info.id != bw_rd32(e) || info.ram_address !=
+                english_overlay_address(i, bw_rd32(e + 4)) ||
+            info.file_id != bw_rd32(e + 24) ||
+            (!bw_lang_active() &&
+             (info.ram_size != bw_rd32(e + 8) ||
+              info.bss_size != bw_rd32(e + 12) ||
+              info.sinit_init != bw_rd32(e + 16) ||
+              info.sinit_init_end != bw_rd32(e + 20) ||
+              info.compressed != bw_rd32(e + 28)))) {
+            if (bad_hdr < 5) {
+                printf("  overlay %lu header mismatch: RAM 0x%08lX/0x%08lX, "
+                       "sinit 0x%08lX/0x%08lX, end 0x%08lX/0x%08lX, "
+                       "file %lu/%lu, compressed 0x%08lX/0x%08lX\n",
+                       (unsigned long)i, (unsigned long)info.ram_address,
+                       (unsigned long)english_overlay_address(i, bw_rd32(e + 4)),
+                       (unsigned long)info.sinit_init,
+                       (unsigned long)english_overlay_address(i, bw_rd32(e + 16)),
+                       (unsigned long)info.sinit_init_end,
+                       (unsigned long)english_overlay_address(i, bw_rd32(e + 20)),
+                       (unsigned long)info.file_id,
+                       (unsigned long)bw_rd32(e + 24),
+                       (unsigned long)info.compressed,
+                       (unsigned long)bw_rd32(e + 28));
+            }
             bad_hdr++;
             continue;
         }
@@ -322,7 +363,7 @@ static int real_data(const char *root)
             bad_ext++;
         }
     }
-    BW_CHECK_EQ("every header word matches y9.bin", bad_hdr, 0);
+    BW_CHECK_EQ("overlay headers agree with mapped game data", bad_hdr, 0);
     BW_CHECK_EQ("every file extent matches the FAT", bad_ext, 0);
     free(y9);
 
@@ -339,7 +380,9 @@ static int real_data(const char *root)
 
         BW_REQUIRE("ov230's list is inside its image", off + 24 <= img_size);
         for (k = 0; k < d->sinit_count; k++) {
-            if (bw_rd32(img + off + k * 4) != t->sinits[d->sinit_first + k].address) {
+            u32 address = bw_rd32(img + off + k * 4);
+            if (english_overlay_address(230, address) !=
+                t->sinits[d->sinit_first + k].address) {
                 bad++;
             }
         }

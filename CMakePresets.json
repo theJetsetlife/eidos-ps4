@@ -1,70 +1,135 @@
 {
   "version": 3,
-  "cmakeMinimumRequired": { "major": 3, "minor": 16, "patch": 0 },
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
   "configurePresets": [
     {
       "name": "ps4-base",
       "hidden": true,
       "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/ps4-${presetName}",
       "toolchainFile": "${sourceDir}/cmake/toolchains/orbis.cmake",
       "cacheVariables": {
-        "ALETHEIA_ROOT": "${sourceDir}/../aletheia",
-        "EIDOS_PLATFORM": "PS4",
-        "EIDOS_BOOT": "ON",
-        "EIDOS_OVERLAYS": "ALL",
+        "EIDOS_PS4_MINIMAL": "ON",
         "EIDOS_SDL": "OFF",
         "EIDOS_WASM": "OFF",
         "EIDOS_TLS": "OFF",
-        "EIDOS_PS4_MINIMAL": "ON"
+        "EIDOS_BOOT": "OFF"
       }
     },
     {
       "name": "ps4-debug",
+      "displayName": "PS4 Debug",
       "inherits": "ps4-base",
-      "binaryDir": "${sourceDir}/build-ps4-debug",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "EIDOS_PS4_DIAGNOSTICS": "OFF"
+      }
     },
     {
       "name": "ps4-release",
+      "displayName": "PS4 Release",
       "inherits": "ps4-base",
-      "binaryDir": "${sourceDir}/build-ps4-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "EIDOS_RELEASE": "ON"
+        "EIDOS_PS4_DIAGNOSTICS": "OFF"
       }
     },
     {
       "name": "ps4-relwithdebinfo",
+      "displayName": "PS4 RelWithDebInfo",
       "inherits": "ps4-base",
-      "binaryDir": "${sourceDir}/build-ps4-relwithdebinfo",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "EIDOS_PS4_DIAGNOSTICS": "OFF"
+      }
     },
     {
       "name": "ps4-diagnostics",
+      "displayName": "PS4 Diagnostics",
       "inherits": "ps4-base",
-      "binaryDir": "${sourceDir}/build-ps4-diagnostics",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "EIDOS_PS4_DIAGNOSTICS": "ON"
       }
     },
     {
-      "name": "host-tools",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build-host-tools",
+      "name": "ps4-game-debug",
+      "displayName": "PS4 Game Debug",
+      "inherits": "ps4-base",
       "cacheVariables": {
-        "ALETHEIA_ROOT": "${sourceDir}/../aletheia",
-        "EIDOS_BOOT": "OFF",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "EIDOS_PS4_MINIMAL": "OFF",
+        "EIDOS_PS4_DIAGNOSTICS": "ON",
+        "EIDOS_BOOT": "ON",
+        "EIDOS_OVERLAYS": "ALL",
+        "EIDOS_SOURCE_TREE": "game"
+      }
+    },
+    {
+      "name": "ps4-game-release",
+      "displayName": "PS4 Game Release",
+      "inherits": "ps4-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "EIDOS_PS4_MINIMAL": "OFF",
+        "EIDOS_PS4_DIAGNOSTICS": "OFF",
+        "EIDOS_BOOT": "ON",
+        "EIDOS_OVERLAYS": "ALL",
+        "EIDOS_SOURCE_TREE": "game"
+      }
+    },
+    {
+      "name": "host-tools",
+      "displayName": "Host Tools",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/host-tools",
+      "cacheVariables": {
+        "EIDOS_PS4_MINIMAL": "OFF",
         "EIDOS_SDL": "OFF",
-        "EIDOS_WASM": "OFF"
+        "EIDOS_WASM": "OFF",
+        "EIDOS_TLS": "OFF",
+        "EIDOS_BOOT": "OFF"
       }
     }
   ],
   "buildPresets": [
-    { "name": "ps4-debug", "configurePreset": "ps4-debug" },
-    { "name": "ps4-release", "configurePreset": "ps4-release" },
-    { "name": "ps4-relwithdebinfo", "configurePreset": "ps4-relwithdebinfo" },
-    { "name": "ps4-diagnostics", "configurePreset": "ps4-diagnostics" },
-    { "name": "host-tools", "configurePreset": "host-tools" }
+    {
+      "name": "ps4-debug",
+      "configurePreset": "ps4-debug",
+      "targets": ["eidos_ps4_minimal"]
+    },
+    {
+      "name": "ps4-release",
+      "configurePreset": "ps4-release",
+      "targets": ["eidos_ps4_minimal"]
+    },
+    {
+      "name": "ps4-relwithdebinfo",
+      "configurePreset": "ps4-relwithdebinfo",
+      "targets": ["eidos_ps4_minimal"]
+    },
+    {
+      "name": "ps4-diagnostics",
+      "configurePreset": "ps4-diagnostics",
+      "targets": ["eidos_ps4_minimal"]
+    },
+    {
+      "name": "ps4-game-debug",
+      "configurePreset": "ps4-game-debug",
+      "targets": ["eidos_boot"]
+    },
+    {
+      "name": "ps4-game-release",
+      "configurePreset": "ps4-game-release",
+      "targets": ["eidos_boot"]
+    },
+    {
+      "name": "host-tools",
+      "configurePreset": "host-tools"
+    }
   ]
 }

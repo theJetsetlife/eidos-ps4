@@ -56,6 +56,9 @@ of implemented or verified functionality.
   timestamps across modes; document any intended fidelity difference.
 - Verify long-duration playback, pause/resume, underrun recovery, and clean
   shutdown on hardware. A sample-rate setting alone is insufficient evidence.
+- Run `test_ps4_resampler` on the host to verify continuous output across
+  varying game-frame chunks and one-frame calls; keep this DSP test separate
+  from the required AudioOut and hardware timing evidence.
 
 ## Implementation order and evidence
 
@@ -63,6 +66,19 @@ Prioritize native executable compilation, game initialization, graphics, input,
 audio, and saves before extensive asset enhancement. The software-frame upload
 and color-bar diagnostics remain valid intermediate milestones. They are not
 release rendering acceptance evidence.
+
+Current staging behavior: the PS4 boot frame hook composes the two DS engines
+at 256×192 and copies both screens at 3× nearest-neighbour scale into a centered
+side-by-side 1080p VideoOut scanout. This verifies source-level integration
+only; it is still a CPU-produced DS-resolution image, has not been hardware
+tested, and does not satisfy unified native 1080p presentation.
+
+Current import staging: the app mounts a per-user 1 GiB SaveData area, stages
+the existing extractor under it, and looks for `roms/pokemon.nds`; `--rom`
+overrides the path in a development launcher. Known-ROM validation,
+transactional extraction, progress reporting, and Circle cancellation are
+connected in source. A file browser, capacity validation on hardware, and a
+complete import usability test remain outstanding.
 
 For each requirement record implemented, compiled, linked, packaged,
 hardware-tested, and gameplay-verified status separately. Completion requires

@@ -23,6 +23,7 @@ if(PS4)
     enable_language(CXX)
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/platforms/ps4.cmake)
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ps4-sdk.cmake)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ps4-shaders.cmake)
 endif()
 
 # The version players and the lobby see (docs/distribution.md).  A release
@@ -67,7 +68,7 @@ if(PS4 AND EIDOS_PS4_MINIMAL)
     if(EIDOS_PS4_DIAGNOSTICS)
         target_compile_definitions(eidos_ps4_minimal PRIVATE EIDOS_PS4_DIAGNOSTICS=1)
     endif()
-    eidos_ps4_link_video(eidos_ps4_minimal)
+    eidos_ps4_link_platform(eidos_ps4_minimal)
     eidos_ps4_make_fself(eidos_ps4_minimal eboot.bin)
 endif()
 # Strict C99 on glibc hides the POSIX calls the port's Linux code uses
@@ -962,6 +963,13 @@ add_library(eidos STATIC
     ${BW_STUB_SOURCES}
     ${BW_ENGINE_SOURCES}
 )
+
+if(PS4)
+    target_sources(eidos PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/sdk/plat_env_ps4.c)
+    target_compile_definitions(eidos PUBLIC EIDOS_PLATFORM_PS4=1)
+    target_compile_options(eidos PUBLIC
+        "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/sdk/plat_env_ps4.h")
+endif()
 # The engine runs per pixel and per sample: the screen composer, the 3D
 # rasteriser, the mixer and the sound driver.  Unoptimised (the default
 # here, no CMAKE_BUILD_TYPE), composing both screens costs about 150 ms, so
@@ -1693,6 +1701,10 @@ add_library(eidos_install STATIC
 target_include_directories(eidos_install PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/install
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk)
+if(PS4)
+    target_link_libraries(eidos_install PUBLIC eidos_ps4_sdk
+        ScePosix_stub_weak SceSaveData_stub_weak)
+endif()
 add_executable(eidos_extract ${CMAKE_CURRENT_SOURCE_DIR}/install/extract_main.c)
 target_link_libraries(eidos_extract PRIVATE eidos_install)
 if(WIN32)
@@ -1706,13 +1718,23 @@ endif()
 # (install/picker.c, NSOpenPanel in install/picker_mac.m on macOS).  No SDL,
 # so every configuration builds and tests it, MSVC included; the SDL
 # wizard on top of it is with the platform layer below (eidos_wizard).
-add_library(eidos_setup STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/install/setup.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/install/location.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/install/picker.c
-)
+if(PS4)
+    add_library(eidos_setup STATIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/install/setup.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/install/location_ps4.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/install/picker_ps4.c
+    )
+else()
+    add_library(eidos_setup STATIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/install/setup.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/install/location.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/install/picker.c
+    )
+endif()
 target_link_libraries(eidos_setup PUBLIC eidos_install)
-if(WIN32)
+if(PS4)
+    target_link_libraries(eidos_setup PUBLIC eidos_ps4_sdk)
+elseif(WIN32)
     # SHGetKnownFolderPath and CommandLineToArgvW (shell32), CoTaskMemFree
     # and the COM dialog (ole32), GetOpenFileNameW (comdlg32).
     target_link_libraries(eidos_setup PUBLIC shell32 ole32 comdlg32)
@@ -1828,6 +1850,15 @@ target_include_directories(test_audio PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(test_audio PRIVATE eidos)
 add_test(NAME test_audio COMMAND test_audio ${BW_DATA_ROOT_ABS} ${BW_AUDIO_ORACLE_DIR})
 eidos_data_test(test_audio bw_audio_oracle)
+
+# The PS4 stream resampler is independent of Sony services; exercise the
+# actual backend DSP implementation on every host build.
+add_executable(test_ps4_resampler
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ps4_resampler.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4/resampler_ps4.c)
+target_include_directories(test_ps4_resampler PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4)
+add_test(NAME test_ps4_resampler COMMAND test_ps4_resampler)
 
 # The ARM7 sound driver through the PXI wire (sdk/arm7/snd.h): synthetic
 # command lists exercising the sequencer, the shared channels and the
@@ -3101,7 +3132,7 @@ endif()
 # A release build (docs/release.md) compiles in no data root: the build
 # machine's path means nothing to a player, so the game looks in the user
 # folder (docs/installer.md) and asks for the ROM when there is none.
-if(EIDOS_RELEASE)
+if(EIDOS_RELEASE OR PS4)
     set(_eidos_default_data_root "")
 else()
     set(_eidos_default_data_root "${BW_DATA_ROOT_ABS}")

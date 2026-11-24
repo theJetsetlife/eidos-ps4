@@ -1595,8 +1595,17 @@ def _replace_body(source: str, signature: str, body: str) -> str:
     raise SystemExit("dsaddr.py: unterminated function body: %r" % signature)
 
 
-def native_matched_types(source: str, path: str) -> str:
+def native_matched_types(source: str, path: str, pointer_width: int) -> str:
     """Keep recovered DS scalar names fixed-width in generated host copies."""
+    if pointer_width >= 8:
+        # These are runtime NitroFS objects, not serialized game records.
+        # On the DS, FSFile is 0x48 bytes. The reconstructed FSFile contains
+        # native pointers on a 64-bit port and occupies 0x80 bytes, so widen
+        # the matched stack/storage placeholders before following fields or
+        # SDK calls can address beyond them. Keep the Aletheia source intact.
+        source = re.sub(
+            r"(struct Arc(?:File|Handle)\s*\{[^}]*?\bu8\s+(?:file|raw)\s*)\[0x48\]",
+            r"\g<1>[0x80]", source, flags=re.S)
     if path.replace("\\", "/").endswith("/src/matched/arm9/func_02049578.c"):
         # The game creator embeds native FSFile. A fixed 0x48-byte matched
         # placeholder reads metadata from inside that larger file object.
@@ -1617,7 +1626,50 @@ def native_matched_types(source: str, path: str) -> str:
         # KEY_MainSys's getter returns the native Key object, not an integer.
         source = _need(source, "extern u32 func_0203521C(u32 *p);",
                                 "extern void *func_0203521C(u32 *p);")
+    if pointer_width >= 8:
+        source = native_ds_wire_arguments(source)
     return source
+
+
+def native_ds_wire_arguments(source: str) -> str:
+    """Keep native pointers intact at PROCSYS_PushGlobal's DS-word boundary.
+
+    Its third argument is a 32-bit DS address. Matched callers commonly cast
+    a native object pointer to u32, which silently drops the upper half on
+    LP64. bw_ds_wire_addr accepts either an existing DS address or a native
+    pointer registered in the DS address space and returns the correct wire
+    value (or fails loudly if the pointer has no DS representation).
+    """
+    masked = mask(source)
+    edits = []
+    for call in re.finditer(r"\bPROCSYS_PushGlobal\s*\(", masked):
+        opening = masked.find("(", call.start())
+        closing = _match_fwd(masked, opening)
+        if closing < 0:
+            continue
+        args = _split_args(masked, opening, closing)
+        if len(args) != 3:
+            continue
+        for index in (1, 2):
+            start, end = args[index]
+            arg = source[start:end]
+            match = re.match(r"^(\s*)\(\s*u32\s*\)\s*(.+?)\s*$", arg, re.S)
+            if match is None:
+                continue
+            expr = match.group(2)
+            # Procedure descriptors named d_<DS address> are native data
+            # objects bound into the DS address space. Do not infer that an
+            # arbitrary C function pointer can be represented by this data
+            # mapping; code-address translation needs its own registry.
+            if index == 1 and re.fullmatch(r"\s*d_[0-9A-Fa-f]{8}\s*", expr) is None:
+                continue
+            edits.append((start, end,
+                          match.group(1) + "bw_ds_wire_addr((uintptr_t)(" + expr + "))"))
+    if not edits:
+        return source
+    for start, end, replacement in reversed(edits):
+        source = source[:start] + replacement + source[end:]
+    return "#include <stdint.h>\nextern unsigned int bw_ds_wire_addr(uintptr_t);\n" + source
 
 
 def main(argv=None) -> int:
@@ -1625,6 +1677,8 @@ def main(argv=None) -> int:
     ap.add_argument("inputs", nargs="*")
     ap.add_argument("-o", "--output")
     ap.add_argument("--name", help="path the #line directive names (default: the input)")
+    ap.add_argument("--pointer-width", type=int, choices=(4, 8), default=4,
+                    help="native pointer width for runtime SDK handle layouts")
     ap.add_argument("--survey", metavar="DIR")
     ap.add_argument("--report", metavar="DIR",
                     help="write the residue report for DIR (to -o, or stdout)")
@@ -1668,7 +1722,7 @@ def main(argv=None) -> int:
     name = a.name or os.path.abspath(src_path)
     source = _read(src_path)
     if "/src/matched/" in os.path.abspath(src_path).replace("\\", "/"):
-        source = native_matched_types(source, src_path)
+        source = native_matched_types(source, src_path, a.pointer_width)
     if src_path.replace("\\", "/").endswith("/src/game/arm9/tcb_list.c"):
         source = "#include <stddef.h>\n" + source
         source = _need(source, "return (idx << 5) + 0x38;",
@@ -1747,7 +1801,8 @@ def main(argv=None) -> int:
     if src_path.replace("\\", "/").endswith("/src/game/arm9/arc_tool.c"):
         # FSFile expands with native pointer fields. Both disk-backed and
         # memory-backed archive handles must reserve the complete object.
-        source = _need(source, "GFL_HEAP_Alloc(heapID, 0x50, 0,",
+        source = _need(source,
+                       "GFL_HEAP_Alloc(heapID, sizeof(struct ArcHandle), 0,",
                        "GFL_HEAP_Alloc(heapID, sizeof(struct ArcHandle), 0,")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/pm.c"):
         # DS aliases name fields by byte offset. Native PM callbacks must

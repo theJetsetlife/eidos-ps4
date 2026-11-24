@@ -86,7 +86,9 @@ static u8  g_fnt[128];
 static u32 g_fnt_len;
 static u8  g_fat[7 * 8];
 
-typedef struct { u32 words[18]; } File;   /* the game's 0x48 bytes */
+/* Runtime FSFile storage follows the native FS shim's pointer width; the
+ * serialized Nintendo DS structures remain fixed-width elsewhere. */
+typedef struct { u32 words[BW_FSFILE_SIZE / sizeof(u32)]; } File;
 
 static int write_bytes(const char *path, const void *data, size_t n)
 {

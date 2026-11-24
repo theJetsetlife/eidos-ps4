@@ -109,14 +109,22 @@ int bw_arc_install_table(u32 address, u32 count);
  * (func_02049578, func_020495F4, func_0204944C in src/matched/) see exactly
  * the object they were compiled against:
  *
- *     struct ArcFile { u8 file[0x48]; u32 imageBase; u16 fatOffset; u16 count; };
+ *     struct ArcHandle { FSFile file; u32 imageBase; u16 fatOffset; u16 count; };
  *
- * The first 0x48 bytes are the SDK's FSFile, which our fs.c shim owns; the
- * three fields after it are the game's own and the matched code reads them
- * directly.  Keeping the prefix at exactly 0x48 bytes is a hard requirement
- * of that layout and is asserted at start-up.
+ * This is runtime handle storage, not a serialized game structure. On DS,
+ * FSFile is 0x48 bytes; on the native 64-bit port its reconstructed SDK type
+ * is larger because it contains native pointers. Keep the following fields
+ * at the actual FSFile boundary so unchanged matched code reads them at the
+ * right offsets on each ABI.
  */
-#define BW_FSFILE_SIZE 0x48
+#if UINTPTR_MAX > UINT32_MAX
+/* The reconstructed Aletheia FSFile is 0x80 bytes with native 64-bit
+ * pointers; its DS ABI size is 0x48 bytes. These are runtime handle sizes,
+ * not serialized formats. Keep in sync with sdk_fs.h's FSFile definition. */
+#define BW_FSFILE_SIZE 0x80u
+#else
+#define BW_FSFILE_SIZE 0x48u
+#endif
 
 typedef struct BwArcFile {
     u8  file[BW_FSFILE_SIZE];
@@ -124,6 +132,9 @@ typedef struct BwArcFile {
     u16 fatOffset;   /* byte offset of the BTAF chunk within the file  */
     u16 count;       /* number of sub-files                            */
 } BwArcFile;
+
+typedef char bw_arc_handle_metadata_follows_fsfile[
+    (offsetof(BwArcFile, imageBase) == BW_FSFILE_SIZE) ? 1 : -1];
 
 /*
  * The FS shim's own open/size, on a host path.  `file` points at the 0x48

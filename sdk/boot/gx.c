@@ -24,14 +24,23 @@
  *     addresses passed as integers").  cmake/boot.cmake lists those matched
  *     files as replaced.
  *
- * gGXState (0x02150E4C) is ARM9 data: its fields are reached here through
- * bw_ds_ptr, the same bytes the matched files reach through the name
- * (docs/armdata.md).  Callers that spell an address (func_020808F4) reach
- * these definitions through tools/bootlink.py's renames by address.
+ * gGXState (0x02150E4C) is ARM9 data.  Game code reaches it through the
+ * generated bw_dsref_gGXState binding.  Resolve reset fields through that
+ * same binding: on movable-address hosts, bw_ds_ptr(0x02150E56) addresses
+ * the flat DS image, which is not necessarily the registered global object.
+ * Callers that spell an address (func_020808F4) reach these definitions
+ * through tools/bootlink.py's renames by address.
  */
 
 #include "../dsmem.h"
 #include "../port.h"
+
+typedef struct {
+    u16 lcdc, bg, obj, arm7, tex, texPltt, clrImg;
+    u16 bgExtPltt, objExtPltt, sub_bg, sub_obj, sub_bgExtPltt, sub_objExtPltt;
+} BwGxVramCnt;
+typedef struct { BwGxVramCnt vramCnt; } BwGxState;
+extern BwGxState gGXState;
 
 /* resetBankForX_ at 0x020808BC, matched (src/matched/arm9_sdk/func_020808BC.c):
  * takes the field's pending banks, clears the field, maps them to LCDC. */
@@ -56,22 +65,22 @@ int  GX_ResetBankForSubOBJExtPltt(void);
 #define DISPCNT_OBJ_EXTPLTT 0x80000000u
 #define VRAMCNT_LCDC     0x80u
 
-/* The gGXState fields resetBankForX_ is handed (the pool words). */
-#define GX_FIELD_BG           0x02150E4Eu
-#define GX_FIELD_OBJ          0x02150E50u
-#define GX_FIELD_TEX          0x02150E54u
-#define GX_FIELD_TEXPLTT      0x02150E56u
-#define GX_FIELD_CLRIMG       0x02150E58u
-#define GX_FIELD_BGEXTPLTT    0x02150E5Au
-#define GX_FIELD_OBJEXTPLTT   0x02150E5Cu
-#define GX_FIELD_SUBBG        0x02150E5Eu
-#define GX_FIELD_SUBOBJ       0x02150E60u
-#define GX_FIELD_SUBBGEXTPLTT 0x02150E62u
-#define GX_FIELD_SUBOBJEXTPLTT 0x02150E64u
+/* Byte offsets into the generated native binding of gGXState. */
+#define GX_FIELD_BG           2u
+#define GX_FIELD_OBJ          4u
+#define GX_FIELD_TEX          8u
+#define GX_FIELD_TEXPLTT      10u
+#define GX_FIELD_CLRIMG       12u
+#define GX_FIELD_BGEXTPLTT    14u
+#define GX_FIELD_OBJEXTPLTT   16u
+#define GX_FIELD_SUBBG        18u
+#define GX_FIELD_SUBOBJ       20u
+#define GX_FIELD_SUBBGEXTPLTT 22u
+#define GX_FIELD_SUBOBJEXTPLTT 24u
 
-static int reset_bank(u32 field)
+static int reset_bank(u32 offset)
 {
-    return func_020808BC((u16 *)bw_ds_ptr(field));
+    return func_020808BC((u16 *)((u8 *)&gGXState + offset));
 }
 
 static void clear_dispcnt_bit(u32 reg, u32 bit)

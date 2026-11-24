@@ -15,6 +15,7 @@ __pycache__/
 # asked for an output here
 *.log
 extract/
+vfsm_tmp/
 .DS_Store
 
 # Android (android/build.py) and iOS (ios/build.py) builds

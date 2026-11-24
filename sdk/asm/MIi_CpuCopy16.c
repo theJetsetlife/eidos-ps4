@@ -18,11 +18,24 @@
  */
 
 #include "asmsdk.h"
+#include "../dsmem.h"
+
+static const u8 *TranslateCopySource_(const void *p)
+{
+    uintptr_t value = (uintptr_t)p;
+    return value <= UINT32_MAX ? (const u8 *)bw_ds_ptr((u32)value) : (const u8 *)p;
+}
+
+static u8 *TranslateCopyDestination_(void *p)
+{
+    uintptr_t value = (uintptr_t)p;
+    return value <= UINT32_MAX ? (u8 *)bw_ds_ptr((u32)value) : (u8 *)p;
+}
 
 void MIi_CpuCopy16(const void *srcp, void *destp, u32 size)
 {
-    const u8 *s = (const u8 *)srcp;
-    u8 *d = (u8 *)destp;
+    const u8 *s = TranslateCopySource_(srcp);
+    u8 *d = TranslateCopyDestination_(destp);
     u32 off;
 
     for (off = 0; (s32)off < (s32)size; off += 2) {

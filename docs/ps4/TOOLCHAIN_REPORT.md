@@ -29,12 +29,29 @@ The CMake toolchain therefore:
 - uses the baseline x86-64/SSE2 ISA and explicitly avoids AVX;
 - leaves optimization conservative until target correctness is demonstrated.
 
-## Official sample evidence
+`CMakePresets.json` provides PS4 Debug, Release, RelWithDebInfo, Diagnostics,
+Game Debug, and Game Release presets, plus Host Tools. The diagnostic presets
+select `eidos_ps4_minimal`; the two game presets select `eidos_boot` with the
+game source tree and all overlays. Set `SCE_ORBIS_SDK_DIR` before configuring
+a PS4 preset. The game preset configure/build remains unverified because this
+Linux host cannot execute the SDK's Windows compiler.
+
+## Installed sample and API evidence
 
 - Target includes are `target/include` and `target/include_common`.
 - Target libraries are under `target/lib`.
-- The basic video-output project uses VideoOut, GNM/GNMX, GPU Address, system
-  service, and POSIX weak-stub libraries.
+- The Sample Browser XML catalogs a GNM/GNMX Basic Quad tutorial, but the
+  referenced graphics project sources are absent from `target/samples` and
+  from the provided SDK archive. The installed sample source tree contains
+  only the `api_libsecure` sample. This target has not been implemented from
+  an unavailable sample.
+- Installed VideoOut/GNM/GNMX headers and GNMX implementation sources expose
+  the APIs used by the diagnostic and the fullscreen-quad helper. Header
+  documentation specifies that `GfxContext` requires caller-provided CUE heap,
+  DCB and CCB buffers, recommends at least 64 CUE ring entries, and provides
+  `submitAndFlip`. The fullscreen helper sets an embedded vertex shader and
+  draw state; the caller must bind the pixel shader. These declarations are
+  API evidence, not a sample build or runtime result.
 - CPU-written display memory requires the GNM cache-visibility operation
   before scanout.
 - The official executable converter supports FSELF output.
@@ -46,9 +63,11 @@ The CMake toolchain therefore:
 | Stage | State |
 |---|---|
 | SDK discovery | Implemented and host-tested |
-| CMake cross-toolchain | Implemented, not configured with SDK compiler |
-| Minimal video source | Implemented, not compiled |
-| Target object compile | Blocked by Windows-only host tools on Linux |
+| CMake cross-toolchain | Implemented; preset configure attempted and stopped during SDK compiler detection |
+| Preset listing/schema | Verified with bundled CMake 4.4.1; seven configure presets are visible, including both game presets |
+| Minimal video/input source | Implemented, not compiled with the SDK |
+| PSSL build graph | Generated with standalone host CMake and official SDK paths; profile names match the SDK PSSL MSBuild schema; PSSL compiler not executed |
+| Target object compile | Confirmed blocked: Linux reports `Permission denied` when CMake invokes the Windows PE compiler |
 | Link | Not attempted |
 | FSELF/`eboot.bin` | Not attempted |
 | Package | Blocked by missing official Publishing Tools |

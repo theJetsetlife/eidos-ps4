@@ -1,6 +1,6 @@
 # PS4 SDK environment
 
-Status date: 2026-11-23.
+Status date: 2026-11-24.
 
 ## Audited installation
 
@@ -10,7 +10,8 @@ Status date: 2026-11-23.
 - Host: x86-64 Linux.
 - Installed SDK host tools: Windows x86-64 PE executables.
 - Target tree: present (headers, common graphics headers, libraries, modules,
-  sources, and samples).
+  SDK implementation sources, and a limited sample set; the Sample Browser's
+  listed GNM/GNMX tutorial source projects are not installed).
 - Official Publishing Tools: not found on `PATH`; they are a separate
   installation from the target SDK.
 

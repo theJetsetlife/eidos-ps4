@@ -90,17 +90,21 @@ u32  OS_EnableIrqMask(u32 intr) { (void)intr; return 0; }
 
 /* SNDSharedWork as the matched code declares it (func_0208A1D0.c).        */
 typedef struct {
-    unsigned long finishCommandTag;
-    unsigned long playerStatus;
+    u32 finishCommandTag;
+    u32 playerStatus;
     unsigned short channelStatus;
     unsigned short captureStatus;
-    unsigned long padding[5];
+    u32 padding[5];
     struct {
         short variable[16];
-        unsigned long tickCounter;
+        u32 tickCounter;
     } player[16];
     short globalVariable[16];
 } SharedWork;
+
+/* This is data shared with the emulated DS driver, not a native host
+ * object: keep its retail 32-bit member widths on LP64 too. */
+typedef char bw_test_shared_work_size[(sizeof(SharedWork) == 640) ? 1 : -1];
 
 /* Where the test puts things in DS main RAM, clear of the ARM9 globals.   */
 #define DS_SHARED   0x02400000u

@@ -144,13 +144,63 @@ def compute_stats(species, base, level, ivs, evs, nature, table):
     return out, cur
 
 
-def read_nature_table(data_root):
+def mapped_arm9_address(data_root, aletheia_root, english_address):
+    """Translate an English Black ARM9 address to this cartridge's image.
+
+    Runtime game-data loading relays non-English/White images through
+    Aletheia's language map before matched functions read them.  Fixtures
+    must read the same source bytes or they can accidentally validate a
+    different nature table than the one used by the game.
+    """
+    extract_root = os.path.dirname(os.path.abspath(data_root))
+    header_path = os.path.join(extract_root, "header.bin")
+    try:
+        with open(header_path, "rb") as fh:
+            header = fh.read(0x10)
+    except OSError:
+        return english_address
+    if len(header) < 0x10:
+        return english_address
+
+    gamecode = header[0x0C:0x10].decode("ascii", errors="ignore")
+    targets = {
+        "IRAO": "white", "IRBF": "black_fr", "IRAF": "white_fr",
+        "IRBD": "black_de", "IRAD": "white_de", "IRBI": "black_it",
+        "IRAI": "white_it", "IRBS": "black_es", "IRAS": "white_es",
+    }
+    target = targets.get(gamecode)
+    if target is None:
+        return english_address
+
+    map_path = os.path.join(aletheia_root, "layout", "langmap", target + ".tsv")
+    try:
+        with open(map_path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                row = line.split("#", 1)[0].split()
+                if len(row) < 4 or row[0] != "arm9_main":
+                    continue
+                try:
+                    start, end, source = (int(value, 0) for value in row[1:4])
+                except ValueError:
+                    continue
+                if start <= english_address < end:
+                    return source + (english_address - start)
+    except OSError as exc:
+        raise SystemExit("fixtures.py: cannot read language map %s: %s" %
+                         (map_path, exc))
+    raise SystemExit("fixtures.py: %s has no ARM9 mapping for 0x%08X" %
+                     (target, english_address))
+
+
+def read_nature_table(data_root, aletheia_root):
     arm9 = os.path.join(os.path.dirname(os.path.abspath(data_root)), "arm9_dec.bin")
     if not os.path.exists(arm9):
         raise SystemExit("fixtures.py: %s not found; run tools/ndsrom.py extract first" % arm9)
     with open(arm9, "rb") as fh:
         blob = fh.read()
-    off = NATURE_TABLE_ADDRESS - ARM9_LOAD_ADDRESS
+    source_address = mapped_arm9_address(data_root, aletheia_root,
+                                         NATURE_TABLE_ADDRESS)
+    off = source_address - ARM9_LOAD_ADDRESS
     raw = blob[off:off + NATURE_COUNT * NATURE_STATS]
     if len(raw) != NATURE_COUNT * NATURE_STATS:
         raise SystemExit("fixtures.py: nature table out of range of arm9_dec.bin")
@@ -216,7 +266,7 @@ def emit(out, data_root):
     w("")
 
     # ---- stats ------------------------------------------------------
-    table = read_nature_table(data_root)
+    table = read_nature_table(data_root, ALETHEIA_ROOT)
 
     w("typedef struct BwStatFixture {")
     w("    unsigned int species;")

@@ -22,7 +22,7 @@
  * at.
  */
 
-#if !defined(_WIN32) && !defined(_POSIX_C_SOURCE)
+#if !defined(_WIN32) && !defined(EIDOS_PLATFORM_PS4) && !defined(_POSIX_C_SOURCE)
 #define _POSIX_C_SOURCE 200809L   /* lstat, fileno, rmdir under -std=c99 */
 #endif
 
@@ -36,6 +36,14 @@
 #include <sys/stat.h>
 #include <wchar.h>
 #include <windows.h>
+#elif defined(EIDOS_PLATFORM_PS4)
+#include <_fs.h>
+#include <save_data.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 #else
 #include <dirent.h>
 #include <errno.h>
@@ -308,6 +316,227 @@ static int free_space_one(const char *path, u64 *bytes)
         return -1;
     }
     *bytes = (u64)avail.QuadPart;
+    return 0;
+}
+
+#elif defined(EIDOS_PLATFORM_PS4)
+
+/* ------------------------------------------------------------------ */
+/* Orbis                                                               */
+/* ------------------------------------------------------------------ */
+
+FILE *bw_fopen_utf8(const char *path, const char *mode)
+{
+    return fopen(path, mode);
+}
+
+int bw_path_kind_utf8(const char *path)
+{
+    struct stat st;
+
+    if (stat(path, &st) != 0) {
+        return BW_PATH_NONE;
+    }
+    return S_ISDIR(st.st_mode) ? BW_PATH_DIR : BW_PATH_FILE;
+}
+
+static int mkdir_one(const char *path)
+{
+    if (mkdir(path, 0777) == 0) {
+        return 0;
+    }
+    return (errno == EEXIST && bw_path_kind_utf8(path) == BW_PATH_DIR) ? 0 : -1;
+}
+
+/* Orbis exposes directory records through its declared Kernel FS API rather
+ * than the desktop <dirent.h> / opendir interface. */
+static int ps4_visit_directory(const char *path,
+                               int (*visit)(const struct dirent *, void *),
+                               void *context)
+{
+    char buffer[4096];
+    long base = 0;
+    struct stat directory_stat;
+    int fd;
+    int result = 0;
+
+    if (stat(path, &directory_stat) != 0 || !S_ISDIR(directory_stat.st_mode)) {
+        return -1;
+    }
+    fd = sceKernelOpen(path, O_RDONLY, 0);
+    if (fd < 0) {
+        return fd;
+    }
+    for (;;) {
+        const int count = sceKernelGetdirentries(fd, buffer,
+                                                  (int)sizeof(buffer), &base);
+        int offset;
+
+        if (count < 0) {
+            result = count;
+            break;
+        }
+        if (count == 0) {
+            break;
+        }
+        offset = 0;
+        while (offset < count) {
+            const struct dirent *entry =
+                (const struct dirent *)(const void *)(buffer + offset);
+            const size_t minimum = offsetof(struct dirent, d_name) + 1u;
+            int visit_result;
+
+            if (entry->d_reclen < minimum ||
+                (size_t)entry->d_reclen > (size_t)(count - offset) ||
+                entry->d_name[entry->d_namlen] != '\0') {
+                result = -1;
+                break;
+            }
+            visit_result = visit(entry, context);
+            if (visit_result != 0) {
+                result = visit_result;
+                break;
+            }
+            offset += entry->d_reclen;
+        }
+        if (result != 0) {
+            break;
+        }
+    }
+    if (sceKernelClose(fd) < 0 && result == 0) {
+        result = -1;
+    }
+    return result;
+}
+
+static int mark_not_empty(const struct dirent *entry, void *context)
+{
+    int *empty = (int *)context;
+    if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
+        *empty = 0;
+        return 1;
+    }
+    return 0;
+}
+
+int bw_dir_is_empty_utf8(const char *path)
+{
+    int empty = 1;
+    const int rc = ps4_visit_directory(path, mark_not_empty, &empty);
+    return rc < 0 ? -1 : empty;
+}
+
+int bw_rename_utf8(const char *from, const char *to)
+{
+    struct stat st;
+
+    if (stat(to, &st) == 0) {
+        return -1;
+    }
+    return rename(from, to) == 0 ? 0 : -1;
+}
+
+typedef struct BwPs4RemoveContext {
+    const char *parent;
+    int failed;
+} BwPs4RemoveContext;
+
+static int remove_child(const struct dirent *entry, void *opaque)
+{
+    BwPs4RemoveContext *context = (BwPs4RemoveContext *)opaque;
+    char child[WPATH_MAX];
+    int written;
+
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+        return 0;
+    }
+    written = snprintf(child, sizeof(child), "%s/%s", context->parent,
+                       entry->d_name);
+    if (written < 0 || (size_t)written >= sizeof(child)) {
+        context->failed = 1;
+        return 0;
+    }
+
+    /* stat() follows links, and the SDK headers do not expose lstat(). Use
+     * the kernel directory record to recurse only into entries identified
+     * as directories. Treat DT_UNKNOWN conservatively as a leaf: unlink will
+     * remove a file/link, while a directory fails safely instead of
+     * following an uncertain path outside this application's SaveData root.
+     */
+    if (entry->d_type == DT_DIR) {
+        if (bw_remove_tree_utf8(child) != 0) {
+            context->failed = 1;
+        }
+    } else if (unlink(child) != 0) {
+        context->failed = 1;
+    }
+    return 0;
+}
+
+int bw_remove_tree_utf8(const char *path)
+{
+    struct stat st;
+    BwPs4RemoveContext context;
+    int rc;
+
+    if (stat(path, &st) != 0) {
+        return errno == ENOENT ? 0 : -1;
+    }
+    if (!S_ISDIR(st.st_mode)) {
+        return unlink(path) == 0 ? 0 : -1;
+    }
+    context.parent = path;
+    context.failed = 0;
+    rc = ps4_visit_directory(path, remove_child, &context);
+    if (rc < 0 || context.failed || rmdir(path) != 0) {
+        return -1;
+    }
+    return 0;
+}
+
+int bw_file_size(FILE *fp, u64 *size)
+{
+    struct stat st;
+
+    if (fstat(fileno(fp), &st) != 0 || st.st_size < 0) {
+        return -1;
+    }
+    *size = (u64)st.st_size;
+    return 0;
+}
+
+static int free_space_one(const char *path, u64 *bytes)
+{
+    static const char prefix[] = "/savedata";
+    SceSaveDataMountPoint mount_point;
+    SceSaveDataMountInfo info;
+    size_t length = sizeof(prefix) - 1u;
+    int written;
+    int rc;
+
+    if (strncmp(path, prefix, length) != 0) {
+        return -1; /* Only SDK-mounted SaveData has an authoritative quota. */
+    }
+    while (path[length] >= '0' && path[length] <= '9') {
+        ++length;
+    }
+    if (length == sizeof(prefix) - 1u ||
+        (path[length] != '\0' && path[length] != '/') ||
+        length >= sizeof(mount_point.data)) {
+        return -1;
+    }
+    memset(&mount_point, 0, sizeof(mount_point));
+    written = snprintf(mount_point.data, sizeof(mount_point.data), "%.*s",
+                       (int)length, path);
+    if (written < 0 || (size_t)written >= sizeof(mount_point.data)) {
+        return -1;
+    }
+    memset(&info, 0, sizeof(info));
+    rc = sceSaveDataGetMountInfo(&mount_point, &info);
+    if (rc < 0) {
+        return rc;
+    }
+    *bytes = info.freeBlocks * (u64)SCE_SAVE_DATA_BLOCK_SIZE;
     return 0;
 }
 

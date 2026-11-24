@@ -25,9 +25,10 @@
 #   - without overlays compiled in (no KNOWN_STOP), it stops at the overlay
 #     layer's own boundary: "PANIC in FS_LoadOverlay ... overlay N (...) is
 #     not in this build".
-# With 8-byte pointers (-DLP64=1) the boot cannot run (docs/armdata.md,
-# "Pointer width"); the test then checks that it refuses with the data
-# layer's own message rather than crashing.
+# With 8-byte pointers (-DLP64=1), the current host build may run only its
+# explicit unrelocated diagnostic mode. That is not pointer-relocation or
+# gameplay validation; it checks that the diagnostic reaches its known
+# frame/overlay milestone while retaining the data-layer warning.
 # PRESS passes eidos_boot's --press (START@4800: past the title screen into
 # its menu).
 # WINDOW=1 runs it with --window (the caller sets SDL_VIDEODRIVER and
@@ -65,6 +66,23 @@ set(all "${out}${err}")
 if(LP64)
     if(all MATCHES "the boot needs an ILP32 build")
         message(STATUS "the LP64 boot refused as designed")
+        return()
+    endif()
+    if(rc EQUAL 0
+       AND all MATCHES "DS address space on movable host blocks"
+       AND all MATCHES "eidos_boot: ran after ${FRAMES} frames")
+        if(DEFINED RESIDENT AND NOT "${RESIDENT}" STREQUAL "")
+            string(REGEX MATCH "resident overlays:([ 0-9]*)" _res "${all}")
+            set(resident "${CMAKE_MATCH_1}")
+            string(STRIP "${resident}" resident)
+            if(NOT "${resident}" STREQUAL "${RESIDENT}")
+                message(FATAL_ERROR "LP64 diagnostic boot reached ${FRAMES} "
+                                    "frames, but resident overlays were "
+                                    "'${resident}', not '${RESIDENT}':\n${all}")
+            endif()
+        endif()
+        message(STATUS "LP64 diagnostic boot reached ${FRAMES} frames; "
+                       "pointer relocation remains unavailable")
         return()
     endif()
     message(FATAL_ERROR "the LP64 boot did not refuse cleanly (exit ${rc}):\n${all}")

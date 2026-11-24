@@ -721,6 +721,10 @@ target_include_directories(eidos_boot_game PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/stubs)
 target_compile_definitions(eidos_boot_game PRIVATE
     $<TARGET_PROPERTY:eidos,INTERFACE_COMPILE_DEFINITIONS>)
+if(PS4)
+    target_compile_options(eidos_boot_game PRIVATE
+        $<TARGET_PROPERTY:eidos,INTERFACE_COMPILE_OPTIONS>)
+endif()
 if(EIDOS_SOURCE_TREE STREQUAL "game")
     target_compile_definitions(eidos_boot_game PRIVATE EIDOS_NATIVE_CARD_STATE=1)
     target_include_directories(eidos_boot_game PRIVATE ${ALETHEIA_ROOT}/src/game/arm9)
@@ -815,6 +819,14 @@ if(TARGET eidos_platform)
     # eidos_wizard: the first-run window that asks for the player's ROM.
     target_link_libraries(eidos_boot PRIVATE eidos_platform eidos_wizard)
     target_compile_definitions(eidos_boot PRIVATE EIDOS_BOOT_SDL=1)
+endif()
+if(PS4)
+    target_compile_definitions(eidos_boot PRIVATE EIDOS_BOOT_PS4=1)
+    target_link_libraries(eidos_boot PRIVATE eidos_setup)
+    eidos_ps4_link_platform(eidos_boot)
+    if(NOT EIDOS_PS4_MINIMAL)
+        eidos_ps4_make_fself(eidos_boot eboot.bin)
+    endif()
 endif()
 
 # The boot, run headless for a number of frames, judged by where it stops

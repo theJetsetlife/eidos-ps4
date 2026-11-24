@@ -59,12 +59,21 @@ extern char g_EnvModule[];
 static void *g_ovl, *g_proc, *g_arg;
 static int   g_calls;
 
+static void *resolve_ds_word(void *word)
+{
+    uintptr_t value = (uintptr_t)word;
+
+    return value <= 0x07FFFFFFu ? bw_ds_ptr((u32)value) : word;
+}
+
 void PROCSYS_PushGlobal(void *ovl, void *proc, void *arg);
 void PROCSYS_PushGlobal(void *ovl, void *proc, void *arg)
 {
     g_ovl = ovl;
-    g_proc = proc;
-    g_arg = arg;
+    /* The reconstructed scheduler API carries DS addresses in u32 words;
+     * model its address-space lookup before recording host-side pointers. */
+    g_proc = resolve_ds_word(proc);
+    g_arg = resolve_ds_word(arg);
     g_calls++;
 }
 

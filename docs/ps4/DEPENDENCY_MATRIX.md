@@ -8,7 +8,7 @@
 | DS address space | Eidos virtual memory and address translation | Retain; never map arbitrary physical addresses |
 | 2D engine | Portable C CPU compositor | Retain for first presentation milestone |
 | 3D engine | Portable C software pipeline | Retain for first presentation milestone |
-| Audio synthesis | Portable C SDAT sequencer/mixer | Retain; feed native AudioOut backend |
+| Audio synthesis | Portable C SDAT sequencer/mixer and frame-clocked ARM7 sound backend | Retain; the PS4 path now sends its 32768 Hz PCM through a 48 kHz resampler and bounded AudioOut worker; target validation pending |
 | Frame timing | Portable frame layer plus host pacer | Retain simulation clock; replace presentation pacer |
 | SDL3 | Desktop/Switch/Vita platform layer | Disable on PS4 |
 | OpenGL / GLES | Existing hardware presenter | Disable on PS4 |
@@ -19,8 +19,8 @@
 | Dynamic loading | Native mod loader | Disable initially; no unverified PRX loader substitute |
 | WAMR | Optional WASM mod runtime | Disable initially |
 | Mbed TLS/network | Optional relay | Disable initially; reassess with official network APIs |
-| ROM import | Portable installer/extractor plus platform picker | Retain core; add permitted Orbis storage/UI backend |
-| Saves/settings | Portable serialization plus host paths | Retain serialization; add SaveData/filesystem backend |
+| ROM import | Portable verifier/extractor plus platform picker | PS4 now mounts a 1 GiB per-user data area, accepts a staged `roms/pokemon.nds` or `--rom`, and uses the existing verified transactional extractor with progress and Circle cancellation; general file browsing and target validation remain |
+| Saves/settings | Portable serialization plus host paths | Save serialization is retained on a separate 8 MiB per-user SaveData mount; settings and user-facing storage UI still need Orbis providers |
 | Python generators | Host Python | Retain as host-only build tools |
 
 ## Native boundaries already present

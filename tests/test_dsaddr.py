@@ -167,6 +167,31 @@ class Forms(unittest.TestCase):
         self.assertIn('#line 1 "C:/a/b \\"c\\".c"\n', out)
 
 
+class NativeTypes(unittest.TestCase):
+    def test_arc_runtime_prefix_tracks_pointer_width(self):
+        source = "struct ArcFile {\n    u8 file[0x48];\n    u32 imageBase;\n};\n"
+        path = "/upstream/src/matched/arm9/example.c"
+        self.assertIn("u8 file[0x48]", dsaddr.native_matched_types(source, path, 4))
+        self.assertIn("u8 file[0x80]", dsaddr.native_matched_types(source, path, 8))
+
+    def test_arc_handle_prefix_tracks_pointer_width(self):
+        source = "struct ArcHandle {\n    u8 raw[0x48];\n};\n"
+        path = "/upstream/src/matched/arm9/example.c"
+        self.assertIn("u8 raw[0x48]", dsaddr.native_matched_types(source, path, 4))
+        self.assertIn("u8 raw[0x80]", dsaddr.native_matched_types(source, path, 8))
+
+    def test_global_proc_argument_uses_ds_wire_address_on_lp64(self):
+        source = """void f(void) {
+    PROCSYS_PushGlobal(88, (u32)d_021BD8E8, (u32)&g_02146948.f04);
+}
+"""
+        path = "/upstream/src/matched/arm9/func_0202F9F8.c"
+        native = dsaddr.native_matched_types(source, path, 8)
+        self.assertIn("bw_ds_wire_addr((uintptr_t)(d_021BD8E8))", native)
+        self.assertIn("bw_ds_wire_addr((uintptr_t)(&g_02146948.f04))", native)
+        self.assertEqual(dsaddr.native_matched_types(source, path, 4), source)
+
+
 class LeftAlone(unittest.TestCase):
     """What the rewrite must not touch."""
 

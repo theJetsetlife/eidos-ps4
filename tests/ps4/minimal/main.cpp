@@ -1,48 +1,30 @@
 /*
- * PS4 SDK video-output diagnostic.
+ * PS4 SDK video-output and controller-input diagnostic.
  *
- * This target is deliberately independent of the game and SDL.  It proves
- * official-SDK compilation, direct-memory allocation, buffer registration,
- * CPU-written scanout, flip pacing, and orderly release.  It is not the
- * production renderer.
+ * The reusable VideoOut/GNM scanout owner lives in engine/platform/ps4. This
+ * diagnostic only draws color bars into the native 1920x1080 output buffer;
+ * it is not the production renderer or a DS framebuffer upscale.
  */
 
 #include <stdint.h>
 #include <stdio.h>
-#include <string.h>
 
-#include <gnm.h>
-#include <kernel.h>
 #include <user_service.h>
-#include <video_out.h>
+
+#include "input_ps4.h"
+#include "video_ps4.h"
 
 namespace {
 
 constexpr uint32_t kWidth = 1920;
 constexpr uint32_t kHeight = 1080;
-constexpr int kBufferCount = 2;
-constexpr uint64_t kDirectAlignment = 2u * 1024u * 1024u;
 constexpr int kDiagnosticFrames = 600;
 
-struct DisplayLayout {
-    uint32_t pitch;
-    uint64_t size;
-    uint64_t alignment;
-};
-
 struct State {
-    int video = -1;
-    SceKernelEqueue flip_queue = nullptr;
-    bool buffers_registered = false;
-    off_t direct_offset = 0;
-    uint64_t direct_size = 0;
-    bool direct_allocated = false;
-    void *mapping = nullptr;
-    void *buffers[kBufferCount] = {};
-    int64_t last_flip[kBufferCount] = {
-        SCE_VIDEO_OUT_BUFFER_INITIAL_FLIP_ARG - 1,
-        SCE_VIDEO_OUT_BUFFER_INITIAL_FLIP_ARG - 1,
-    };
+    bool user_service_initialized = false;
+    EidosPs4Input input = {};
+    bool input_ready = false;
+    EidosPs4Video *video = nullptr;
 };
 
 int fail(const char *stage, int result)
@@ -52,38 +34,7 @@ int fail(const char *stage, int result)
     return result < 0 ? result : -1;
 }
 
-bool calculate_layout(DisplayLayout *out)
-{
-    sce::Gnm::RenderTargetSpec spec;
-    spec.init();
-    spec.m_width = kWidth;
-    spec.m_height = kHeight;
-    spec.m_pitch = 0;
-    spec.m_numSlices = 1;
-    spec.m_colorFormat = sce::Gnm::kDataFormatB8G8R8A8UnormSrgb;
-    spec.m_colorTileModeHint = sce::Gnm::kTileModeDisplay_LinearAligned;
-    spec.m_numSamples = sce::Gnm::kNumSamples1;
-    spec.m_numFragments = sce::Gnm::kNumFragments1;
-
-    sce::Gnm::RenderTarget target;
-    const int result = target.init(&spec);
-    if (result != 0) {
-        fail("Gnm::RenderTarget::init", result);
-        return false;
-    }
-    const sce::Gnm::SizeAlign size_align = target.getColorSizeAlign();
-    out->pitch = target.getPitch();
-    out->size = size_align.m_size;
-    out->alignment = size_align.m_align;
-    return out->pitch >= kWidth && out->size != 0 && out->alignment != 0;
-}
-
-uint64_t align_up(uint64_t value, uint64_t alignment)
-{
-    return (value + alignment - 1) & ~(alignment - 1);
-}
-
-void draw_bars(void *address, const DisplayLayout &layout, int frame)
+void draw_bars(void *address, uint32_t pitch, int frame)
 {
     static const uint32_t colors[] = {
         0xffffffffu, 0xffffff00u, 0xff00ffffu, 0xff00ff00u,
@@ -91,164 +42,126 @@ void draw_bars(void *address, const DisplayLayout &layout, int frame)
     };
     uint32_t *pixels = static_cast<uint32_t *>(address);
     for (uint32_t y = 0; y < kHeight; ++y) {
-        uint32_t *row = pixels + static_cast<uint64_t>(y) * layout.pitch;
+        uint32_t *row = pixels + static_cast<uint64_t>(y) * pitch;
         for (uint32_t x = 0; x < kWidth; ++x) {
-            const uint32_t shifted = (x + static_cast<uint32_t>(frame * 2)) % kWidth;
-            row[x] = colors[(shifted * (sizeof(colors) / sizeof(colors[0]))) / kWidth];
+            const uint32_t shifted =
+                (x + static_cast<uint32_t>(frame * 2)) % kWidth;
+            row[x] = colors[(shifted * (sizeof(colors) / sizeof(colors[0]))) /
+                            kWidth];
         }
     }
 }
 
-int wait_for_flip(State *state, int64_t flip_arg)
+int shutdown(State *state)
 {
-    for (;;) {
-        SceVideoOutFlipStatus status;
-        const int status_result = sceVideoOutGetFlipStatus(state->video, &status);
-        if (status_result < 0) {
-            return fail("sceVideoOutGetFlipStatus", status_result);
-        }
-        if (status.flipArg >= flip_arg) {
-            return 0;
-        }
-        SceKernelEvent event;
-        int count = 0;
-        const int wait_result = sceKernelWaitEqueue(
-            state->flip_queue, &event, 1, &count, nullptr);
-        if (wait_result < 0) {
-            return fail("sceKernelWaitEqueue", wait_result);
+    int first_error = 0;
+    if (state->video != nullptr) {
+        first_error = eidos_ps4_video_destroy(state->video);
+        if (first_error == 0) {
+            state->video = nullptr;
         }
     }
-}
-
-void shutdown(State *state)
-{
-    if (state->video >= 0) {
-        while (sceVideoOutIsFlipPending(state->video) > 0 && state->flip_queue != nullptr) {
-            SceKernelEvent event;
-            int count = 0;
-            if (sceKernelWaitEqueue(state->flip_queue, &event, 1, &count, nullptr) < 0) {
-                break;
-            }
+    eidos_ps4_input_close(&state->input);
+    if (state->user_service_initialized) {
+        const int result = sceUserServiceTerminate();
+        if (result < 0 && first_error == 0) {
+            first_error = result;
         }
-        if (state->buffers_registered) {
-            (void)sceVideoOutUnregisterBuffers(state->video, 0);
-        }
-        (void)sceVideoOutClose(state->video);
-        state->video = -1;
+        state->user_service_initialized = false;
     }
-    if (state->flip_queue != nullptr) {
-        (void)sceKernelDeleteEqueue(state->flip_queue);
-        state->flip_queue = nullptr;
-    }
-    if (state->mapping != nullptr) {
-        (void)sceKernelMunmap(state->mapping, state->direct_size);
-        state->mapping = nullptr;
-    }
-    if (state->direct_allocated) {
-        (void)sceKernelReleaseDirectMemory(state->direct_offset, state->direct_size);
-        state->direct_allocated = false;
-        state->direct_size = 0;
-    }
-    sce::Gnm::submitDone();
+    return first_error;
 }
 
 int run()
 {
     State state;
-    DisplayLayout layout{};
-    if (!calculate_layout(&layout)) {
-        return fail("calculate display layout", -1);
+    state.input.handle = -1;
+    SceUserServiceUserId user_id = SCE_USER_SERVICE_USER_ID_INVALID;
+    int result = sceUserServiceInitialize(nullptr);
+    if (result >= 0) {
+        state.user_service_initialized = true;
+        result = sceUserServiceGetInitialUser(&user_id);
+        if (result >= 0) {
+            result = eidos_ps4_input_open(&state.input, user_id);
+            if (state.input.initialized) {
+                state.input_ready = true;
+                if (result >= 0) {
+                    printf("INFO ps4-minimal: controller input opened for launch user\n");
+                } else {
+                    printf("WARNING ps4-minimal: launch-user pad unavailable; retrying\n");
+                }
+            } else {
+                printf("WARNING ps4-minimal: controller input unavailable: 0x%08x\n",
+                       static_cast<unsigned>(result));
+            }
+        } else {
+            printf("WARNING ps4-minimal: launch user unavailable: 0x%08x\n",
+                   static_cast<unsigned>(result));
+        }
+    } else {
+        printf("WARNING ps4-minimal: UserService unavailable: 0x%08x\n",
+               static_cast<unsigned>(result));
     }
 
-    state.video = sceVideoOutOpen(
-        SCE_USER_SERVICE_USER_ID_SYSTEM, SCE_VIDEO_OUT_BUS_TYPE_MAIN, 0, nullptr);
-    if (state.video < 0) {
-        return fail("sceVideoOutOpen", state.video);
-    }
-
-    int result = sceKernelCreateEqueue(&state.flip_queue, "eidos.ps4.flip");
+    result = eidos_ps4_video_create(&state.video, kWidth, kHeight);
     if (result < 0) {
-        shutdown(&state);
-        return fail("sceKernelCreateEqueue", result);
-    }
-    result = sceVideoOutAddFlipEvent(state.flip_queue, state.video, nullptr);
-    if (result < 0) {
-        shutdown(&state);
-        return fail("sceVideoOutAddFlipEvent", result);
+        const int cleanup_result = shutdown(&state);
+        if (cleanup_result < 0) {
+            (void)fail("cleanup after video initialization", cleanup_result);
+        }
+        return fail("eidos_ps4_video_create", result);
     }
 
-    const uint64_t stride = align_up(layout.size, layout.alignment);
-    state.direct_size = align_up(stride * kBufferCount, kDirectAlignment);
-    result = sceKernelAllocateDirectMemory(
-        0, SCE_KERNEL_MAIN_DMEM_SIZE, state.direct_size, kDirectAlignment,
-        SCE_KERNEL_WC_GARLIC, &state.direct_offset);
-    if (result < 0) {
-        shutdown(&state);
-        return fail("sceKernelAllocateDirectMemory", result);
-    }
-    state.direct_allocated = true;
-
-    result = sceKernelMapDirectMemory(
-        &state.mapping, state.direct_size,
-        SCE_KERNEL_PROT_CPU_READ | SCE_KERNEL_PROT_CPU_WRITE |
-            SCE_KERNEL_PROT_GPU_READ | SCE_KERNEL_PROT_GPU_ALL,
-        0, state.direct_offset, kDirectAlignment);
-    if (result < 0) {
-        shutdown(&state);
-        return fail("sceKernelMapDirectMemory", result);
-    }
-    for (int i = 0; i < kBufferCount; ++i) {
-        state.buffers[i] = static_cast<uint8_t *>(state.mapping) + stride * i;
-        memset(state.buffers[i], 0, layout.size);
-    }
-
-    SceVideoOutBufferAttribute attribute;
-    sceVideoOutSetBufferAttribute(
-        &attribute, SCE_VIDEO_OUT_PIXEL_FORMAT_A8R8G8B8_SRGB,
-        SCE_VIDEO_OUT_TILING_MODE_LINEAR, SCE_VIDEO_OUT_ASPECT_RATIO_16_9,
-        kWidth, kHeight, layout.pitch);
-    result = sceVideoOutRegisterBuffers(
-        state.video, 0, state.buffers, kBufferCount, &attribute);
-    if (result < 0) {
-        shutdown(&state);
-        return fail("sceVideoOutRegisterBuffers", result);
-    }
-    state.buffers_registered = true;
-
-    result = sceVideoOutSetFlipRate(state.video, 0);
-    if (result < 0) {
-        shutdown(&state);
-        return fail("sceVideoOutSetFlipRate", result);
-    }
-
-    printf("INFO ps4-minimal: 1920x1080 pitch=%u, running %d frames\n",
-           layout.pitch, kDiagnosticFrames);
-    int64_t flip_arg = 0;
+    printf("INFO ps4-minimal: native %ux%u scanout, running %d frames\n",
+           kWidth, kHeight, kDiagnosticFrames);
+    int completed_frames = 0;
     for (int frame = 0; frame < kDiagnosticFrames; ++frame) {
-        const int index = frame % kBufferCount;
-        result = wait_for_flip(&state, state.last_flip[index] + 1);
-        if (result < 0) {
-            shutdown(&state);
-            return result;
+        if (state.input_ready) {
+            uint32_t buttons = 0;
+            const int input_result = eidos_ps4_input_poll(&state.input, &buttons);
+            if (input_result < 0) {
+                printf("WARNING ps4-minimal: controller input stopped: 0x%08x\n",
+                       static_cast<unsigned>(input_result));
+                eidos_ps4_input_close(&state.input);
+                state.input_ready = false;
+            } else if ((buttons & EIDOS_PAD_A) != 0) {
+                printf("INFO ps4-minimal: Cross pressed; ending diagnostic\n");
+                break;
+            }
         }
-        draw_bars(state.buffers[index], layout, frame);
-        sce::Gnm::flushGarlic();
-        result = sceVideoOutSubmitFlip(
-            state.video, index, SCE_VIDEO_OUT_FLIP_MODE_VSYNC, flip_arg);
+
+        void *pixels = nullptr;
+        uint32_t pitch = 0;
+        result = eidos_ps4_video_begin_frame(state.video, &pixels, &pitch);
         if (result < 0) {
-            shutdown(&state);
-            return fail("sceVideoOutSubmitFlip", result);
+            const int cleanup_result = shutdown(&state);
+            if (cleanup_result < 0) {
+                (void)fail("cleanup after begin_frame", cleanup_result);
+            }
+            return fail("eidos_ps4_video_begin_frame", result);
         }
-        state.last_flip[index] = flip_arg++;
-        sce::Gnm::submitDone();
+        draw_bars(pixels, pitch, frame);
+        result = eidos_ps4_video_present(state.video);
+        if (result < 0) {
+            const int cleanup_result = shutdown(&state);
+            if (cleanup_result < 0) {
+                (void)fail("cleanup after present", cleanup_result);
+            }
+            return fail("eidos_ps4_video_present", result);
+        }
+        ++completed_frames;
     }
 
-    shutdown(&state);
-    printf("INFO ps4-minimal: completed cleanly\n");
+    result = shutdown(&state);
+    if (result < 0) {
+        return fail("shutdown", result);
+    }
+    printf("INFO ps4-minimal: completed cleanly after %d frames\n",
+           completed_frames);
     return 0;
 }
 
-}  // namespace
+} // namespace
 
 int main()
 {

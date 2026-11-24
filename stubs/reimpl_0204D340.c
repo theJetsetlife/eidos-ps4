@@ -25,16 +25,33 @@ struct Rec {
     u8 unk_00[1];
 };
 
+#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ > 4
+/* LP64 CLACT layout from Aletheia: the DS pointer fields widen, moving the
+ * cell animation union from +0x0c to +0x18. Keep this boot reimplementation
+ * on the same native view as the compiled game code. */
+struct Obj {
+    u32 kind;
+    u32 pad_04;
+    void *cell_bank;
+    void *anim_bank;
+    struct Rec unk_18;
+};
+#else
 struct Obj {
     u8         pad_00[8];
     void      *unk_08;
     struct Rec unk_0c;
 };
+#endif
 
 extern void *sub_020627D8(void *h, u32 idx);
 extern void  sub_0206434C(struct Rec *r, void *v);
 
 void sub_0204D340(struct Obj *o, u32 idx)
 {
+#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ > 4
+    sub_0206434C(&o->unk_18, sub_020627D8(o->anim_bank, idx));
+#else
     sub_0206434C(&o->unk_0c, sub_020627D8(o->unk_08, idx));
+#endif
 }

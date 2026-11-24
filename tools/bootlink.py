@@ -908,7 +908,7 @@ MWCC_BUILTINS = {
 # Standard C library functions provided by the platform libc (-lm).
 # In CodeWarrior runtime.a, routines like sqrt were hand-written asm bodies
 # in cw_runtime.c. On modern host/WASI targets, libc provides them.
-LIBC_FUNCS = {"sqrt"}
+LIBC_FUNCS = {"sqrt", "memcpy"}
 
 
 PARAM_LIST = re.compile(r"\(([^()]*)\)")
@@ -1086,6 +1086,17 @@ def generate(args):
     defined = dict(shims.defines)
     for name in LIBC_FUNCS:
         defined[name] = "<libc>"
+    # Port reimplementations may intentionally keep an old DS spelling while
+    # gamespell maps that spelling to the compiled game's public name.  Count
+    # those definitions under the same spelling before deciding which game
+    # symbols need generated open stubs.
+    for unit in units:
+        if unit.rel is not None:
+            continue
+        for name in unit.scan.defined - unit.scan.statics:
+            target = spellings.get(name, name)
+            if target != name:
+                defined.setdefault(target, unit.path)
     # The data generator's host objects are definitions like any other.
     for name in data_objects:
         defined.setdefault(name, args.armdata_header)
@@ -1432,6 +1443,13 @@ def generate(args):
         # generated header cannot see the file's includes; this scan can.
         inc_decls = closure.included_declarations(unit.path)
         for name in idx.implicit_calls(unit.rel):
+            # These calls are supplied by the host C runtime and have real
+            # declarations in the platform headers.  The source scanner does
+            # not expand command-line aliases such as memcpy=MSL_memcpy, so
+            # adding an old-style int() prototype here would conflict with
+            # the system declaration included by the translation unit.
+            if name in LIBC_FUNCS:
+                continue
             if name in inc_decls:
                 continue
             target = unit.renames.get(name, name)

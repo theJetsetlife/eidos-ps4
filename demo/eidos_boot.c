@@ -96,6 +96,20 @@
 #include "frame.h"
 #include "plat_crash.h"
 #include "port.h"
+#ifndef EIDOS_BOOT_PS4
+#define EIDOS_BOOT_PS4 0
+#endif
+#if EIDOS_BOOT_PS4
+#include "input.h"
+#include "audio_ps4.h"
+#include "input_ps4.h"
+#include "save_ps4.h"
+#include "video_ps4.h"
+#include "setup.h"
+#include "install.h"
+#include <save_data.h>
+#include <user_service.h>
+#endif
 #if EIDOS_BOOT_SDL
 #include "settings.h"           /* engine/platform: the SDL3 build's */
 #endif
@@ -115,6 +129,19 @@
 #define BOOT_DEFAULT_FRAMES 600u
 #define BOOT_CPU_3D_MAX     2u
 
+/* Orbis does not expose the desktop process-environment contract used by
+ * host diagnostics and launchers. PS4 settings and ROM import still need a
+ * platform storage provider; do not call undeclared desktop libc APIs. */
+static const char *boot_getenv(const char *name)
+{
+#if EIDOS_BOOT_PS4
+    (void)name;
+    return NULL;
+#else
+    return getenv(name);
+#endif
+}
+
 /* --screenshot: the frames to save both screens at, and where. */
 #define BOOT_MAX_SHOTS 1024
 static u64         g_shots[BOOT_MAX_SHOTS];
@@ -126,6 +153,21 @@ static const char *g_shot_dir = ".";
  * Both are for a mod tool's "run in eidos" (kenon). */
 static const char *g_only_mod;
 static const char *g_mod_log;
+#if EIDOS_BOOT_PS4
+static EidosPs4Input g_ps4_input;
+static EidosPs4Audio *g_ps4_audio;
+static EidosPs4Video *g_ps4_video;
+static SceUserServiceUserId g_ps4_user_id = SCE_USER_SERVICE_USER_ID_INVALID;
+static int g_ps4_user_service_initialized;
+static int g_ps4_input_ready;
+static int g_ps4_video_ready;
+static int g_ps4_video_failure_reported;
+static int g_ps4_audio_failure_reported;
+static int g_ps4_save_path_ready;
+static int g_ps4_data_path_ready;
+static char g_ps4_save_path[SCE_SAVE_DATA_MOUNT_POINT_DATA_MAXSIZE];
+static char g_ps4_data_path[SCE_SAVE_DATA_MOUNT_POINT_DATA_MAXSIZE];
+#endif
 /* --g3d-trace N: the 3D command trace of frame N (hw3d.c g3d_hw_trace). */
 static u64         g_trace_frame;
 static int         g_trace_on;
@@ -561,7 +603,7 @@ static void boot_dump_io(u64 n)
 {
     u32 base, e;
 
-    if (getenv("EIDOS_IO_DUMP") == NULL) {
+    if (boot_getenv("EIDOS_IO_DUMP") == NULL) {
         return;
     }
     for (e = 0; e < 2u; e++) {
@@ -576,7 +618,7 @@ static void boot_dump_io(u64 n)
     }
     {
         /* EIDOS_PEEK=addr:words prints DS memory beside the registers. */
-        const char *pk = getenv("EIDOS_PEEK");
+        const char *pk = boot_getenv("EIDOS_PEEK");
         unsigned addr = 0, words = 0, k;
 
         if (pk != NULL && sscanf(pk, "%x:%u", &addr, &words) == 2) {
@@ -596,7 +638,7 @@ static void boot_dump_io(u64 n)
 
 static void boot_dump_g3d(u64 n)
 {
-    const char *dir = getenv("EIDOS_G3D_DUMP");
+    const char *dir = boot_getenv("EIDOS_G3D_DUMP");
     const G3dSnapshot *s = g3d_hw_snapshot();
     char path[1024];
     FILE *f;
@@ -771,6 +813,349 @@ static void boot_print_resident(void)
     printf("\n");
 }
 
+#if EIDOS_BOOT_PS4
+static void boot_ps4_storage_start(void)
+{
+    int result;
+
+    result = sceUserServiceInitialize(NULL);
+    if (result < 0) {
+        printf("WARNING ps4: UserService initialization failed: 0x%08x\n",
+               (unsigned)result);
+        return;
+    }
+    g_ps4_user_service_initialized = 1;
+    result = sceUserServiceGetInitialUser(&g_ps4_user_id);
+    if (result < 0 || g_ps4_user_id < 0 ||
+        g_ps4_user_id == SCE_USER_SERVICE_USER_ID_SYSTEM ||
+        g_ps4_user_id == SCE_USER_SERVICE_USER_ID_EVERYONE) {
+        printf("WARNING ps4: no launch user available for controller input: 0x%08x\n",
+               (unsigned)result);
+        return;
+    }
+    result = eidos_ps4_save_mount(g_ps4_user_id, g_ps4_save_path,
+                                  sizeof(g_ps4_save_path));
+    if (result < 0) {
+        printf("WARNING ps4: per-user SaveData mount failed: 0x%08x; "
+               "game saves are unavailable\n", (unsigned)result);
+        return;
+    }
+    bw_set_save_dir(g_ps4_save_path);
+    g_ps4_save_path_ready = 1;
+    printf("INFO ps4: per-user save data mounted\n");
+
+    result = eidos_ps4_data_mount(g_ps4_user_id, g_ps4_data_path,
+                                  sizeof(g_ps4_data_path));
+    if (result < 0) {
+        printf("WARNING ps4: user game-data mount failed: 0x%08x; "
+               "ROM import is unavailable\n", (unsigned)result);
+        return;
+    }
+    g_ps4_data_path_ready = 1;
+    bw_setup_set_home(g_ps4_data_path);
+    printf("INFO ps4: user game-data storage mounted\n");
+    result = eidos_ps4_input_open(&g_ps4_input, g_ps4_user_id);
+    g_ps4_input_ready = g_ps4_input.initialized != 0;
+    if (result < 0 && g_ps4_input_ready) {
+        printf("WARNING ps4: import-time controller pad unavailable; retrying: 0x%08x\n",
+               (unsigned)result);
+    } else if (result < 0) {
+        printf("WARNING ps4: import-time controller initialization failed: 0x%08x\n",
+               (unsigned)result);
+    }
+}
+
+static void boot_ps4_devices_start(void)
+{
+    int result;
+
+    g_ps4_input.handle = -1;
+    if (!g_ps4_user_service_initialized || g_ps4_user_id < 0) {
+        return;
+    }
+    result = eidos_ps4_video_create(&g_ps4_video, 1920u, 1080u);
+    if (result < 0) {
+        printf("WARNING ps4: diagnostic VideoOut initialization failed: 0x%08x\n",
+               (unsigned)result);
+        if (g_ps4_video != NULL && eidos_ps4_video_destroy(g_ps4_video) == 0) {
+            g_ps4_video = NULL;
+        }
+    } else {
+        g_ps4_video_ready = 1;
+        printf("INFO ps4: 1920x1080 VideoOut diagnostic presentation initialized\n");
+    }
+    result = eidos_ps4_audio_create(&g_ps4_audio, g_ps4_user_id);
+    if (result < 0) {
+        printf("WARNING ps4: AudioOut initialization failed: 0x%08x\n",
+               (unsigned)result);
+    } else {
+        printf("INFO ps4: launch-user AudioOut initialized at 48000 Hz\n");
+    }
+}
+
+static void boot_ps4_input_update(void)
+{
+    BwInputState state;
+
+    memset(&state, 0, sizeof state);
+    if (g_ps4_input_ready) {
+        u32 buttons = 0;
+        int result = eidos_ps4_input_poll(&g_ps4_input, &buttons);
+
+        if (result < 0) {
+            printf("WARNING ps4: controller polling stopped: 0x%08x\n",
+                   (unsigned)result);
+            eidos_ps4_input_close(&g_ps4_input);
+            g_ps4_input_ready = 0;
+        } else {
+            /* Eidos and BW keypad words use the DS's identical bit layout. */
+            state.buttons = buttons;
+            if (g_ps4_input.connected && g_ps4_input.touch_down &&
+                g_ps4_input.touch_width != 0 &&
+                g_ps4_input.touch_height != 0) {
+                state.touch = 1;
+                state.touch_x = (int)((unsigned)g_ps4_input.touch_x *
+                                      BW_TOUCH_WIDTH /
+                                      g_ps4_input.touch_width);
+                state.touch_y = (int)((unsigned)g_ps4_input.touch_y *
+                                      BW_TOUCH_HEIGHT /
+                                      g_ps4_input.touch_height);
+                if (state.touch_x >= BW_TOUCH_WIDTH) {
+                    state.touch_x = BW_TOUCH_WIDTH - 1;
+                }
+                if (state.touch_y >= BW_TOUCH_HEIGHT) {
+                    state.touch_y = BW_TOUCH_HEIGHT - 1;
+                }
+            } else if (g_ps4_input.connected && g_ps4_input.cursor_touch) {
+                state.touch = 1;
+                state.touch_x = g_ps4_input.cursor_x;
+                state.touch_y = g_ps4_input.cursor_y;
+            }
+        }
+    }
+    bw_input_set_host(&state);
+}
+
+static void boot_ps4_services_stop(void)
+{
+    if (g_ps4_audio != NULL) {
+        int result = eidos_ps4_audio_destroy(g_ps4_audio);
+        if (result < 0) {
+            printf("WARNING ps4: AudioOut shutdown failed: 0x%08x\n",
+                   (unsigned)result);
+        } else {
+            g_ps4_audio = NULL;
+        }
+    }
+    if (g_ps4_input_ready) {
+        eidos_ps4_input_close(&g_ps4_input);
+        g_ps4_input_ready = 0;
+    }
+    {
+        int result = eidos_ps4_save_unmount();
+        if (result < 0) {
+            printf("WARNING ps4: SaveData unmount failed: 0x%08x\n",
+                   (unsigned)result);
+        } else {
+            if (g_ps4_save_path_ready) {
+                bw_set_save_dir(NULL);
+                g_ps4_save_path_ready = 0;
+            }
+            if (g_ps4_data_path_ready) {
+                bw_setup_set_home(NULL);
+                g_ps4_data_path_ready = 0;
+            }
+        }
+    }
+    if (g_ps4_user_service_initialized) {
+        int result = sceUserServiceTerminate();
+        if (result < 0) {
+            printf("WARNING ps4: UserService termination failed: 0x%08x\n",
+                   (unsigned)result);
+        }
+        g_ps4_user_service_initialized = 0;
+    }
+    if (g_ps4_video != NULL) {
+        int result = eidos_ps4_video_destroy(g_ps4_video);
+        if (result < 0) {
+            printf("WARNING ps4: VideoOut shutdown failed: 0x%08x\n",
+                   (unsigned)result);
+        } else {
+            g_ps4_video = NULL;
+            g_ps4_video_ready = 0;
+        }
+    }
+}
+
+static int boot_ps4_import_progress(void *ctx, u32 done, u32 total,
+                                    const char *what)
+{
+    int *last = (int *)ctx;
+    int pct = total != 0u ? (int)((u64)done * 100u / total) : 100;
+
+    if (g_ps4_input_ready) {
+        u32 buttons = 0;
+        int result = eidos_ps4_input_poll(&g_ps4_input, &buttons);
+        if (result < 0) {
+            eidos_ps4_input_close(&g_ps4_input);
+            g_ps4_input_ready = 0;
+            fprintf(stderr, "\nPS4: controller disconnected; import continues.\n");
+        } else if ((buttons & BW_KEY_B) != 0u) {
+            fprintf(stderr, "\nPS4 ROM import cancelled with Circle.\n");
+            return 1;
+        }
+    }
+
+    if (pct != *last) {
+        fprintf(stderr, "\rPS4 ROM import: %s %3d%%",
+                strcmp(what, "hashing") == 0 ? "checking" : "extracting", pct);
+        if (pct >= 100) {
+            fputc('\n', stderr);
+        }
+        fflush(stderr);
+        *last = pct;
+    }
+    return 0;
+}
+
+static int boot_ps4_prepare_game_data(const BwSetupRequest *request,
+                                      char *data_dir, size_t data_dir_size)
+{
+    char extract_dir[BW_SETUP_PATH_MAX];
+    char rom_dir[BW_SETUP_PATH_MAX];
+    char default_rom[BW_SETUP_PATH_MAX];
+    char why[512];
+    char message[1024];
+    const char *rom = request != NULL ? request->rom : NULL;
+    int last_progress = -1;
+    int written;
+
+    if (!g_ps4_data_path_ready) {
+        fprintf(stderr, "PS4: user game-data storage is unavailable.\n");
+        return -1;
+    }
+    written = snprintf(extract_dir, sizeof(extract_dir), "%s/extract",
+                       g_ps4_data_path);
+    if (written < 0 || (size_t)written >= sizeof(extract_dir)) {
+        return -1;
+    }
+    written = snprintf(rom_dir, sizeof(rom_dir), "%s/roms", g_ps4_data_path);
+    if (written < 0 || (size_t)written >= sizeof(rom_dir) ||
+        bw_mkdirs_utf8(g_ps4_data_path) != 0 ||
+        bw_mkdirs_utf8(rom_dir) != 0 || bw_mkdirs_utf8(extract_dir) != 0) {
+        fprintf(stderr, "PS4: could not prepare the user game-data folders.\n");
+        return -1;
+    }
+
+    if (bw_setup_check(extract_dir, 0, why, sizeof(why)) == BW_ROOT_OK) {
+        written = snprintf(data_dir, data_dir_size, "%s/data", extract_dir);
+        return written >= 0 && (size_t)written < data_dir_size ? 0 : -1;
+    }
+
+    if (rom == NULL || rom[0] == '\0') {
+        written = snprintf(default_rom, sizeof(default_rom),
+                           "%s/pokemon.nds", rom_dir);
+        if (written < 0 || (size_t)written >= sizeof(default_rom)) {
+            return -1;
+        }
+        if (bw_path_kind_utf8(default_rom) == BW_PATH_FILE) {
+            rom = default_rom;
+        }
+    }
+    if (rom == NULL || rom[0] == '\0') {
+        fprintf(stderr,
+                "PS4: no playable game data is installed. %s\n"
+                "Copy your legally obtained Black or White .nds file to:\n"
+                "  %s/pokemon.nds\n"
+                "or provide --rom <path> in a supported development launcher.\n",
+                why, rom_dir);
+        return -1;
+    }
+
+    printf("PS4: importing user-provided ROM into application storage.\n");
+    if (bw_setup_install(rom, extract_dir, 0, 1, boot_ps4_import_progress,
+                         &last_progress, NULL, message, sizeof(message)) != 0) {
+        fprintf(stderr, "PS4 ROM import failed: %s\n", message);
+        return -1;
+    }
+    written = snprintf(data_dir, data_dir_size, "%s/data", extract_dir);
+    if (written < 0 || (size_t)written >= data_dir_size) {
+        return -1;
+    }
+    if (bw_setup_check(extract_dir, 0, why, sizeof(why)) != BW_ROOT_OK) {
+        fprintf(stderr, "PS4 ROM import produced unusable data: %s\n", why);
+        return -1;
+    }
+    return 0;
+}
+
+static void boot_ps4_video_failure(const char *stage, int result)
+{
+    if (!g_ps4_video_failure_reported) {
+        printf("WARNING ps4: diagnostic video %s failed: 0x%08x; "
+               "presentation disabled\n", stage, (unsigned)result);
+        g_ps4_video_failure_reported = 1;
+    }
+    g_ps4_video_ready = 0;
+}
+
+/* Transitional presentation path for validating the actual game frame on
+ * VideoOut. It composes both DS engines at their native 256x192 resolution,
+ * then places them side by side at integer scale in the 1080p scanout buffer.
+ * This is a diagnostic compatibility view, not the required native 1080p
+ * renderer and must not be treated as satisfying its acceptance gate. */
+static void boot_render_ps4(void *user, u8 *top, u8 *bottom)
+{
+    u32 unsupported[2];
+    void *scanout = NULL;
+    u32 pitch = 0;
+    u32 x, y;
+    int result;
+    u32 *pixels;
+
+    if (!g_ps4_video_ready || top == NULL || bottom == NULL) {
+        return;
+    }
+    result = g2d_hw_render_dsmem(g3d_hw_frame(), top, bottom, unsupported);
+    if (result < 0) {
+        boot_ps4_video_failure("DS composition", result);
+        return;
+    }
+    result = eidos_ps4_video_begin_frame(g_ps4_video, &scanout, &pitch);
+    if (result < 0) {
+        boot_ps4_video_failure("back-buffer acquisition", result);
+        return;
+    }
+    pixels = (u32 *)scanout;
+    for (y = 0; y < 1080u; ++y) {
+        memset(pixels + (size_t)y * pitch, 0, (size_t)pitch * sizeof(*pixels));
+    }
+    /* Each 256x192 DS screen is shown at 3x nearest-neighbour scale. The
+     * console receives a real 1920x1080 scanout, but game detail remains DS
+     * resolution here pending the GNM/GNMX native renderer. */
+    for (y = 0; y < 576u; ++y) {
+        for (x = 0; x < 768u; ++x) {
+            const u8 *src_top = top + ((size_t)(y / 3u) * 256u + x / 3u) * 4u;
+            const u8 *src_bottom = bottom + ((size_t)(y / 3u) * 256u + x / 3u) * 4u;
+            const u32 top_pixel = ((u32)src_top[0] << 16) |
+                                  ((u32)src_top[1] << 8) | src_top[2] |
+                                  0xFF000000u;
+            const u32 bottom_pixel = ((u32)src_bottom[0] << 16) |
+                                     ((u32)src_bottom[1] << 8) | src_bottom[2] |
+                                     0xFF000000u;
+            pixels[(size_t)(252u + y) * pitch + 192u + x] = top_pixel;
+            pixels[(size_t)(252u + y) * pitch + 960u + x] = bottom_pixel;
+        }
+    }
+    result = eidos_ps4_video_present(g_ps4_video);
+    if (result < 0) {
+        boot_ps4_video_failure("flip submission", result);
+        return;
+    }
+    (void)user;
+}
+#endif
+
 /* A crash, panic or watchdog report's context (sdk/plat_crash.h): how far
  * the run got, in the form tests/boot_run.cmake reads. */
 static void boot_report_context(void)
@@ -797,6 +1182,9 @@ static void boot_finish(int status, const char *why)
         eidos_platform_quit(g_run.plat);
         g_run.plat = NULL;
     }
+#endif
+#if EIDOS_BOOT_PS4
+    boot_ps4_services_stop();
 #endif
     /* The game's threads are host threads blocked in the OS layer; the
      * process ends with them, as the console's power switch would. */
@@ -1316,7 +1704,7 @@ static void boot_ui_frame(BootRun *run)
         spent += dt;
         worst = dt > worst ? dt : worst;
         if (++n == 300) {
-            if (getenv("EIDOS_UI_TIME") != NULL) {
+            if (boot_getenv("EIDOS_UI_TIME") != NULL) {
                 fprintf(stderr, "eidos: ui time %s mean %.2f ms worst %.2f ms\n",
                         eidos_ui_scene_name(), (double)spent / n / 1e6, (double)worst / 1e6);
             }
@@ -1335,7 +1723,7 @@ static void boot_ui_frame(BootRun *run)
  * setting, on by default; EIDOS_G2D_GPU=0 or 1 overrides it (tests). */
 static int boot_gpu2d_on(void)
 {
-    const char *env = getenv("EIDOS_G2D_GPU");
+    const char *env = boot_getenv("EIDOS_G2D_GPU");
 
     if (env != NULL && env[0] != '\0') {
         return env[0] != '0';
@@ -1510,15 +1898,15 @@ static void boot_flash_watch(BootRun *run, u64 frame)
     int k, hits = 0;
 
     if (g_flash.state == 0) {
-        const char *e = getenv("EIDOS_FLASH_WATCH");
+        const char *e = boot_getenv("EIDOS_FLASH_WATCH");
 
         g_flash.state = e != NULL && e[0] != '\0' && e[0] != '0' ? 1 : 2;   /* off unless asked for (#38) */
     }
     {
         static int told;
 
-        if (told < 2 && getenv("EIDOS_FLASH_TEST") != NULL
-            && (told == 0 || frame >= (u64)atol(getenv("EIDOS_FLASH_TEST")))) {
+        if (told < 2 && boot_getenv("EIDOS_FLASH_TEST") != NULL
+            && (told == 0 || frame >= (u64)atol(boot_getenv("EIDOS_FLASH_TEST")))) {
             told++;
             fprintf(stderr, "eidos: flash watch: upper screen at %ux\n", (unsigned)run->hi_sn[0]);
             fprintf(stderr, "eidos: flash watch: state %d, screens at %ux, frame %llu\n", g_flash.state,
@@ -1544,7 +1932,7 @@ static void boot_flash_watch(BootRun *run, u64 frame)
         static long test = -2;
 
         if (test == -2) {
-            const char *e = getenv("EIDOS_FLASH_TEST");
+            const char *e = boot_getenv("EIDOS_FLASH_TEST");
 
             test = e != NULL ? atol(e) : -1;
         }
@@ -1585,8 +1973,8 @@ static void boot_flash_watch(BootRun *run, u64 frame)
             hits++;
         }
     }
-    if (getenv("EIDOS_FLASH_TEST") != NULL && frame >= (u64)atol(getenv("EIDOS_FLASH_TEST"))
-        && frame < (u64)atol(getenv("EIDOS_FLASH_TEST")) + 4u) {
+    if (boot_getenv("EIDOS_FLASH_TEST") != NULL && frame >= (u64)atol(boot_getenv("EIDOS_FLASH_TEST"))
+        && frame < (u64)atol(boot_getenv("EIDOS_FLASH_TEST")) + 4u) {
         fprintf(stderr, "eidos: flash watch: frame %llu hits %d have %d pow %04X %04X %04X\n",
                 (unsigned long long)frame, hits, g_flash.have, g_flash.pow[0], g_flash.pow[1], g_flash.pow[2]);
     }
@@ -1635,7 +2023,7 @@ static void boot_slow_log(const char *what, unsigned long long *t)
     const unsigned long long now = bw_clock_ns();
 
     if (on < 0) {
-        on = getenv("EIDOS_SLOW_LOG") != NULL;
+        on = boot_getenv("EIDOS_SLOW_LOG") != NULL;
     }
     if (on && now - *t > 2000000ull) {
         fprintf(stderr, "slow: %s %.1f ms\n", what, (double)(now - *t) / 1e6);
@@ -1757,10 +2145,10 @@ static void boot_render(void *user, u8 *top, u8 *bottom)
     run->gpu2d = run->plat != NULL && boot_gpu2d_on() && eidos_platform_gpu2d_ready(run->plat);
     /* phase 2 asks the composes for their frames; phase 4 leaves the
      * screens the GPU composes to it (not while the check compares) */
-    g2d_gpu_export(run->gpu2d || getenv("EIDOS_G2D_GPU_CHECK") != NULL);
-    g2d_gpu_skip_cpu(run->gpu2d && getenv("EIDOS_G2D_GPU_CHECK") == NULL);
+    g2d_gpu_export(run->gpu2d || boot_getenv("EIDOS_G2D_GPU_CHECK") != NULL);
+    g2d_gpu_skip_cpu(run->gpu2d && boot_getenv("EIDOS_G2D_GPU_CHECK") == NULL);
     run->gpu2d3d = run->gpu2d && run->frame1x_valid && !run->gpu_real
-                   && getenv("EIDOS_G2D_GPU_CHECK") == NULL;
+                   && boot_getenv("EIDOS_G2D_GPU_CHECK") == NULL;
     g2d_gpu_main_3d(run->gpu2d3d);
     if (run->behind == NULL && run->plat != NULL && eidos_platform_gpu3d(run->plat)) {
         run->behind = (u8 *)calloc(1, (size_t)256 * 192 * 4);
@@ -1800,7 +2188,7 @@ static void boot_render(void *user, u8 *top, u8 *bottom)
             eidos_prof_end(EIDOS_PROF_BOOT3D, t3);
         }
     }
-    if (run->plat != NULL && getenv("EIDOS_G2D_GPU_CHECK") != NULL) {
+    if (run->plat != NULL && boot_getenv("EIDOS_G2D_GPU_CHECK") != NULL) {
         boot_gpu2d_check(run);
     }
     top_fresh = 1;
@@ -1869,7 +2257,7 @@ static void boot_audio_silent(u32 n)
     unsigned char h[44];
 
     if (state == 0) {
-        const char *path = getenv("EIDOS_AUDIO_WAV");
+        const char *path = boot_getenv("EIDOS_AUDIO_WAV");
 
         state = 1;
         if (path != NULL && *path != '\0' && (wav = fopen(path, "wb")) != NULL) {
@@ -1899,6 +2287,20 @@ static void boot_audio_silent(u32 n)
     fwrite(h, 1, 44, wav);
     fflush(wav);
 }
+
+#if EIDOS_BOOT_PS4
+static int boot_audio_ps4_frame(BootRun *run)
+{
+    static s16 samples[2u * 1024u];
+    const u32 frames = boot_audio_frames(run);
+
+    if (frames > 1024u) {
+        return -1;
+    }
+    bw_snd_render(samples, frames);
+    return eidos_ps4_audio_submit(g_ps4_audio, samples, frames);
+}
+#endif
 
 #if EIDOS_BOOT_SDL
 /*
@@ -2435,6 +2837,7 @@ static void boot_frame(void *user)
 {
     BootRun *run = (BootRun *)user;
     int audio_device = 0;
+    int audio_rendered = 0;
     int speed = 1;   /* fast forward factor (Tab), eidos_platform_fast_forward */
     u64 t_step, t_ph;
 
@@ -2466,10 +2869,10 @@ static void boot_frame(void *user)
      * joins with the code in the file. */
     {
         static int mp_test_done, mp_test_started;
-        const char *t = getenv("EIDOS_MP_TEST");
+        const char *t = boot_getenv("EIDOS_MP_TEST");
         u64 n = eidos_frame_count(&run->loop);
 
-        const char *at = getenv("EIDOS_MP_TEST_AT");
+        const char *at = boot_getenv("EIDOS_MP_TEST_AT");
 
         if (t != NULL && !mp_test_done &&
             n >= (at != NULL ? (u64)strtoul(at, NULL, 10) : 300u)) {
@@ -2509,8 +2912,8 @@ static void boot_frame(void *user)
     {
         static int link_test_done;
         static u64 link_log_at;
-        const char *t = getenv("EIDOS_LINK_TEST");
-        const char *at = getenv("EIDOS_LINK_TEST_AT");
+        const char *t = boot_getenv("EIDOS_LINK_TEST");
+        const char *at = boot_getenv("EIDOS_LINK_TEST_AT");
         u64 n = eidos_frame_count(&run->loop);
 
         if (t != NULL && !link_test_done &&
@@ -2539,7 +2942,7 @@ static void boot_frame(void *user)
             }
             fflush(stdout);
         }
-        if (getenv("EIDOS_LINK_LOG") != NULL && bw_link_state() == BW_LINK_OPEN &&
+        if (boot_getenv("EIDOS_LINK_LOG") != NULL && bw_link_state() == BW_LINK_OPEN &&
             n >= link_log_at) {
             BwWmInfo wi;
 
@@ -2555,7 +2958,7 @@ static void boot_frame(void *user)
     {
         /* EIDOS_SAVE_TEST_AT=<frame>: the next step after that frame saves
          * the way a joiner's game saves when the host saved (sdk/mp.h). */
-        const char *st = getenv("EIDOS_SAVE_TEST_AT");
+        const char *st = boot_getenv("EIDOS_SAVE_TEST_AT");
         static int save_test_done;
 
         if (st != NULL && !save_test_done &&
@@ -2617,7 +3020,7 @@ static void boot_frame(void *user)
             extern unsigned bw_vram_stat_remaps, bw_vram_stat_moves;
             extern unsigned long long bw_vram_stat_bytes, bw_vram_stat_ns;
 
-            if (now - g_game_since >= 50000000ull && getenv("EIDOS_HITCH_MS") != NULL) {
+            if (now - g_game_since >= 50000000ull && boot_getenv("EIDOS_HITCH_MS") != NULL) {
                 fprintf(stderr, "eidos: hitch vram: %u remaps, %u bank moves, %.1f MB copied, %.1f ms\n",
                         bw_vram_stat_remaps, bw_vram_stat_moves, (double)bw_vram_stat_bytes / 1048576.0,
                         (double)bw_vram_stat_ns / 1e6);
@@ -2639,6 +3042,9 @@ static void boot_frame(void *user)
      * ARM7's XY halfword written, the touch panel's automatic samples. */
     t_step = eidos_prof_begin();
     g_render_ns = 0;
+#if EIDOS_BOOT_PS4
+    boot_ps4_input_update();
+#endif
     bw_input_frame();
     if (g_trace_on) {
         g3d_hw_trace(eidos_frame_count(&run->loop) + 1u == g_trace_frame);
@@ -2693,7 +3099,7 @@ static void boot_frame(void *user)
             static u64 from;
 
             if (every < 0) {
-                const char *e = getenv("EIDOS_SHOT_EVERY"), *f = getenv("EIDOS_SHOT_FROM");
+                const char *e = boot_getenv("EIDOS_SHOT_EVERY"), *f = boot_getenv("EIDOS_SHOT_FROM");
 
                 every = e != NULL ? atoi(e) : 0;
                 from = f != NULL ? strtoull(f, NULL, 10) : 0;
@@ -2769,7 +3175,38 @@ static void boot_frame(void *user)
         eidos_prof_end(EIDOS_PROF_WAIT, t_ph);
     }
 #endif
-    if (!audio_device) {
+#if EIDOS_BOOT_PS4
+    if (g_ps4_audio != NULL) {
+        if (!eidos_ps4_audio_ready(g_ps4_audio)) {
+            int result = eidos_ps4_audio_destroy(g_ps4_audio);
+            if (result < 0) {
+                if (!g_ps4_audio_failure_reported) {
+                    printf("WARNING ps4: AudioOut worker stopped; shutdown failed: 0x%08x\n",
+                           (unsigned)result);
+                    g_ps4_audio_failure_reported = 1;
+                }
+            } else {
+                g_ps4_audio = NULL;
+            }
+        } else {
+            int result = boot_audio_ps4_frame(run);
+            audio_rendered = 1;
+            if (result < 0) {
+                int destroy_result;
+                printf("WARNING ps4: AudioOut submission failed: 0x%08x\n",
+                       (unsigned)result);
+                g_ps4_audio_failure_reported = 1;
+                destroy_result = eidos_ps4_audio_destroy(g_ps4_audio);
+                if (destroy_result >= 0) {
+                    g_ps4_audio = NULL;
+                }
+            } else {
+                audio_device = 1;
+            }
+        }
+    }
+#endif
+    if (!audio_device && !audio_rendered) {
         boot_audio_silent(boot_audio_frames(run));
     }
     eidos_prof_frame(eidos_frame_count(&run->loop));
@@ -2812,10 +3249,20 @@ static void boot_window(EidosFrameHooks *hooks, int window)
     }
     hooks->render = boot_render;
 #else
+#if EIDOS_BOOT_PS4
+    const size_t screen = (size_t)256 * 192 * 4;
+    g_run.top = (u8 *)calloc(1, screen);
+    g_run.bottom = (u8 *)calloc(1, screen);
+    if (g_run.top == NULL || g_run.bottom == NULL) {
+        bw_panic("eidos_boot", 0, "out of memory for the PS4 diagnostic screens");
+    }
+    hooks->render = boot_render_ps4;
+#else
     (void)hooks;
     if (window) {
         fprintf(stderr, "eidos_boot: built without SDL; running headless\n");
     }
+#endif
 #endif
 }
 
@@ -3049,7 +3496,7 @@ static int boot_run_start(EidosFrameHooks *hooks, int own_thread)
     if (boot_load_input_script() != 0) {
         return -1;
     }
-    if (getenv("EIDOS_G3D_DUMP") != NULL) {
+    if (boot_getenv("EIDOS_G3D_DUMP") != NULL) {
         g3d_hw_snapshot_enable(1);
     }
     /* The 3D hardware after the reset that cleared its access hook: the
@@ -3235,6 +3682,11 @@ static void usage(void)
 #if EIDOS_BOOT_SDL
     fputs(bw_setup_usage(), stderr);
 #endif
+#if EIDOS_BOOT_PS4 && EIDOS_BOOT
+    fputs("  --rom PATH         import a user-supplied Pokémon Black/White ROM\n"
+          "  --data-root PATH   use an existing extracted game data folder\n",
+          stderr);
+#endif
 }
 
 /*
@@ -3259,7 +3711,16 @@ int setenv(const char *name, const char *value, int overwrite);
 
 static void boot_setenv(const char *name, const char *value)
 {
-#ifdef _WIN32
+#if EIDOS_BOOT_PS4
+    static int warned;
+    (void)name;
+    (void)value;
+    if (!warned) {
+        fprintf(stderr, "eidos_boot: PS4 settings storage is not connected; "
+                "launcher environment options are ignored\n");
+        warned = 1;
+    }
+#elif defined(_WIN32)
     (void)_putenv_s(name, value);
 #else
     (void)setenv(name, value, 1);
@@ -3422,10 +3883,14 @@ int main(int argc, char **argv)
     int window = 0;
     unsigned long watchdog = 0;
     int i;
-#if EIDOS_BOOT_SDL
+#if EIDOS_BOOT_SDL || (EIDOS_BOOT_PS4 && EIDOS_BOOT)
     BwSetupRequest setup;
+#endif
+#if EIDOS_BOOT_SDL
     static char setup_data[BW_SETUP_PATH_MAX];
 
+    memset(&setup, 0, sizeof setup);
+#elif EIDOS_BOOT_PS4 && EIDOS_BOOT
     memset(&setup, 0, sizeof setup);
 #endif
 #if defined(__vita__)
@@ -3477,6 +3942,18 @@ int main(int argc, char **argv)
         }
         if (sr > 0) {
             continue;
+        }
+#endif
+#if EIDOS_BOOT_PS4 && EIDOS_BOOT
+        {
+            int sr = bw_setup_parse_arg(&setup, argc, argv, &i);
+            if (sr < 0) {
+                usage();
+                return 2;
+            }
+            if (sr > 0) {
+                continue;
+            }
         }
 #endif
         if (strcmp(argv[i], "--data-root") == 0 && i + 1 < argc) {
@@ -3585,16 +4062,30 @@ int main(int argc, char **argv)
     if (window && !frames_given) {
         frames = ~0ull; /* a window runs until it is closed */
     }
+#if EIDOS_BOOT_PS4 && EIDOS_BOOT
+    if (setup.reset || setup.move_to != NULL) {
+        fprintf(stderr, "PS4: --reset-data and --move-data are not supported.\n");
+        return 2;
+    }
+    boot_ps4_storage_start();
+    if (setup.data_root != NULL && setup.data_root[0] != '\0') {
+        data_root = setup.data_root;
+    }
+#endif
 #if EIDOS_BOOT_SDL
     if (setup.data_root != NULL) {
         data_root = setup.data_root;
     }
 #endif
     if (data_root == NULL) {
-        data_root = getenv("BW_DATA_ROOT");
+        data_root = boot_getenv("BW_DATA_ROOT");
     }
     if (data_root == NULL || data_root[0] == '\0') {
+#if EIDOS_BOOT_PS4 && EIDOS_BOOT
+        data_root = NULL; /* never use a build-machine path in a PS4 binary */
+#else
         data_root = EIDOS_DEFAULT_DATA_ROOT;
+#endif
     }
 #if EIDOS_BOOT_SDL
     /* The data the way every front end finds it (engine/platform/wizard.h):
@@ -3613,12 +4104,32 @@ int main(int argc, char **argv)
         data_root = setup_data;
     }
 #endif
+#if EIDOS_BOOT_PS4 && EIDOS_BOOT
+    if (data_root == NULL || data_root[0] == '\0') {
+        static char ps4_data_dir[BW_SETUP_PATH_MAX];
+        if (boot_ps4_prepare_game_data(&setup, ps4_data_dir,
+                                       sizeof(ps4_data_dir)) != 0) {
+            boot_ps4_services_stop();
+            return 1;
+        }
+        data_root = ps4_data_dir;
+    }
+#endif
     if (data_root[0] != '\0') {
         bw_set_data_root(data_root);
     }
 
 #if EIDOS_BOOT
+#if EIDOS_BOOT_PS4
+    boot_ps4_devices_start();
+    {
+        int result = run_boot((u64)frames, window, (unsigned)watchdog);
+        boot_ps4_services_stop();
+        return result;
+    }
+#else
     return run_boot((u64)frames, window, (unsigned)watchdog);
+#endif
 #else
     (void)window;
     (void)frames_given;
