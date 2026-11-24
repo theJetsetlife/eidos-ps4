@@ -1753,6 +1753,17 @@ def main(argv=None) -> int:
         # real host pointer, so keep the complement at pointer width.
         source = _need(source, "((uptr)start + 3) & ~3u",
                        "((uptr)start + 3) & ~(uptr)3u")
+        # NNSSndHeap and its saved-level list embed NNSFndList/NNSFndLink,
+        # which widen on LP64. Size and link offsets must follow those native
+        # records or frame-heap state changes overwrite the heap header.
+        source = source.replace("if (rest < 0x10) return 0;",
+                                "if (rest < sizeof(NNSSndHeap)) return 0;")
+        source = source.replace("alignedStart + 0x10), rest - 0x10",
+                                "alignedStart + sizeof(NNSSndHeap)), rest - sizeof(NNSSndHeap)")
+        source = source.replace("NNS_FndInitList(&heap->levelList, 0xc);",
+                                "NNS_FndInitList(&heap->levelList, sizeof(NNSFndList));")
+        source = source.replace("NNS_FndAllocFromFrmHeapEx((char *)heap->handle, 0x14, 4)",
+                                "NNS_FndAllocFromFrmHeapEx((char *)heap->handle, sizeof(NNSiSndHeapLevel), sizeof(void *))")
         source = source.replace(
             "void *NNS_SndArcGetFileAddress(u32 fileId)\n{",
             """#include <stdlib.h>
@@ -1834,6 +1845,8 @@ void *NNS_SndArcGetFileAddress(u32 fileId)
                                 "struct BwDataImage;\nextern const struct BwDataImage *bw_data_installed(void);\nextern void (*bw_arm9_code_entry(const struct BwDataImage *, unsigned int))(void);\nextern void bw_panic(const char *, unsigned int, const char *);\n\nstatic void bw_palette_load(u32 kind, const void *data, u32 dest, u32 size)\n{\n    GfxLoadFn fn;\n    if (sizeof(void *) == 4) { ARC_UTIL_gPaletteLoadFns[kind](data, dest, size); return; }\n    fn = (GfxLoadFn)bw_arm9_code_entry(bw_data_installed(), ((const u32 *)(const void *)ARC_UTIL_gPaletteLoadFns)[kind]);\n    if (fn == 0) bw_panic(\"arc_util.c\", kind, \"unresolved palette loader\");\n    fn(data, dest, size);\n}\n\nstatic void *bw_palette_raw_data(const NNSG2dPaletteData *pltt)\n{")
         source = source.replace("ARC_UTIL_gPaletteLoadFns[kind](sizeof(void *) == 4 ? pltt->pRawData : file, dest, size)",
                                 "bw_palette_load(kind, sizeof(void *) == 4 ? pltt->pRawData : bw_raw, dest, size)")
+        source = source.replace("return (u8 *)pltt + (u32)(uptr)pltt->pRawData;",
+                                "return (u8 *)pltt + *(const u32 *)((const u8 *)pltt + 0x0c);")
         source = source.replace("    int cmp;\n\n    if (file == 0)",
                                 "    int cmp;\n    void *bw_raw = 0;\n\n    if (file == 0)")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/nns_g2d_anim_bank.c"):
@@ -1889,6 +1902,26 @@ u32 PROCSYS_StepProc(Proc *proc)
         source = _need(source,
                        "proc->data->end(proc, &proc->subSeq, proc->procWork, proc->work)",
                        "bw_proc_callback(proc->data, 2)(proc, &proc->subSeq, proc->procWork, proc->work)")
+    if src_path.replace("\\", "/").endswith("/src/game/ov179/cdemo_wipe.c"):
+        source = _need(source,
+                       "int CDEMO_WIPE_RunScript(char *p)\n{",
+                       "extern void (*bw_ovl_code_entry(unsigned int))(void);\nextern void bw_panic(const char *, unsigned int, const char *);\n\nstatic int bw_cdemo_wipe_script_step(unsigned int index, char *state)\n{\n    unsigned int address;\n    int (*entry)(char *);\n    if (sizeof(void *) == 4) return d_021B6A04[index](state);\n    address = ((const unsigned int *)(const void *)d_021B6A04)[index];\n    entry = (int (*)(char *))bw_ovl_code_entry(address);\n    if (entry == 0) bw_panic(\"cdemo_wipe.c\", address, \"unresolved cinematic script callback\");\n    return entry(state);\n}\n\nint CDEMO_WIPE_RunScript(char *p)\n{")
+        source = _need(source,
+                       "d_021B6A04[((struct CdemoState *)p)->result](p)",
+                       "bw_cdemo_wipe_script_step(((struct CdemoState *)p)->result, p)")
+    if src_path.replace("\\", "/").endswith("/src/game/ov179/cdemo_scene.c"):
+        source = source.replace("if (**(int * *)&((struct CdemoState *)p)->scriptCursor == 20) {",
+                                "if (*(int *)bw_ds_ptr((unsigned int)((struct CdemoState *)p)->scriptCursor) == 20) {")
+        source = _need(source,
+                       "int CDEMO_SCENE_DispatchCommand(char *p) {\n int *q; int result; q=*(int * *)&((struct CdemoState *)p)->scriptCursor;\n result=d_021B6A40[q[0]](p,q);\n if(result) {\n  q=*(int * *)&((struct CdemoState *)p)->scriptCursor;\n  *(int * *)&((struct CdemoState *)p)->scriptCursor=q+d_021B6A90[q[0]];\n }\n return result;\n}",
+                       "extern void *bw_ds_ptr(unsigned int);\nextern void (*bw_ovl_code_entry(unsigned int))(void);\nextern void bw_panic(const char *, unsigned int, const char *);\nstatic int bw_cdemo_scene_command(unsigned int index, char *state, int *args)\n{\n int address;\n int (*entry)(char *, int *);\n if (sizeof(void *) == 4) return d_021B6A40[index](state, args);\n address = ((const unsigned int *)(const void *)d_021B6A40)[index];\n entry = (int (*)(char *, int *))bw_ovl_code_entry((unsigned int)address);\n if (!entry) bw_panic(\"cdemo_scene.c\", (unsigned int)address, \"unresolved cinematic command callback\");\n return entry(state, args);\n}\nint CDEMO_SCENE_DispatchCommand(char *p) {\n struct CdemoState *state = (struct CdemoState *)p;\n int *q = (int *)bw_ds_ptr((unsigned int)state->scriptCursor);\n int result = bw_cdemo_scene_command((unsigned int)q[0], p, q);\n if (result) state->scriptCursor += (int)(d_021B6A90[q[0]] * sizeof(*q));\n return result;\n}")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/wipe.c"):
+        source = _need(source,
+                       "u32 WIPE_SYS_CallPattern(void *p)\n{",
+                       "struct BwDataImage;\nextern const struct BwDataImage *bw_data_installed(void);\nextern void (*bw_arm9_code_entry(const struct BwDataImage *, unsigned int))(void);\nextern void bw_panic(const char *, unsigned int, const char *);\n\nstatic u32 bw_wipe_pattern_call(unsigned int index, void *arg)\n{\n    unsigned int address;\n    FuncPtr entry;\n    if (sizeof(void *) == 4) return g_wipePatternHandlers[index](arg);\n    address = ((const unsigned int *)(const void *)g_wipePatternHandlers)[index];\n    entry = (FuncPtr)bw_arm9_code_entry(bw_data_installed(), address);\n    if (entry == 0) bw_panic(\"wipe.c\", address, \"unresolved wipe pattern callback\");\n    return entry(arg);\n}\n\nu32 WIPE_SYS_CallPattern(void *p)\n{")
+        source = _need(source,
+                       "return g_wipePatternHandlers[idx](p);",
+                       "return bw_wipe_pattern_call(idx, p);")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/savedata.c"):
         # SaveBlockDef is cartridge data: ID, size callback, init callback,
         # each one DS word. Resolve callbacks at the call boundary on LP64.

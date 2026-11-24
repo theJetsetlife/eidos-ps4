@@ -294,3 +294,17 @@ the archive allocation pointer separately for correct cleanup. A full
 with 60 VBlank interrupts. This validates reconstructed game startup on the
 host diagnostic runner only; it does not verify graphics presentation,
 OrbisOS compilation, SDK packaging, audio output, a PS4 device, or gameplay.
+
+Follow-up runtime tracing caught two more native-width translation defects.
+Palette data offsets are now read directly from the fixed DS field at TTLP
+body offset `0x0c`, avoiding LP64 struct padding. The title path then ran into
+overlay 179; its script-step and command tables now resolve four-byte DS code
+addresses through the loaded overlay map, and the script cursor remains a DS
+address translated through `bw_ds_ptr` when read. Sound heap setup now reserves
+native `NNSSndHeap` and `NNSiSndHeapLevel` sizes and sets the level-list link
+offset to the widened `NNSFndList` size. The host build/link passes and a 600
+frame request advances to frame 354, overlay 179. It then faults in
+`OS_WakeupThread`/`remove_link` during the first cinematic fanfare load, with a
+malformed mutex waiter link (`0x200007fff`). Thread/mutex list layout is the
+next investigation. No rendered title screen, audio output, Orbis build,
+package, PS4 test, or gameplay verification is claimed.
