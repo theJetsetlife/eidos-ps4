@@ -4,13 +4,16 @@
 
 | Component | Revision |
 |---|---|
-| Eidos | `bb70c8a44dfa0f20711376e49b1e5ea3d03cfa8a` |
-| Aletheia | `50731dd699fb0fb3f881cd028a67d8f6aa649a88` |
+| Eidos | `9b52ea7a99d6909ddf8a531f5b86a4a47cc749ec` |
+| Aletheia pin / HEAD | `f15bb66a81bd0d234dece1e9111eefd6ba4c5954` |
 | Kenon | `3324b082493002108e4648ddc7162ff03c683f20` |
 | Orbis SDK | 12.508.041 (`0x12508041`) |
 
 Eidos's authoritative Aletheia pin exactly matches the checked-out Aletheia
-revision.
+HEAD. At the time of this report refresh, the Aletheia worktree has 24 modified
+tracked files. Builds that read this checkout therefore do not reproduce a
+clean-tree build at the pinned commit; CMake warns when it detects this state.
+Do not treat that warning as a pin mismatch.
 
 ## Verified tools
 
