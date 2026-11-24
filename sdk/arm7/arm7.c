@@ -198,6 +198,14 @@ void bw_arm7_step(void)
 
 void *bw_arm7_resolve(u32 value, u32 size, void *known, u32 known_size)
 {
+    /* Native ARM9 commands encode registered DS addresses. Resolve those
+     * before the legacy low-word host-pointer convention used by fixtures. */
+    void *mapped = bw_ds_try_ptr(value);
+    if (mapped != NULL && size != 0 && size - 1u <= UINT32_MAX - value) {
+        void *last = bw_ds_try_ptr(value + size - 1u);
+        if (last != NULL && (uintptr_t)last == (uintptr_t)mapped + size - 1u)
+            return mapped;
+    }
     if (known != NULL) {
         u32 off = value - (u32)(uintptr_t)known;
 

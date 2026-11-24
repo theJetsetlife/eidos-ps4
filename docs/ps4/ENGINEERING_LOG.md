@@ -133,3 +133,14 @@ the game's power/error callback. That path then faults in `bw_rd16` via
 The read-failure cause and shutdown-image source pointer remain unverified;
 neither is assumed to be a missing save file. No complete simulation frame
 has been verified. Orbis build and hardware status are unchanged.
+
+## 2026-11-24 — ARM7 backup address resolution corrected
+
+Added opt-in `EIDOS_BACKUP_TRACE` logging for request/result and command fields.
+The trace showed `RES_INVALID_PARAM` for reads whose destination was the
+registered cache address `0x02150740`. `bw_arm7_resolve` recognized only low-word
+host pointers on LP64. It now resolves backed DS addresses and checks the
+requested interval's endpoints before using the legacy fixture convention.
+Full host rebuild/link succeeded. The runtime trace now reports successful
+backup reads through the outside-save regions and proceeds to a game assertion
+at `0x02034734`, with overlays 10 and 11 resident. No complete frame is claimed.

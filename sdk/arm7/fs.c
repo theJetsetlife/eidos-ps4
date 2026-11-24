@@ -424,8 +424,15 @@ static void fs_callback(int tag, u32 data, int err)
             return;
         }
         b = cmd_block();
-        if (b != NULL)
-            cmd_wr(b, CMD_RESULT, (u32)execute((int)data, b));
+        if (b != NULL) {
+            u32 result = (u32)execute((int)data, b);
+            cmd_wr(b, CMD_RESULT, result);
+            if (getenv("EIDOS_BACKUP_TRACE") != NULL)
+                fprintf(stderr, "eidos: backup: request=%u result=%u type=%u "
+                        "caps=0x%X src=0x%X dst=0x%X len=%u\n",
+                        data, result, g_fs.type, g_fs.caps,
+                        cmd_rd(b, CMD_SRC), cmd_rd(b, CMD_DST), cmd_rd(b, CMD_LEN));
+        }
     }
     /* CARD_REQ_ACK, flagged as libcard flags its own words.                */
     (void)bw_pxi_arm7_send(BW_PXI_TAG_FS, REQ_ACK, 1);
