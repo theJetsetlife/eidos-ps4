@@ -28,6 +28,8 @@ struct EidosPs4Audio {
     uint8_t stopping;
     uint8_t failed;
     uint8_t primed;
+    uint8_t paused;
+    uint8_t pause_acknowledged;
     int error;
     EidosPs4AudioBlock queue[EIDOS_PS4_AUDIO_QUEUE];
     uint32_t read_index;
@@ -57,7 +59,11 @@ static void *audio_output_thread(void *opaque)
 
     for (;;) {
         (void)pthread_mutex_lock(&audio->mutex);
-        while (!audio->stopping && !audio->primed) {
+        while (!audio->stopping && (audio->paused || !audio->primed)) {
+            if (audio->paused) {
+                audio->pause_acknowledged = 1;
+                (void)pthread_cond_broadcast(&audio->condition);
+            }
             (void)pthread_cond_wait(&audio->condition, &audio->mutex);
         }
         if (audio->queue_count == 0u && audio->stopping) {
@@ -79,6 +85,7 @@ static void *audio_output_thread(void *opaque)
             }
             continue;
         }
+        audio->pause_acknowledged = 0;
         if (audio->stopping) {
             audio->primed = 1;
         }
@@ -231,6 +238,60 @@ int eidos_ps4_audio_ready(EidosPs4Audio *audio)
     ready = !audio->failed && !audio->stopping;
     (void)pthread_mutex_unlock(&audio->mutex);
     return ready;
+}
+
+int eidos_ps4_audio_pause(EidosPs4Audio *audio)
+{
+    int error;
+
+    if (audio == NULL) {
+        return 0;
+    }
+    (void)pthread_mutex_lock(&audio->mutex);
+    if (audio->failed || audio->stopping) {
+        error = audio->error < 0 ? audio->error : -1;
+        (void)pthread_mutex_unlock(&audio->mutex);
+        return error;
+    }
+    audio->paused = 1;
+    audio->primed = 0;
+    audio->read_index = 0;
+    audio->write_index = 0;
+    audio->queue_count = 0;
+    audio->pending_frames = 0;
+    /* Keep the interpolation history: game sample time stops with the
+     * simulation, so no samples should be inserted across this pause. */
+    (void)pthread_cond_broadcast(&audio->condition);
+    while (!audio->pause_acknowledged && !audio->failed && !audio->stopping) {
+        (void)pthread_cond_wait(&audio->condition, &audio->mutex);
+    }
+    error = audio->failed || audio->stopping
+        ? (audio->error < 0 ? audio->error : -1) : 0;
+    (void)pthread_mutex_unlock(&audio->mutex);
+    return error;
+}
+
+int eidos_ps4_audio_resume(EidosPs4Audio *audio)
+{
+    if (audio == NULL) {
+        return 0;
+    }
+    (void)pthread_mutex_lock(&audio->mutex);
+    if (audio->failed || audio->stopping) {
+        const int error = audio->error < 0 ? audio->error : -1;
+        (void)pthread_mutex_unlock(&audio->mutex);
+        return error;
+    }
+    audio->pending_frames = 0;
+    audio->read_index = 0;
+    audio->write_index = 0;
+    audio->queue_count = 0;
+    audio->primed = 0;
+    audio->pause_acknowledged = 0;
+    audio->paused = 0;
+    (void)pthread_cond_broadcast(&audio->condition);
+    (void)pthread_mutex_unlock(&audio->mutex);
+    return 0;
 }
 
 uint64_t eidos_ps4_audio_underruns(EidosPs4Audio *audio)

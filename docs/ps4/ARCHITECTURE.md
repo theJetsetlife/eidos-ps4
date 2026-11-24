@@ -40,9 +40,17 @@ cubic-interpolation history, and delivers 512-frame S16 stereo blocks through
 a bounded queue to a dedicated AudioOut worker. Queue pressure drops audio
 blocks instead of blocking the game thread; simulation continues at its
 original cadence. An empty queue is filled with silence and counted as an
-underrun. This implementation still needs a
-Sony-toolchain build, hardware timing checks, dynamic volume control, lifecycle
-handling, and the requested classic/enhanced comparison mode.
+underrun. This implementation still needs a Sony-toolchain build, hardware
+timing checks, dynamic volume control, and the requested classic/enhanced
+comparison mode.
+
+The PS4 boot halt hook polls the SDK SystemService execution status before
+advancing the DS frame. Background execution holds the game simulation,
+quiesces the AudioOut worker and discards queued presentation samples; resume
+retains the resampler's last-sample history and refreshes the GNM submission
+boundary. This lifecycle source has only host syntax evidence against SDK
+headers; system-service timing, suspend/resume, controller revalidation and
+audio recovery remain target checks.
 
 The PS4 SaveData adapter mounts two application-owned per-user directories.
 The save mount requests 256 SDK blocks (8 MiB) and remains the destination for

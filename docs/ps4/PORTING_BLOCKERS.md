@@ -61,21 +61,26 @@ Ordered by the dependency chain, not by perceived difficulty.
    touchpad coordinates are scaled to the DS bottom-screen's 256x192 input
    space, and release/loss clears touch state. Right-stick cursor movement
    while R3 is held provides a stylus fallback when the touchpad is not being
-   touched. The host-only PS4 preprocessor branch has not yet been compiled,
-   and Sony-toolchain/hardware behavior is unverified. Layout-specific cursor
+   touched. The PS4 boot branch passes a host Clang syntax check with SDK
+   headers (the mixed Linux/SDK sysroot needed temporary BSD typedefs); Sony-
+   toolchain and hardware behavior remain unverified. Layout-specific cursor
    policy and enhanced/compare audio mode remain. SaveData now uses separate
    per-user mounts: 8 MiB for original game saves and the SDK-declared maximum
    1 GiB for imports/extracted assets. PS4 startup uses the existing Eidos ROM
    verifier and transactional extractor, checking `roms/pokemon.nds` or a
    supplied `--rom`; extraction progress is reported and Circle cancels via
    the launch-user pad. A general file browser, storage setup UI, user changes,
-   and suspend/resume remain. Import, location, setup, save, and boot sources
-   pass host Clang syntax checks against SDK headers; CMake graph generation
-   includes the PS4 setup targets, but Sony compilation, package permissions,
-   save/load compatibility, actual import, and power-loss behavior are
-   unverified. A first AudioOut worker and 32768-to-
+   and hardware suspend/recovery validation remain. Import, location, setup,
+   save, and boot sources pass host Clang syntax checks against SDK headers;
+   the CMake graph includes PS4 setup targets, but Sony compilation, package
+   permissions, save/load compatibility, actual import, and power-loss
+   behavior are unverified. A first AudioOut worker and 32768-to-
    48000 Hz resampler are implemented but uncompiled with the Sony toolchain
-   and untested on hardware.
+   and untested on hardware. The boot hook now polls official SystemService
+   background status before each DS frame, pauses simulation and the AudioOut
+   worker in background, and handles resume by refreshing the GNM submission
+   boundary and resuming audio. This lifecycle integration remains uncompiled
+   by Sony and unverified on hardware.
    The SDK libc does not declare the desktop `getenv`/`setenv` APIs used by
    launcher diagnostics. A PS4-only `getenv` compatibility boundary now
    disables environment-based debug overrides explicitly without affecting

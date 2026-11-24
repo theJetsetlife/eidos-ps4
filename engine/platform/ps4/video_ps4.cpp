@@ -469,6 +469,14 @@ extern "C" int eidos_ps4_video_draw_color_bars(EidosPs4Video *video)
     return 0;
 }
 
+extern "C" int eidos_ps4_video_on_resume(EidosPs4Video *video)
+{
+    if (video == nullptr || !video->gpu_contexts_ready) {
+        return 0;
+    }
+    return sce::Gnm::submitDone();
+}
+
 extern "C" int eidos_ps4_video_destroy(EidosPs4Video *video)
 {
     if (video == nullptr) {

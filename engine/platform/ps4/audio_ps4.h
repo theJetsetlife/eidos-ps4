@@ -20,6 +20,10 @@ int eidos_ps4_audio_create(EidosPs4Audio **out, SceUserServiceUserId user_id);
 int eidos_ps4_audio_submit(EidosPs4Audio *audio, const int16_t *input,
                            uint32_t frames);
 int eidos_ps4_audio_ready(EidosPs4Audio *audio);
+/* Quiesce output while the application is backgrounded. Pause discards queued
+ * presentation audio but does not advance or mutate game simulation. */
+int eidos_ps4_audio_pause(EidosPs4Audio *audio);
+int eidos_ps4_audio_resume(EidosPs4Audio *audio);
 uint64_t eidos_ps4_audio_underruns(EidosPs4Audio *audio);
 uint64_t eidos_ps4_audio_dropped_frames(EidosPs4Audio *audio);
 

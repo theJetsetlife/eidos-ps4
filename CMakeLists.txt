@@ -1860,6 +1860,21 @@ target_include_directories(test_ps4_resampler PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4)
 add_test(NAME test_ps4_resampler COMMAND test_ps4_resampler)
 
+# Exercise the AudioOut worker's pause/resume handshake on the host with a
+# small API mock. Keep this target out of Orbis cross-builds; it is test-only.
+if(NOT PS4 AND UNIX)
+    add_executable(test_ps4_audio_lifecycle
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ps4_audio_lifecycle.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4/audio_ps4.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4/resampler_ps4.c)
+    target_include_directories(test_ps4_audio_lifecycle BEFORE PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/ps4/mock_sdk)
+    target_include_directories(test_ps4_audio_lifecycle PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4)
+    target_link_libraries(test_ps4_audio_lifecycle PRIVATE Threads::Threads)
+    add_test(NAME test_ps4_audio_lifecycle COMMAND test_ps4_audio_lifecycle)
+endif()
+
 # The ARM7 sound driver through the PXI wire (sdk/arm7/snd.h): synthetic
 # command lists exercising the sequencer, the shared channels and the
 # hardware model, needing no data; and real sequences and a real wave

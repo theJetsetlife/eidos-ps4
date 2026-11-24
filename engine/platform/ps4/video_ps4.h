@@ -30,6 +30,10 @@ int eidos_ps4_video_draw_color_bars(EidosPs4Video *video);
 /* Make CPU writes visible to the GPU/display path and submit a vsync flip. */
 int eidos_ps4_video_present(EidosPs4Video *video);
 
+/* Re-establish the GNM submission boundary after SystemService reports the
+ * ON_RESUME event. */
+int eidos_ps4_video_on_resume(EidosPs4Video *video);
+
 /* Wait for pending flips, unregister buffers, and release SDK resources.
  * Returns an SDK error without releasing memory if scanout safety cannot be
  * established. The caller may retry destruction with the same pointer. */

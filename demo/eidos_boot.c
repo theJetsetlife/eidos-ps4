@@ -108,7 +108,9 @@
 #include "setup.h"
 #include "install.h"
 #include <save_data.h>
+#include <system_service.h>
 #include <user_service.h>
+#include <_kernel.h>
 #endif
 #if EIDOS_BOOT_SDL
 #include "settings.h"           /* engine/platform: the SDL3 build's */
@@ -165,6 +167,8 @@ static int g_ps4_video_failure_reported;
 static int g_ps4_audio_failure_reported;
 static int g_ps4_save_path_ready;
 static int g_ps4_data_path_ready;
+static int g_ps4_background;
+static int g_ps4_system_service_warning_reported;
 static char g_ps4_save_path[SCE_SAVE_DATA_MOUNT_POINT_DATA_MAXSIZE];
 static char g_ps4_data_path[SCE_SAVE_DATA_MOUNT_POINT_DATA_MAXSIZE];
 #endif
@@ -934,6 +938,84 @@ static void boot_ps4_input_update(void)
         }
     }
     bw_input_set_host(&state);
+}
+
+/* SystemService documents this status query as per-render-frame state. The
+ * halt hook polls before advancing the DS frame, so background execution
+ * cannot advance game clocks or simulation. The status/event API and event
+ * semantics are from SDK 12.508 system_service.h and its reference. */
+static int boot_ps4_wait_until_foreground(void)
+{
+    SceSystemServiceStatus status;
+    int resume_event = 0;
+    int result;
+    int i;
+
+    memset(&status, 0, sizeof(status));
+    result = sceSystemServiceGetStatus(&status);
+    if (result < 0) {
+        if (!g_ps4_system_service_warning_reported) {
+            printf("WARNING ps4: SystemService status unavailable: 0x%08x; "
+                   "lifecycle polling disabled\n", (unsigned)result);
+            g_ps4_system_service_warning_reported = 1;
+        }
+        if (g_ps4_background) {
+            (void)sceKernelUsleep(16000);
+            return 1;
+        }
+        return 0;
+    }
+
+    if (status.eventNum > 0) {
+        for (i = 0; i < status.eventNum; ++i) {
+            SceSystemServiceEvent event;
+            result = sceSystemServiceReceiveEvent(&event);
+            if (result < 0) {
+                printf("WARNING ps4: SystemService event receive failed: "
+                       "0x%08x\n", (unsigned)result);
+                break;
+            }
+            if (event.eventType == SCE_SYSTEM_SERVICE_EVENT_ON_RESUME) {
+                resume_event = 1;
+            }
+        }
+    }
+
+    if (status.isInBackgroundExecution) {
+        if (!g_ps4_background) {
+            g_ps4_background = 1;
+            printf("INFO ps4: background execution; pausing game simulation\n");
+            if (g_ps4_audio != NULL) {
+                result = eidos_ps4_audio_pause(g_ps4_audio);
+                if (result < 0) {
+                    printf("WARNING ps4: AudioOut pause failed: 0x%08x\n",
+                           (unsigned)result);
+                }
+            }
+        }
+        (void)sceKernelUsleep(16000);
+        return 1;
+    }
+    if (g_ps4_background || resume_event) {
+        if (g_ps4_video_ready) {
+            result = eidos_ps4_video_on_resume(g_ps4_video);
+            if (result < 0) {
+                printf("WARNING ps4: GNM resume boundary failed: "
+                       "0x%08x\n", (unsigned)result);
+            }
+        }
+        if (g_ps4_background && g_ps4_audio != NULL) {
+            result = eidos_ps4_audio_resume(g_ps4_audio);
+            if (result < 0) {
+                printf("WARNING ps4: AudioOut resume failed: 0x%08x\n",
+                       (unsigned)result);
+            }
+        }
+        g_ps4_background = 0;
+        printf("INFO ps4: application resumed%s\n",
+               resume_event ? " (SystemService event)" : " (status transition)");
+    }
+    return 0;
 }
 
 static void boot_ps4_services_stop(void)
@@ -2840,6 +2922,13 @@ static void boot_frame(void *user)
     int audio_rendered = 0;
     int speed = 1;   /* fast forward factor (Tab), eidos_platform_fast_forward */
     u64 t_step, t_ph;
+
+#if EIDOS_BOOT_PS4
+    while (boot_ps4_wait_until_foreground()) {
+        /* This is the OS halt hook: yielding here keeps the game clock,
+         * simulation and frame presentation stopped until foreground. */
+    }
+#endif
 
     /*
      * The restart and the handoff's reload: both want the game to start

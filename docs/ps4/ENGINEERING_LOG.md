@@ -1017,3 +1017,27 @@ Validation performed on this Linux host:
 These checks do not execute Sony's PSSL or target compiler. No Orbis object,
 linked executable, `eboot.bin`, package, VideoOut output, or hardware behavior
 has been verified. The GPU diagnostic is not the game's native renderer.
+
+# 2026-11-24 — Pause simulation and audio in background execution
+
+Added a PS4 boot-hook lifecycle poll using the SDK-declared
+`sceSystemServiceGetStatus`, `sceSystemServiceReceiveEvent`, and
+`SCE_SYSTEM_SERVICE_EVENT_ON_RESUME`. The hook checks status before the next DS
+frame; while background execution is reported it does not advance simulation
+and yields between status checks. On background entry, the AudioOut worker
+discards queued presentation samples and acknowledges that it has stopped
+outputting. Resume preserves the resampler's sample history, allows the worker
+to prime again, and refreshes the GNM submission boundary. This does not yet
+revalidate user/controller handles or prove Sony's suspend/resume behavior.
+
+Validation:
+
+- A host mock-SDK test exercises initial pause, stopped output, active-stream
+  quiescence, two resume cycles, and clean audio shutdown. It passes as
+  `test_ps4_audio_lifecycle`, including 25 consecutive CTest repetitions.
+- Host Clang syntax checks pass for the modified AudioOut and video backends
+  against SDK 12.508.041 headers. The PS4 boot branch also passes a host syntax
+  check; because the Linux and Sony sysroots overlap on BSD system-header
+  names, this check used two temporary typedefs outside the repository.
+- Sony compiler, system-service execution, suspend/resume, AudioOut recovery,
+  and hardware behavior remain unverified.
