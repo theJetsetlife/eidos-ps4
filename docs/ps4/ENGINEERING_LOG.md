@@ -214,3 +214,12 @@ generated allocations now use `sizeof(struct ArcHandle)` for disk and memory
 archives. This corrects a definite undersized allocation; whether it fully
 explains the allocator fault awaits rebuild/runtime verification. Generation
 against the pinned source and Python syntax checks passed.
+
+Full host rebuild/link after the archive allocation correction succeeded.
+The GDB run passes the earlier archive/member and allocator stops and reaches
+`GFL_USE_InitSound -> NNS_SndInit -> PM_AppendPostSleepCallback`, then faults
+in `PMi_InsertList`. That call uses the DS global at `0x02153004` as a native
+list-head pointer; its initialization, adjacent global layout, and callback
+node storage require investigation. This supersedes the archive allocator
+fault as the observed next startup stop. No complete frame or target run is
+claimed.
