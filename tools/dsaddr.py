@@ -1699,6 +1699,11 @@ def main(argv=None) -> int:
         # grow it to 40 bytes while GetAllocateHeader still subtracts 32.
         source = _need(source, "unsigned long magic;", "u32 magic;")
         source = _need(source, "unsigned long size;", "u32 size;")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/net.c"):
+        source = _need(source, "((uptr)rawBlock + 0x20) & ~0x1fu",
+                       "((uptr)rawBlock + 0x20) & ~(uptr)0x1fu")
+        source = _need(source, "alignedBlock - 4", "alignedBlock - sizeof(void *)")
+        source = _need(source, "(u8 *)block - 4", "(u8 *)block - sizeof(void *)")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/os_arena.c"):
         # The recovered host form widened the arena pointer but left its
         # unsigned alignment mask at 32 bits, clearing the high address.

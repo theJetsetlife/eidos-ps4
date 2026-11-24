@@ -112,3 +112,10 @@ An isolated x86-64 executable compiled the actual generated DWC source and
 verified prefix size 32, payload offset 32, exact recovery of the allocation
 address, and size recovery. This test passed. Full boot rebuild and runtime
 verification of this change are still pending.
+
+Full host rebuild subsequently succeeded and GDB confirmed startup passes
+the DWC invalid free. The next fault is `GFL_NET_AllocAligned`, called from
+`WIH_DWC_CreateFilterBuffer`. Its `~0x1fu` mask zeroes high pointer bits on
+LP64, and its saved-pointer slot uses four bytes. The native generator now
+widens the mask and uses `sizeof(void *)` for both storage and recovery.
+This subsequent correction still needs full rebuild/runtime verification.
