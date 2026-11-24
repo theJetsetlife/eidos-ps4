@@ -19,6 +19,12 @@
 cmake_minimum_required(VERSION 3.16)
 project(eidos VERSION 0.2.6 LANGUAGES C)
 
+if(PS4)
+    enable_language(CXX)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/platforms/ps4.cmake)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ps4-sdk.cmake)
+endif()
+
 # The version players and the lobby see (docs/distribution.md).  A release
 # build (EIDOS_RELEASE=ON, the release workflow) is the plain number; any
 # other build adds the commit it was built from, so two builds of different
@@ -41,6 +47,29 @@ message(STATUS "eidos: version ${EIDOS_VERSION_STRING}")
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
+if(PS4)
+    set(CMAKE_CXX_STANDARD 14)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    set(CMAKE_CXX_EXTENSIONS OFF)
+endif()
+
+# The first target-platform milestone is intentionally independent of the
+# game closure.  It proves the official compiler/link/conversion path and a
+# native 1080p scanout before failures in Aletheia integration are involved.
+option(EIDOS_PS4_MINIMAL "Build the official-SDK PS4 video diagnostic" ${PS4})
+option(EIDOS_PS4_DIAGNOSTICS "Enable verbose PS4 diagnostics" OFF)
+if(PS4 AND EIDOS_PS4_MINIMAL)
+    add_executable(eidos_ps4_minimal
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/ps4/minimal/main.cpp)
+    set_target_properties(eidos_ps4_minimal PROPERTIES
+        OUTPUT_NAME eidos_ps4_minimal
+        SUFFIX ".elf")
+    if(EIDOS_PS4_DIAGNOSTICS)
+        target_compile_definitions(eidos_ps4_minimal PRIVATE EIDOS_PS4_DIAGNOSTICS=1)
+    endif()
+    eidos_ps4_link_video(eidos_ps4_minimal)
+    eidos_ps4_make_fself(eidos_ps4_minimal eboot.bin)
+endif()
 # Strict C99 on glibc hides the POSIX calls the port's Linux code uses
 # (nanosleep, clock_gettime, setenv, getaddrinfo); _DEFAULT_SOURCE shows
 # them again, as macOS and the BSDs do by default.  The language stays C99.

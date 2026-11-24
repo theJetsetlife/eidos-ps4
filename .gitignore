@@ -24,3 +24,25 @@ android/build/
 android/local.properties
 build-android/
 build-ios/
+
+# Private PS4/Nintendo inputs and generated target artifacts.  None of these
+# may be committed or uploaded by public CI.
+*.nds
+*.dsi
+*.3ds
+*.cia
+*.nsp
+*.xci
+*.pkg
+*.self
+*.sprx
+*.prx
+*.sb
+*.sdb
+*.gp4.user
+*.keystone
+*.pfs_image
+eboot.bin
+packaging/ps4/private/
+packaging/ps4/output/
+sdk-private/

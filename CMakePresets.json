@@ -1,0 +1,70 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 16, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "ps4-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/orbis.cmake",
+      "cacheVariables": {
+        "ALETHEIA_ROOT": "${sourceDir}/../aletheia",
+        "EIDOS_PLATFORM": "PS4",
+        "EIDOS_BOOT": "ON",
+        "EIDOS_OVERLAYS": "ALL",
+        "EIDOS_SDL": "OFF",
+        "EIDOS_WASM": "OFF",
+        "EIDOS_TLS": "OFF",
+        "EIDOS_PS4_MINIMAL": "ON"
+      }
+    },
+    {
+      "name": "ps4-debug",
+      "inherits": "ps4-base",
+      "binaryDir": "${sourceDir}/build-ps4-debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "ps4-release",
+      "inherits": "ps4-base",
+      "binaryDir": "${sourceDir}/build-ps4-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "EIDOS_RELEASE": "ON"
+      }
+    },
+    {
+      "name": "ps4-relwithdebinfo",
+      "inherits": "ps4-base",
+      "binaryDir": "${sourceDir}/build-ps4-relwithdebinfo",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+    },
+    {
+      "name": "ps4-diagnostics",
+      "inherits": "ps4-base",
+      "binaryDir": "${sourceDir}/build-ps4-diagnostics",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "EIDOS_PS4_DIAGNOSTICS": "ON"
+      }
+    },
+    {
+      "name": "host-tools",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-host-tools",
+      "cacheVariables": {
+        "ALETHEIA_ROOT": "${sourceDir}/../aletheia",
+        "EIDOS_BOOT": "OFF",
+        "EIDOS_SDL": "OFF",
+        "EIDOS_WASM": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "ps4-debug", "configurePreset": "ps4-debug" },
+    { "name": "ps4-release", "configurePreset": "ps4-release" },
+    { "name": "ps4-relwithdebinfo", "configurePreset": "ps4-relwithdebinfo" },
+    { "name": "ps4-diagnostics", "configurePreset": "ps4-diagnostics" },
+    { "name": "host-tools", "configurePreset": "host-tools" }
+  ]
+}
