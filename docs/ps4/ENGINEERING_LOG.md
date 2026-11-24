@@ -108,6 +108,13 @@ feed the PS4 platform library. This is build-graph and generator evidence only:
 the official Windows PSSL compiler and Orbis compiler did not run, and no GPU
 shader has been loaded or submitted on hardware.
 
+A temporary build-graph smoke test supplied a synthetic PSSL executable which
+wrote fixture bytes, then successfully ran both `.sb` generation and embedding
+commands. Native GCC subsequently failed while compiling against the Sony
+target headers (`uintptr_t` target ABI and Orbis-only GNM header conditions).
+That host failure is not treated as an Orbis compile result; it confirms this
+target source must be compiled by the SDK's own compiler on its supported host.
+
 ## 2026-11-24 — Per-user PS4 SaveData mount
 
 Added `engine/platform/ps4/save_ps4.c/.h`, which calls the SDK-declared
