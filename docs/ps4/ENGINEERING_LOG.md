@@ -1041,3 +1041,31 @@ Validation:
   names, this check used two temporary typedefs outside the repository.
 - Sony compiler, system-service execution, suspend/resume, AudioOut recovery,
   and hardware behavior remain unverified.
+
+# 2026-11-24 — Upload game DS frames into per-buffer GNM textures
+
+Connected the PS4 game's CPU DS compositor outputs to the GNMX presentation
+path. Each back buffer now owns a separate 512×192 Garlic texture. The frame
+hook packs the top and bottom 256×192 RGBA images side by side, binds that
+texture with a point sampler, and draws it into the 1920×1080 GNM target using
+a new PSSL compatibility shader. The shader places the two screens at the
+existing centered 3× scale and preserves the previous black margins. Separate
+textures prevent the CPU from overwriting upload data that a previous GPU
+submission may still be reading.
+
+This is an upload and GPU-composition milestone; the game content remains
+256×192 per screen and this path is not accepted as native-detail 1080p.
+
+Validation on this host:
+
+- The video backend passes `-Werror` Clang syntax checking against SDK
+  12.508.041 GNM/GNMX headers. The PS4 game-hook branch passes host syntax
+  checking with the temporary BSD type aliases needed by the mixed sysroots.
+- Generated-shader accessor C++ syntax checks pass with synthetic fixture
+  binaries. The configured CMake/Ninja graph now includes the DS compatibility
+  PSSL shader and its embedded header as dependencies of `eidos_platform_ps4`.
+- The installed SDK reference defines `S_POSITION` as the pixel shader's
+  screen-space position; the official basic-quad PSSL sample confirms the
+  texture and sampler register syntax used here.
+- The PSSL compiler, Sony target compiler, linker, package tools, and PS4
+  hardware were not available for this validation.

@@ -27,6 +27,13 @@ int eidos_ps4_video_begin_frame(EidosPs4Video *video, void **pixels,
  * This is a GPU pipeline diagnostic; it does not display the game's frame. */
 int eidos_ps4_video_draw_color_bars(EidosPs4Video *video);
 
+/* Upload two software-composed 256x192 RGBA DS screens to per-back-buffer
+ * GPU textures and draw the labeled compatibility view through GNMX. This
+ * retains DS source detail and is explicitly not native-detail 1080p. */
+int eidos_ps4_video_draw_ds_compatibility(EidosPs4Video *video,
+                                          const void *top_rgba,
+                                          const void *bottom_rgba);
+
 /* Make CPU writes visible to the GPU/display path and submit a vsync flip. */
 int eidos_ps4_video_present(EidosPs4Video *video);
 

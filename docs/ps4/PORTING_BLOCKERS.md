@@ -38,9 +38,10 @@ Ordered by the dependency chain, not by perceived difficulty.
    949-unit overlay set compile and link on the host, but thread/runtime probes
    and that generated closure have not run under the Sony compiler.
 5. **Full PS4 platform backend incomplete.** The existing Eidos platform
-   contract still belongs to SDL. PS4 boot now has a separate frame callback
-   that uses Eidos's CPU DS compositor and the VideoOut service, but this is
-   not yet a complete replacement connected to renderer/settings abstractions.
+   contract still belongs to SDL. PS4 boot has a separate frame callback using
+   Eidos's CPU DS compositor, per-buffer GNM textures, and a PSSL compatibility
+   shader, but this is not yet a complete replacement connected to
+   renderer/settings abstractions.
    Upstream's SDL-off all-overlay build also omits settings/menu/avatar
    implementations required by overlay patches.
 6. **Production renderer absent.** The standalone diagnostic now contains a
@@ -48,12 +49,12 @@ Ordered by the dependency chain, not by perceived difficulty.
    per-buffer 1920×1080 render targets and submits them with VideoOut flips.
    SDK-header syntax checks and the CMake shader dependency graph pass, but the
    PSSL compiler and Sony target compiler have not run and the path has not been
-   hardware tested. It is not connected to game frames. The PS4 frame callback copies the two
-   256×192 CPU-composed screens at 3× nearest-neighbour scale into a side-by-side
-   1080p scanout buffer for diagnostic integration. It is neither a GPU texture
-   upload nor native 1080p game rendering and does not satisfy the acceptance
-   gate. GNM/GNMX command submission, output-resolution game layers, PSSL
-   shaders, and visual parity remain unimplemented.
+   hardware tested. The PS4 game callback now uploads each CPU-composed DS
+   frame into a per-back-buffer texture and draws a centered 3× side-by-side
+   compatibility view through PSSL/GNMX. This remains DS-resolution content,
+   not native-detail 1080p game rendering, and does not satisfy the acceptance
+   gate. Production output-resolution game layers, enhanced assets, renderer
+   state translation, and visual parity remain unimplemented.
 7. **Input/audio/storage/lifecycle incomplete.** A launch-user DualShock 4
    adapter and button mapping now exist in the SDK diagnostic target, including
    bounded reconnect attempts and clearing stale button/touch state on loss.

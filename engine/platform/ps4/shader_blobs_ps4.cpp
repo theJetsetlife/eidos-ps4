@@ -3,6 +3,7 @@
 #include "fullscreen_ps.h"
 #include "fullscreen_vs.h"
 #include "diagnostic_colorbars_ps.h"
+#include "diagnostic_ds_composite_ps.h"
 
 namespace {
 
@@ -29,4 +30,13 @@ extern "C" const EidosPs4ShaderBlob *eidos_ps4_fullscreen_pixel_shader(void)
 extern "C" const EidosPs4ShaderBlob *eidos_ps4_diagnostic_pixel_shader(void)
 {
     return &kDiagnosticPixel;
+}
+
+extern "C" const EidosPs4ShaderBlob *eidos_ps4_diagnostic_ds_shader(void)
+{
+    static const EidosPs4ShaderBlob blob = {
+        eidos_ps4_diagnostic_ds_composite_ps_sb,
+        sizeof(eidos_ps4_diagnostic_ds_composite_ps_sb),
+    };
+    return &blob;
 }

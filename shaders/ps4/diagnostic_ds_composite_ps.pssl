@@ -1,0 +1,14 @@
+Texture2D dsScreens : register(t0);
+SamplerState dsPointSampler : register(s0);
+
+float4 main(float4 position : S_POSITION) : S_TARGET_OUTPUT
+{
+    if (position.x < 192.0f || position.x >= 1728.0f ||
+        position.y < 252.0f || position.y >= 828.0f) {
+        return float4(0.0f, 0.0f, 0.0f, 1.0f);
+    }
+
+    float2 uv = float2((position.x - 192.0f) / 1536.0f,
+                       (position.y - 252.0f) / 576.0f);
+    return dsScreens.Sample(dsPointSampler, uv);
+}

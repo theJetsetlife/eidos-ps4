@@ -18,6 +18,7 @@ typedef struct EidosPs4ShaderBlob {
 const EidosPs4ShaderBlob *eidos_ps4_fullscreen_vertex_shader(void);
 const EidosPs4ShaderBlob *eidos_ps4_fullscreen_pixel_shader(void);
 const EidosPs4ShaderBlob *eidos_ps4_diagnostic_pixel_shader(void);
+const EidosPs4ShaderBlob *eidos_ps4_diagnostic_ds_shader(void);
 
 #ifdef __cplusplus
 }

@@ -67,11 +67,13 @@ audio, and saves before extensive asset enhancement. The software-frame upload
 and color-bar diagnostics remain valid intermediate milestones. They are not
 release rendering acceptance evidence.
 
-Current staging behavior: the PS4 boot frame hook composes the two DS engines
-at 256×192 and copies both screens at 3× nearest-neighbour scale into a centered
-side-by-side 1080p VideoOut scanout. This verifies source-level integration
-only; it is still a CPU-produced DS-resolution image, has not been hardware
-tested, and does not satisfy unified native 1080p presentation.
+Current staging behavior: the PS4 boot frame hook composes both DS engines at
+256×192, uploads them into per-back-buffer 512×192 textures, and uses a
+point-sampled PSSL shader to draw a centered 3× side-by-side compatibility
+view into the 1920×1080 GNM target. The game image still contains DS-resolution
+detail; this does not satisfy native-detail 1080p presentation. The source
+passes SDK-header syntax checks and CMake shader-graph generation, but the PSSL
+compiler, Sony target compiler, and hardware have not verified it.
 
 The standalone minimal diagnostic has a separate GNMX fullscreen-quad path
 that writes eight color bars through a PSSL pixel shader into a 1920×1080 GNM

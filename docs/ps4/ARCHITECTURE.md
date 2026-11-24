@@ -6,14 +6,14 @@ The PS4 target keeps Eidos's existing three functional layers:
 2. Eidos's NitroSDK/DS-hardware compatibility layer and static overlay closure.
 3. A dedicated PS4 platform/presentation backend using official SDK services.
 
-The current diagnostic presentation is connected to the Eidos frame hook. It
-composes both DS engines into their 256×192 RGBA images, copies them at 3×
-nearest-neighbour scale into a centered, side-by-side layout in the 1920×1080
-VideoOut scanout buffers, and flips at the display cadence. This deliberately
-exposes the original-resolution image on target as an integration aid; it is
-not a texture upload and does not meet native 1080p rendering acceptance.
-The next renderer milestone must replace this CPU copy with GNM/GNMX resources
-and render the actual game layers at output resolution.
+The current compatibility presentation is connected to the Eidos frame hook.
+It composes both DS engines into their 256×192 RGBA images, uploads them into
+alternating 512×192 Garlic textures, and uses a point-sampled PSSL shader to
+place both screens at 3× scale in a 1920×1080 GNM target. This exercises game
+frame upload and GPU presentation, while source detail remains at DS resolution.
+It is an explicit compatibility diagnostic and does not meet native-detail
+1080p rendering acceptance. The production renderer must draw game layers and
+enhanced assets at output resolution.
 
 This intermediate screen upload does not meet the release rendering criteria.
 The enhanced edition must render game geometry, enhanced sprites, textures,

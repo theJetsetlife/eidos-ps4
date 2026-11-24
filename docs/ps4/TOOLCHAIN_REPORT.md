@@ -69,7 +69,7 @@ Linux host cannot execute the SDK's Windows compiler.
 | CMake cross-toolchain | Implemented; preset configure attempted and stopped during SDK compiler detection |
 | Preset listing/schema | Verified with bundled CMake 4.4.1; seven configure presets are visible, including both game presets |
 | Minimal video/input source | Implemented; PS4 backend, including AudioOut, input, SaveData, and GNMX video sources, passes host Clang syntax checks against SDK headers with `__ORBIS__`; Sony target compiler has not compiled these sources |
-| PSSL build graph | Generated with host CMake and official SDK paths; profile names match the SDK PSSL schema; fullscreen and diagnostic color-bar `.sb` outputs generate aligned C++ byte arrays linked into `eidos_platform_ps4`; graph dependencies inspected; PSSL compiler not executed |
+| PSSL build graph | Generated with host CMake and official SDK paths; profile names match the SDK PSSL schema; fullscreen, color-bar, and DS compatibility `.sb` outputs generate aligned C++ byte arrays linked into `eidos_platform_ps4`; graph dependencies inspected; PSSL compiler not executed |
 | Target object compile | Confirmed blocked: Linux reports `Permission denied` when CMake invokes the Windows PE compiler |
 | Link | Not attempted |
 | FSELF/`eboot.bin` | Not attempted |

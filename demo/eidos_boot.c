@@ -1182,18 +1182,14 @@ static void boot_ps4_video_failure(const char *stage, int result)
 }
 
 /* Transitional presentation path for validating the actual game frame on
- * VideoOut. It composes both DS engines at their native 256x192 resolution,
- * then places them side by side at integer scale in the 1080p scanout buffer.
- * This is a diagnostic compatibility view, not the required native 1080p
- * renderer and must not be treated as satisfying its acceptance gate. */
+ * VideoOut. It composes both DS engines at 256x192, uploads them as a 512x192
+ * atlas and samples that atlas into the native 1080p GNM render target. The
+ * point-sampled picture still contains DS-resolution detail; this GPU
+ * compatibility view is not the production renderer or native-detail 1080p. */
 static void boot_render_ps4(void *user, u8 *top, u8 *bottom)
 {
     u32 unsupported[2];
-    void *scanout = NULL;
-    u32 pitch = 0;
-    u32 x, y;
     int result;
-    u32 *pixels;
 
     if (!g_ps4_video_ready || top == NULL || bottom == NULL) {
         return;
@@ -1203,31 +1199,22 @@ static void boot_render_ps4(void *user, u8 *top, u8 *bottom)
         boot_ps4_video_failure("DS composition", result);
         return;
     }
-    result = eidos_ps4_video_begin_frame(g_ps4_video, &scanout, &pitch);
+    {
+        void *back_buffer = NULL;
+        uint32_t pitch = 0;
+        result = eidos_ps4_video_begin_frame(g_ps4_video, &back_buffer,
+                                             &pitch);
+        (void)back_buffer;
+        (void)pitch;
+    }
     if (result < 0) {
         boot_ps4_video_failure("back-buffer acquisition", result);
         return;
     }
-    pixels = (u32 *)scanout;
-    for (y = 0; y < 1080u; ++y) {
-        memset(pixels + (size_t)y * pitch, 0, (size_t)pitch * sizeof(*pixels));
-    }
-    /* Each 256x192 DS screen is shown at 3x nearest-neighbour scale. The
-     * console receives a real 1920x1080 scanout, but game detail remains DS
-     * resolution here pending the GNM/GNMX native renderer. */
-    for (y = 0; y < 576u; ++y) {
-        for (x = 0; x < 768u; ++x) {
-            const u8 *src_top = top + ((size_t)(y / 3u) * 256u + x / 3u) * 4u;
-            const u8 *src_bottom = bottom + ((size_t)(y / 3u) * 256u + x / 3u) * 4u;
-            const u32 top_pixel = ((u32)src_top[0] << 16) |
-                                  ((u32)src_top[1] << 8) | src_top[2] |
-                                  0xFF000000u;
-            const u32 bottom_pixel = ((u32)src_bottom[0] << 16) |
-                                     ((u32)src_bottom[1] << 8) | src_bottom[2] |
-                                     0xFF000000u;
-            pixels[(size_t)(252u + y) * pitch + 192u + x] = top_pixel;
-            pixels[(size_t)(252u + y) * pitch + 960u + x] = bottom_pixel;
-        }
+    result = eidos_ps4_video_draw_ds_compatibility(g_ps4_video, top, bottom);
+    if (result < 0) {
+        boot_ps4_video_failure("GNM DS compatibility draw", result);
+        return;
     }
     result = eidos_ps4_video_present(g_ps4_video);
     if (result < 0) {

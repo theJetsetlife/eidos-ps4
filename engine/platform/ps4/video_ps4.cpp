@@ -16,6 +16,9 @@
 namespace {
 
 constexpr int kBufferCount = 2;
+constexpr uint32_t kDsScreenWidth = 256;
+constexpr uint32_t kDsScreenHeight = 192;
+constexpr uint32_t kDsAtlasWidth = kDsScreenWidth * 2u;
 constexpr uint64_t kDirectAlignment = 2u * 1024u * 1024u;
 constexpr uint32_t kCueRingEntries = 64;
 constexpr size_t kDrawCommandBufferSize = 2u * 1024u * 1024u;
@@ -40,7 +43,8 @@ int create_gpu_arena(GpuArena *arena, size_t requested_size, int memory_type);
 void *gpu_arena_allocate(GpuArena *arena, size_t size, size_t alignment);
 int destroy_gpu_arena(GpuArena *arena);
 int initialize_gnm(EidosPs4Video *video,
-                   const EidosPs4ShaderBlob *diagnostic_shader);
+                   const EidosPs4ShaderBlob *diagnostic_shader,
+                   const EidosPs4ShaderBlob *ds_compatibility_shader);
 
 } // namespace
 
@@ -60,8 +64,13 @@ struct EidosPs4Video {
     GpuArena garlic_arena;
     GpuArena onion_arena;
     sce::Gnm::RenderTarget render_targets[kBufferCount];
+    sce::Gnm::Texture ds_textures[kBufferCount];
+    sce::Gnm::Sampler ds_sampler;
     sce::Gnmx::GfxContext gfx_contexts[kBufferCount];
     sce::Gnmx::PsShader *diagnostic_pixel_shader = nullptr;
+    sce::Gnmx::PsShader *ds_compatibility_pixel_shader = nullptr;
+    void *ds_texture_memory[kBufferCount] = {};
+    uint32_t ds_texture_pitch = 0;
     off_t direct_offset = 0;
     uint64_t direct_size = 0;
     bool direct_allocated = false;
@@ -163,43 +172,130 @@ int destroy_gpu_arena(GpuArena *arena)
     return 0;
 }
 
+bool add_size(size_t *total, size_t amount)
+{
+    if (total == nullptr || amount > std::numeric_limits<size_t>::max() - *total) {
+        return false;
+    }
+    *total += amount;
+    return true;
+}
+
+bool shader_layout(const sce::Gnmx::ShaderInfo &info, size_t *struct_size,
+                   size_t *code_offset, size_t *storage_size)
+{
+    if (info.m_psShader == nullptr || info.m_gpuShaderCode == nullptr ||
+        info.m_gpuShaderCodeSize == 0) {
+        return false;
+    }
+    *struct_size = info.m_psShader->computeSize();
+    *code_offset = static_cast<size_t>(align_up(
+        *struct_size, sce::Gnm::kAlignmentOfShaderInBytes));
+    if (*code_offset > std::numeric_limits<size_t>::max() -
+                           info.m_gpuShaderCodeSize) {
+        return false;
+    }
+    *storage_size = *code_offset + info.m_gpuShaderCodeSize;
+    return true;
+}
+
+sce::Gnmx::PsShader *copy_shader(GpuArena *arena,
+                                  const sce::Gnmx::ShaderInfo &info,
+                                  size_t struct_size, size_t code_offset,
+                                  size_t storage_size)
+{
+    void *memory = gpu_arena_allocate(
+        arena, storage_size, sce::Gnm::kAlignmentOfShaderInBytes);
+    if (memory == nullptr) {
+        return nullptr;
+    }
+    __builtin_memcpy(memory, info.m_psShader, struct_size);
+    void *code = static_cast<uint8_t *>(memory) + code_offset;
+    __builtin_memcpy(code, info.m_gpuShaderCode, info.m_gpuShaderCodeSize);
+    sce::Gnmx::PsShader *shader = static_cast<sce::Gnmx::PsShader *>(memory);
+    shader->patchShaderGpuAddress(code);
+    return shader;
+}
+
 int initialize_gnm(EidosPs4Video *video,
-                   const EidosPs4ShaderBlob *diagnostic_shader)
+                   const EidosPs4ShaderBlob *diagnostic_shader,
+                   const EidosPs4ShaderBlob *ds_compatibility_shader)
 {
     if (video == nullptr || diagnostic_shader == nullptr ||
-        diagnostic_shader->data == nullptr || diagnostic_shader->size == 0) {
+        diagnostic_shader->data == nullptr || diagnostic_shader->size == 0 ||
+        ds_compatibility_shader == nullptr ||
+        ds_compatibility_shader->data == nullptr ||
+        ds_compatibility_shader->size == 0) {
         return -1;
     }
 
-    sce::Gnmx::ShaderInfo shader_info = {};
-    sce::Gnmx::parseShader(&shader_info, diagnostic_shader->data);
-    if (shader_info.m_psShader == nullptr ||
-        shader_info.m_gpuShaderCode == nullptr ||
-        shader_info.m_gpuShaderCodeSize == 0) {
+    sce::Gnmx::ShaderInfo diagnostic_info = {};
+    sce::Gnmx::ShaderInfo ds_info = {};
+    sce::Gnmx::parseShader(&diagnostic_info, diagnostic_shader->data);
+    sce::Gnmx::parseShader(&ds_info, ds_compatibility_shader->data);
+    size_t diagnostic_struct_size = 0;
+    size_t diagnostic_code_offset = 0;
+    size_t diagnostic_storage_size = 0;
+    size_t ds_struct_size = 0;
+    size_t ds_code_offset = 0;
+    size_t ds_storage_size = 0;
+    if (!shader_layout(diagnostic_info, &diagnostic_struct_size,
+                       &diagnostic_code_offset, &diagnostic_storage_size) ||
+        !shader_layout(ds_info, &ds_struct_size, &ds_code_offset,
+                       &ds_storage_size)) {
         return -1;
     }
 
-    const size_t shader_struct_size = shader_info.m_psShader->computeSize();
-    const size_t shader_code_offset = static_cast<size_t>(align_up(
-        shader_struct_size, sce::Gnm::kAlignmentOfShaderInBytes));
-    if (shader_code_offset > std::numeric_limits<size_t>::max() -
-                                 shader_info.m_gpuShaderCodeSize) {
+    sce::Gnm::TextureSpec texture_spec;
+    texture_spec.init();
+    texture_spec.m_textureType = sce::Gnm::kTextureType2d;
+    texture_spec.m_width = kDsAtlasWidth;
+    texture_spec.m_height = kDsScreenHeight;
+    texture_spec.m_depth = 1;
+    texture_spec.m_pitch = 0;
+    texture_spec.m_numMipLevels = 1;
+    texture_spec.m_numSlices = 1;
+    texture_spec.m_format = sce::Gnm::kDataFormatR8G8B8A8UnormSrgb;
+    texture_spec.m_tileModeHint = sce::Gnm::kTileModeDisplay_LinearAligned;
+    texture_spec.m_minGpuMode = sce::Gnm::getGpuMode();
+    texture_spec.m_numFragments = sce::Gnm::kNumFragments1;
+
+    sce::Gnm::SizeAlign texture_layout = {};
+    for (int i = 0; i < kBufferCount; ++i) {
+        const int texture_result = video->ds_textures[i].init(&texture_spec);
+        if (texture_result != SCE_GNM_OK) {
+            return texture_result;
+        }
+        const sce::Gnm::SizeAlign current_layout =
+            video->ds_textures[i].getSizeAlign();
+        if (i == 0) {
+            texture_layout = current_layout;
+            video->ds_texture_pitch = video->ds_textures[i].getPitch();
+        } else if (current_layout.m_size != texture_layout.m_size ||
+                   current_layout.m_align != texture_layout.m_align ||
+                   video->ds_textures[i].getPitch() != video->ds_texture_pitch) {
+            return -1;
+        }
+    }
+    if (texture_layout.m_size == 0 || texture_layout.m_align == 0 ||
+        video->ds_texture_pitch < kDsAtlasWidth) {
         return -1;
     }
-    const size_t shader_storage_size = shader_code_offset +
-                                       shader_info.m_gpuShaderCodeSize;
+
     const size_t cue_heap_size = sce::Gnmx::ConstantUpdateEngine::computeHeapSize(
         kCueRingEntries);
-    if (cue_heap_size == 0 ||
-        shader_storage_size > std::numeric_limits<size_t>::max() -
-                                  kDirectAlignment ||
-        cue_heap_size >
-            (std::numeric_limits<size_t>::max() - shader_storage_size -
-             kDirectAlignment) / kBufferCount) {
+    if (cue_heap_size == 0) {
         return -1;
     }
-    const size_t garlic_size = cue_heap_size * kBufferCount +
-                               shader_storage_size + kDirectAlignment;
+    size_t garlic_size = kDirectAlignment;
+    if (!add_size(&garlic_size, diagnostic_storage_size) ||
+        !add_size(&garlic_size, ds_storage_size) ||
+        cue_heap_size > std::numeric_limits<size_t>::max() / kBufferCount ||
+        !add_size(&garlic_size, cue_heap_size * kBufferCount) ||
+        !add_size(&garlic_size,
+                  static_cast<size_t>(texture_layout.m_size) * kBufferCount)) {
+        return -1;
+    }
     const size_t onion_size = kBufferCount *
         (kDrawCommandBufferSize + kConstantCommandBufferSize) + kDirectAlignment;
 
@@ -214,19 +310,34 @@ int initialize_gnm(EidosPs4Video *video,
         return result;
     }
 
-    void *shader_memory = gpu_arena_allocate(
-        &video->garlic_arena, shader_storage_size,
-        sce::Gnm::kAlignmentOfShaderInBytes);
-    if (shader_memory == nullptr) {
+    video->diagnostic_pixel_shader = copy_shader(
+        &video->garlic_arena, diagnostic_info, diagnostic_struct_size,
+        diagnostic_code_offset, diagnostic_storage_size);
+    video->ds_compatibility_pixel_shader = copy_shader(
+        &video->garlic_arena, ds_info, ds_struct_size, ds_code_offset,
+        ds_storage_size);
+    if (video->diagnostic_pixel_shader == nullptr ||
+        video->ds_compatibility_pixel_shader == nullptr) {
         return -1;
     }
-    __builtin_memcpy(shader_memory, shader_info.m_psShader, shader_struct_size);
-    void *shader_code = static_cast<uint8_t *>(shader_memory) + shader_code_offset;
-    __builtin_memcpy(shader_code, shader_info.m_gpuShaderCode,
-                      shader_info.m_gpuShaderCodeSize);
-    video->diagnostic_pixel_shader =
-        static_cast<sce::Gnmx::PsShader *>(shader_memory);
-    video->diagnostic_pixel_shader->patchShaderGpuAddress(shader_code);
+
+    for (int i = 0; i < kBufferCount; ++i) {
+        video->ds_texture_memory[i] = gpu_arena_allocate(
+            &video->garlic_arena, texture_layout.m_size,
+            texture_layout.m_align);
+        if (video->ds_texture_memory[i] == nullptr) {
+            return -1;
+        }
+        video->ds_textures[i].setBaseAddress(video->ds_texture_memory[i]);
+        video->ds_textures[i].setResourceMemoryType(
+            sce::Gnm::kResourceMemoryTypeRO);
+    }
+    video->ds_sampler.init();
+    video->ds_sampler.setWrapMode(sce::Gnm::kWrapModeClampLastTexel,
+                                  sce::Gnm::kWrapModeClampLastTexel,
+                                  sce::Gnm::kWrapModeClampLastTexel);
+    video->ds_sampler.setXyFilterMode(sce::Gnm::kFilterModePoint,
+                                      sce::Gnm::kFilterModePoint);
 
     for (int i = 0; i < kBufferCount; ++i) {
         void *cue_heap = gpu_arena_allocate(
@@ -356,7 +467,8 @@ extern "C" int eidos_ps4_video_create(EidosPs4Video **out, uint32_t width,
                                                nullptr);
     }
 
-    result = initialize_gnm(video, eidos_ps4_diagnostic_pixel_shader());
+    result = initialize_gnm(video, eidos_ps4_diagnostic_pixel_shader(),
+                            eidos_ps4_diagnostic_ds_shader());
     if (result < 0) {
         return result;
     }
@@ -454,6 +566,61 @@ extern "C" int eidos_ps4_video_draw_color_bars(EidosPs4Video *video)
     context->setRenderTargetMask(0x0fu);
     context->setActiveShaderStages(sce::Gnm::kActiveShaderStagesVsPs);
     context->setPsShader(video->diagnostic_pixel_shader);
+
+    sce::Gnm::DepthStencilControl depth_control;
+    depth_control.init();
+    depth_control.setDepthEnable(false);
+    context->setDepthStencilControl(depth_control);
+    sce::Gnm::BlendControl blend_control;
+    blend_control.init();
+    blend_control.setBlendEnable(false);
+    context->setBlendControl(0, blend_control);
+
+    sce::Gnmx::renderFullScreenQuad(context);
+    video->gpu_frame_ready = true;
+    return 0;
+}
+
+extern "C" int eidos_ps4_video_draw_ds_compatibility(
+    EidosPs4Video *video, const void *top_rgba, const void *bottom_rgba)
+{
+    if (video == nullptr || top_rgba == nullptr || bottom_rgba == nullptr ||
+        video->current_index < 0 || !video->gpu_contexts_ready ||
+        video->gpu_frame_ready || video->width != 1920u ||
+        video->height != 1080u ||
+        video->ds_compatibility_pixel_shader == nullptr ||
+        video->ds_texture_memory[0] == nullptr ||
+        video->ds_texture_memory[1] == nullptr ||
+        video->ds_texture_pitch < kDsAtlasWidth) {
+        return -1;
+    }
+
+    const int index = video->current_index;
+    uint8_t *texture = static_cast<uint8_t *>(video->ds_texture_memory[index]);
+    const size_t texture_pitch = (size_t)video->ds_texture_pitch * 4u;
+    const size_t screen_row = (size_t)kDsScreenWidth * 4u;
+    const uint8_t *top = static_cast<const uint8_t *>(top_rgba);
+    const uint8_t *bottom = static_cast<const uint8_t *>(bottom_rgba);
+    for (uint32_t y = 0; y < kDsScreenHeight; ++y) {
+        uint8_t *row = texture + (size_t)y * texture_pitch;
+        __builtin_memcpy(row, top + (size_t)y * screen_row, screen_row);
+        __builtin_memcpy(row + screen_row,
+                         bottom + (size_t)y * screen_row, screen_row);
+    }
+
+    sce::Gnmx::GfxContext *context = &video->gfx_contexts[index];
+    context->reset();
+    context->initializeDefaultHardwareState();
+    context->setupScreenViewport(0, 0, video->width, video->height, 0.5f, 0.5f);
+    context->setRenderTarget(0, &video->render_targets[index]);
+    context->setDepthRenderTarget(nullptr);
+    context->setCbControl(sce::Gnm::kCbModeNormal, sce::Gnm::kRasterOpCopy);
+    context->setRenderTargetMask(0x0fu);
+    context->setActiveShaderStages(sce::Gnm::kActiveShaderStagesVsPs);
+    context->setPsShader(video->ds_compatibility_pixel_shader);
+    context->setTextures(sce::Gnm::kShaderStagePs, 0, 1,
+                         &video->ds_textures[index]);
+    context->setSamplers(sce::Gnm::kShaderStagePs, 0, 1, &video->ds_sampler);
 
     sce::Gnm::DepthStencilControl depth_control;
     depth_control.init();
