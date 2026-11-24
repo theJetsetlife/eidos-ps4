@@ -179,3 +179,11 @@ function table at their call boundary, retaining hook lookup and reporting an
 unresolved callback through the panic path. ILP32 retains already-relocated
 callback values. The generated pinned source passed a C99 syntax check.
 Full build/runtime verification of descriptor and callback decoding is pending.
+
+Full host rebuild/link subsequently passed. GDB shows execution now enters
+`SAVEDATA_BuildLayout -> SAVEDATA_QueryBlockSize -> bw_save_callback` instead
+of the prior zero-count assertion. The checked resolver reports unresolved
+address `0x0216E475` and stops through `bw_panic`. Its cartridge-version mapping
+and overlay ownership still need validation before expanding resolution beyond
+the ARM9 table. This is an explicit unresolved callback, not successful save
+initialization; no complete frame is claimed.
