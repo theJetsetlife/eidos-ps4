@@ -73,6 +73,13 @@ side-by-side 1080p VideoOut scanout. This verifies source-level integration
 only; it is still a CPU-produced DS-resolution image, has not been hardware
 tested, and does not satisfy unified native 1080p presentation.
 
+The standalone minimal diagnostic has a separate GNMX fullscreen-quad path
+that writes eight color bars through a PSSL pixel shader into a 1920×1080 GNM
+render target. SDK-header syntax checks and generated-shader dependency wiring
+are source/build-graph evidence only: PSSL compilation, Sony linking, display
+output, and hardware behavior remain unverified. It does not render game
+content or satisfy this acceptance gate.
+
 Current import staging: the app mounts a per-user 1 GiB SaveData area, stages
 the existing extractor under it, and looks for `roms/pokemon.nds`; `--rom`
 overrides the path in a development launcher. Known-ROM validation,

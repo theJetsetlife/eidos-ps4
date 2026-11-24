@@ -2,8 +2,9 @@
  * PS4 SDK video-output and controller-input diagnostic.
  *
  * The reusable VideoOut/GNM scanout owner lives in engine/platform/ps4. This
- * diagnostic only draws color bars into the native 1920x1080 output buffer;
- * it is not the production renderer or a DS framebuffer upscale.
+ * diagnostic draws color bars with a PSSL pixel shader and GNMX fullscreen
+ * quad into a native 1920x1080 target; it is not the production renderer or a
+ * DS framebuffer upscale.
  */
 
 #include <stdint.h>
@@ -32,24 +33,6 @@ int fail(const char *stage, int result)
     printf("ERROR ps4-minimal: %s failed: 0x%08x\n", stage,
            static_cast<unsigned>(result));
     return result < 0 ? result : -1;
-}
-
-void draw_bars(void *address, uint32_t pitch, int frame)
-{
-    static const uint32_t colors[] = {
-        0xffffffffu, 0xffffff00u, 0xff00ffffu, 0xff00ff00u,
-        0xffff00ffu, 0xffff0000u, 0xff0000ffu, 0xff000000u,
-    };
-    uint32_t *pixels = static_cast<uint32_t *>(address);
-    for (uint32_t y = 0; y < kHeight; ++y) {
-        uint32_t *row = pixels + static_cast<uint64_t>(y) * pitch;
-        for (uint32_t x = 0; x < kWidth; ++x) {
-            const uint32_t shifted =
-                (x + static_cast<uint32_t>(frame * 2)) % kWidth;
-            row[x] = colors[(shifted * (sizeof(colors) / sizeof(colors[0]))) /
-                            kWidth];
-        }
-    }
 }
 
 int shutdown(State *state)
@@ -140,7 +123,14 @@ int run()
             }
             return fail("eidos_ps4_video_begin_frame", result);
         }
-        draw_bars(pixels, pitch, frame);
+        result = eidos_ps4_video_draw_color_bars(state.video);
+        if (result < 0) {
+            const int cleanup_result = shutdown(&state);
+            if (cleanup_result < 0) {
+                (void)fail("cleanup after GPU draw", cleanup_result);
+            }
+            return fail("eidos_ps4_video_draw_color_bars", result);
+        }
         result = eidos_ps4_video_present(state.video);
         if (result < 0) {
             const int cleanup_result = shutdown(&state);

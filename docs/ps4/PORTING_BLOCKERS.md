@@ -43,7 +43,12 @@ Ordered by the dependency chain, not by perceived difficulty.
    not yet a complete replacement connected to renderer/settings abstractions.
    Upstream's SDL-off all-overlay build also omits settings/menu/avatar
    implementations required by overlay patches.
-6. **Production renderer absent.** The PS4 frame callback copies the two
+6. **Production renderer absent.** The standalone diagnostic now contains a
+   GNM/GNMX command path that draws an embedded PSSL color-bar shader into the
+   per-buffer 1920×1080 render targets and submits them with VideoOut flips.
+   SDK-header syntax checks and the CMake shader dependency graph pass, but the
+   PSSL compiler and Sony target compiler have not run and the path has not been
+   hardware tested. It is not connected to game frames. The PS4 frame callback copies the two
    256×192 CPU-composed screens at 3× nearest-neighbour scale into a side-by-side
    1080p scanout buffer for diagnostic integration. It is neither a GPU texture
    upload nor native 1080p game rendering and does not satisfy the acceptance

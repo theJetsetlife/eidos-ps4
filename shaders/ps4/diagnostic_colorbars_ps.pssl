@@ -1,0 +1,12 @@
+float4 main(float4 position : S_POSITION) : S_TARGET_OUTPUT
+{
+    float x = position.x / 1920.0f;
+    if (x < 0.125f) return float4(1.0f, 1.0f, 1.0f, 1.0f);
+    if (x < 0.250f) return float4(1.0f, 1.0f, 0.0f, 1.0f);
+    if (x < 0.375f) return float4(0.0f, 1.0f, 1.0f, 1.0f);
+    if (x < 0.500f) return float4(0.0f, 1.0f, 0.0f, 1.0f);
+    if (x < 0.625f) return float4(1.0f, 0.0f, 1.0f, 1.0f);
+    if (x < 0.750f) return float4(1.0f, 0.0f, 0.0f, 1.0f);
+    if (x < 0.875f) return float4(0.0f, 0.0f, 1.0f, 1.0f);
+    return float4(0.0f, 0.0f, 0.0f, 1.0f);
+}

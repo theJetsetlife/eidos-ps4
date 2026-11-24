@@ -993,3 +993,27 @@ and two real-overlay-link tests were disabled (`test_ovlink_real`,
 `test_ovlink_real_stub`). The suite took 91.84 seconds. This is host evidence;
 the official Sony compiler remains unusable on this Linux host, so no Orbis
 objects, eboot, package, firmware, or hardware behavior were validated.
+
+# 2026-11-24 — Add GNMX GPU color-bar diagnostic
+
+The standalone PS4 diagnostic now records a fullscreen GNMX draw into each
+native 1920×1080 GNM render target. It embeds a new `sce_ps_lvp` PSSL shader
+that emits eight color bars, uses separate Onion command-buffer and Garlic
+shader/CUE arenas, then submits the command buffer together with the VideoOut
+flip. The normal game path remains CPU composed and is not routed through this
+diagnostic draw.
+
+Validation performed on this Linux host:
+
+- Host Clang syntax-checked `video_ps4.cpp` and the diagnostic `main.cpp`
+  against SDK 12.508.041 headers with `__ORBIS__` defined and `-Werror`.
+- Configured the PS4 CMake target graph with host CMake and inspected Ninja's
+  graph and command generation. The color-bar `.sb` and embedded header are
+  dependencies of `eidos_platform_ps4`; the generated command uses the SDK's
+  documented `sce_ps_lvp` profile.
+- `git diff --check` passed. GPU arena sizing now checks the alignment reserve
+  before computing its total size.
+
+These checks do not execute Sony's PSSL or target compiler. No Orbis object,
+linked executable, `eboot.bin`, package, VideoOut output, or hardware behavior
+has been verified. The GPU diagnostic is not the game's native renderer.

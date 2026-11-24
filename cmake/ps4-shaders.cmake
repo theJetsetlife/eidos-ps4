@@ -52,6 +52,7 @@ endfunction()
 
 eidos_ps4_compile_shader(fullscreen_vs.pssl sce_vs_vs_lvp)
 eidos_ps4_compile_shader(fullscreen_ps.pssl sce_ps_lvp)
+eidos_ps4_compile_shader(diagnostic_colorbars_ps.pssl sce_ps_lvp)
 get_property(_eidos_pssl_outputs GLOBAL PROPERTY EIDOS_PS4_SHADER_OUTPUTS)
 add_custom_target(eidos_ps4_shaders ALL DEPENDS ${_eidos_pssl_outputs})
 get_property(_eidos_pssl_header_outputs GLOBAL PROPERTY EIDOS_PS4_SHADER_HEADER_OUTPUTS)

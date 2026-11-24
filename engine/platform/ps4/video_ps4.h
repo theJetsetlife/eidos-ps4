@@ -23,6 +23,10 @@ int eidos_ps4_video_create(EidosPs4Video **out, uint32_t width,
 int eidos_ps4_video_begin_frame(EidosPs4Video *video, void **pixels,
                                 uint32_t *pitch_pixels);
 
+/* Record a GNM/GNMX fullscreen color-bar draw into the active back buffer.
+ * This is a GPU pipeline diagnostic; it does not display the game's frame. */
+int eidos_ps4_video_draw_color_bars(EidosPs4Video *video);
+
 /* Make CPU writes visible to the GPU/display path and submit a vsync flip. */
 int eidos_ps4_video_present(EidosPs4Video *video);
 
