@@ -1,5 +1,15 @@
 # PS4 engineering log
 
+## 2026-11-24 — Enhanced-edition direction incorporated
+
+Updated architecture and added `ACCEPTANCE_CRITERIA.md` for the superseding
+faithful enhanced-edition direction. Genuine 1080p rendering and unified 16:9
+composition are release gates; frame-upload diagnostics remain intermediate.
+Added one-to-one reversible asset enhancement, Generation V visual identity,
+48 kHz stereo, faithful sequencing and sample replacement, and classic audio
+comparison criteria. Core native integration retains priority. No functional
+code or platform integration was removed and no enhancement is claimed complete.
+
 ## 2026-11-23 — Phase A audit and initial target
 
 - Cloned Eidos, Aletheia, and Kenon from Project Holon.
