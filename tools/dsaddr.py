@@ -1726,6 +1726,15 @@ def main(argv=None) -> int:
         # memory-backed archive handles must reserve the complete object.
         source = _need(source, "GFL_HEAP_Alloc(heapID, 0x50, 0,",
                        "GFL_HEAP_Alloc(heapID, sizeof(struct ArcHandle), 0,")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/pm.c"):
+        # DS aliases name fields by byte offset. Native PM callbacks must
+        # use the same widened PmBss members as initialization/execution.
+        source = _need(source, "(PMGenCallbackInfo **)g_0215301C",
+                       "&g_02153000.preSleepCallbackList")
+        source = _need(source, "(PMGenCallbackInfo **)g_02153004",
+                       "&g_02153000.postSleepCallbackList")
+        source = _need(source, "&PMi_PostSleepCallbackList, info",
+                       "&g_02153000.preSleepCallbackList, info")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/savedata.c"):
         # SaveBlockDef is cartridge data: ID, size callback, init callback,
         # each one DS word. Resolve callbacks at the call boundary on LP64.

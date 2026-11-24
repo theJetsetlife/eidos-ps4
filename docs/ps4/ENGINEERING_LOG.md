@@ -223,3 +223,11 @@ list-head pointer; its initialization, adjacent global layout, and callback
 node storage require investigation. This supersedes the archive allocator
 fault as the observed next startup stop. No complete frame or target run is
 claimed.
+
+GDB stopped at both initial sound callback insertions. The second receives
+the old DS list-head address `0x02153004`, whose native-width value is 1.
+The first uses `0x0215301C`. These fixed aliases disagree with the widened
+`PmBss` members used elsewhere in pm.c. Generated insertion/deletion calls
+now refer to the named pre/post list fields, including the extended pre-list
+insertion alias. Pinned-source generation and Python syntax checks pass;
+full rebuild/runtime verification remains pending.
