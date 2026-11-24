@@ -154,3 +154,13 @@ zero, while the bytes show 69 at offset 4. This establishes disagreement
 between the supplied object's layout and the native accessor. The constructor
 and ownership of this particular object still need tracing before a fix;
 changing the accessor alone would not establish consistent native pointers.
+
+Constructor tracing narrows this further: `SAVEDATA_CreateTable` is called by
+`BACKUP_SYSTEM_CreateCore` with definition pointer `0x450209DA28` and count zero.
+`SaveDataParam` is read directly from `_MainSaveDesc`, a 24-byte DS descriptor:
+its first two words are definition address `0x0209DA28` and record count 69.
+The native `const void *table_def` consumes both words, shifting every later
+field. Thus the previous accessor assertion is downstream of invalid constructor
+arguments, not proof that the allocated table itself was constructed in DS
+layout. Required correction: decode/reconstruct the descriptor and its record
+callback definitions consistently before constructing the native save table.
