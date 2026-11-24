@@ -81,6 +81,16 @@ this Linux host. The SDK compiler, PSSL compiler, executable converter, and
 packager are Windows tools here, so this inspection does not change the
 unbuilt/unpackaged/unverified status of the PS4 application.
 
+Follow-up implementation: the PS4 AudioOut shutdown now drains pending output
+with `sceAudioOutOutput(port, NULL)` after the healthy worker joins and before
+closing the port. If the drain fails, the adapter retains its port and object
+for teardown retry; after a prior worker/output failure it skips drain and
+closes the port as recovery. This follows the official SDK AudioOut stream
+sample's documented final-output wait. Host Clang C99 syntax checking against
+SDK 12.508 headers passes, the regular host `eidos_boot` target remains up to
+date, and `git diff --check` passes. These checks do not compile or execute the
+Orbis AudioOut backend.
+
 ## 2026-11-24 — Per-user PS4 SaveData mount
 
 Added `engine/platform/ps4/save_ps4.c/.h`, which calls the SDK-declared

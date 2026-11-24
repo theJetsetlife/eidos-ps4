@@ -23,8 +23,10 @@ int eidos_ps4_audio_ready(EidosPs4Audio *audio);
 uint64_t eidos_ps4_audio_underruns(EidosPs4Audio *audio);
 uint64_t eidos_ps4_audio_dropped_frames(EidosPs4Audio *audio);
 
-/* Stop and join the output worker, then close AudioOut. On a join/close
- * failure the object remains allocated so teardown can be retried. */
+/* Stop and join the output worker, drain healthy AudioOut playback, then close
+ * the port. On a join/drain/close failure the object remains allocated so
+ * teardown can be retried. If playback already failed, draining is skipped
+ * and the port is closed as recovery. */
 int eidos_ps4_audio_destroy(EidosPs4Audio *audio);
 
 #ifdef __cplusplus

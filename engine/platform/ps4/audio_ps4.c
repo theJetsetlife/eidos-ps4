@@ -256,6 +256,7 @@ uint64_t eidos_ps4_audio_dropped_frames(EidosPs4Audio *audio)
 int eidos_ps4_audio_destroy(EidosPs4Audio *audio)
 {
     int result;
+    int failed;
 
     if (audio == NULL) {
         return 0;
@@ -278,6 +279,19 @@ int eidos_ps4_audio_destroy(EidosPs4Audio *audio)
             return -result;
         }
         audio->thread_ready = 0;
+    }
+    (void)pthread_mutex_lock(&audio->mutex);
+    failed = audio->failed;
+    (void)pthread_mutex_unlock(&audio->mutex);
+    /* The official AudioOut streaming sample drains queued playback by
+     * submitting NULL before closing the port. Do this only while the stream
+     * is healthy; after an output failure, closing is the recovery path. If
+     * draining fails, keep the port/object alive so the caller can retry. */
+    if (audio->port >= 0 && !failed) {
+        result = sceAudioOutOutput(audio->port, NULL);
+        if (result < 0) {
+            return result;
+        }
     }
     if (audio->port >= 0) {
         result = sceAudioOutClose(audio->port);
