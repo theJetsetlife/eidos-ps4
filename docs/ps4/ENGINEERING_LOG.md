@@ -144,3 +144,13 @@ requested interval's endpoints before using the legacy fixture convention.
 Full host rebuild/link succeeded. The runtime trace now reports successful
 backup reads through the outside-save regions and proceeds to a game assertion
 at `0x02034734`, with overlays 10 and 11 resident. No complete frame is claimed.
+
+The assertion was subsequently isolated with GDB: `SAVEDATA_GetBlockOffset`
+receives block ID 27 via `SYSTEM_DATA_GetConfig -> SAVE_CONTROL_GetBlock ->
+BACKUP_SYSTEM_GetRecordWork`. At the supplied table object, the first words
+are `0x0209DA28, 69, 0, 16, 16, 0x31053527`, followed by a native pointer.
+The native `SaveDataTable` accessor expects `table_max` at offset 8 and sees
+zero, while the bytes show 69 at offset 4. This establishes disagreement
+between the supplied object's layout and the native accessor. The constructor
+and ownership of this particular object still need tracing before a fix;
+changing the accessor alone would not establish consistent native pointers.
