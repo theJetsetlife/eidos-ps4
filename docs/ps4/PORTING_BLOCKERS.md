@@ -4,9 +4,13 @@ Ordered by the dependency chain, not by perceived difficulty.
 
 1. **SDK host mismatch.** The installed 12.508.041 compiler and tools are
    Windows PE programs; the active host is Linux. No official target compile
-   can be claimed here.
-2. **Publishing Tools absent.** The official package command/generator is not
-   on `PATH`, so GP4 validation and package creation cannot begin.
+   can be claimed here. The distribution bundle includes official GNM/GNMX,
+   PSSL, AudioOut, and user-service samples for implementation reference, but
+   their presence does not provide a runnable Linux toolchain.
+2. **Publishing Tools unavailable on this host.** The SDK bundle includes the
+   official Publishing Tools 4.12 Windows installer, but the tools are not
+   installed or available on `PATH` here. GP4 validation and package creation
+   remain unavailable in this environment.
 3. **LP64 game-data and renderer behavior remain incomplete.** The reconstructed
    game builds and links as x86-64 on the host and the latest headless run
    completes 6,500 simulation frames/VBlank interrupts with title overlays

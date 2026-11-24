@@ -65,6 +65,22 @@ declared `GfxContext::submitAndFlip` and `Gnmx::renderFullScreenQuad` APIs, but
 does not establish a complete application GPU initialization path. No unverified
 rendering calls were added on that basis.
 
+## 2026-11-24 — Official SDK sample archive inspected
+
+The user-provided SDK distribution archive contains the official 12.508
+sample archive, correcting the earlier conclusion based only on the partial
+installed `target/samples` tree. Inspected its graphics, audio, and system
+sample index and the `api_gnm/basic-sample`,
+`tutorial_graphics_programming/basic_quad`, AudioOut stream, and user-service
+sample sources. The GNM quad sample documents the full graphics-context,
+render-target, shader binding, draw, and submit/flip flow needed to guide the
+native presentation backend. Proprietary SDK sample source and assets remain
+outside this repository. The distribution archive also contains the official
+Publishing Tools 4.12 Windows MSI; they remain uninstalled and unavailable on
+this Linux host. The SDK compiler, PSSL compiler, executable converter, and
+packager are Windows tools here, so this inspection does not change the
+unbuilt/unpackaged/unverified status of the PS4 application.
+
 ## 2026-11-24 — Per-user PS4 SaveData mount
 
 Added `engine/platform/ps4/save_ps4.c/.h`, which calls the SDK-declared
