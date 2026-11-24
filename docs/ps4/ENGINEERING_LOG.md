@@ -205,3 +205,12 @@ pointer fields widen. The accessor therefore reads count and offsets from
 the wrong positions. Its generated native copy now includes the same
 `g3d_util_shared_types.h` declaration and uses `ArcHandle`. Generated-source
 C99 syntax checks passed; full build/runtime verification is pending.
+
+Full rebuild/link then passed and execution advanced past the archive-member
+assertion. GDB next stopped inside the host allocator during
+`MSGDATA_LoadFileHeader`. Both `ARC_TOOL_CreateHandle` constructors still
+allocated the DS literal 80 bytes despite embedding native FSFile. Their
+generated allocations now use `sizeof(struct ArcHandle)` for disk and memory
+archives. This corrects a definite undersized allocation; whether it fully
+explains the allocator fault awaits rebuild/runtime verification. Generation
+against the pinned source and Python syntax checks passed.

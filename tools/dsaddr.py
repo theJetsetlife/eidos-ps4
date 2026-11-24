@@ -1721,6 +1721,11 @@ def main(argv=None) -> int:
         source = _need(source, "const void *table_def;", "u32 table_def;")
         source = _need(source, "(struct SaveBlockDef *)param->table_def",
                        "(struct SaveBlockDef *)bw_ds_ptr(param->table_def)")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/arc_tool.c"):
+        # FSFile expands with native pointer fields. Both disk-backed and
+        # memory-backed archive handles must reserve the complete object.
+        source = _need(source, "GFL_HEAP_Alloc(heapID, 0x50, 0,",
+                       "GFL_HEAP_Alloc(heapID, sizeof(struct ArcHandle), 0,")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/savedata.c"):
         # SaveBlockDef is cartridge data: ID, size callback, init callback,
         # each one DS word. Resolve callbacks at the call boundary on LP64.
