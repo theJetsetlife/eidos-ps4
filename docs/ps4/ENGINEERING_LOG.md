@@ -55,3 +55,28 @@ Black layout while the private cartridge is White. `test_armdata_real` failed
 three native-address assertions after reporting 750 refused relocations on
 LP64; this independently reproduces the x86-64 blocker seen by `eidos_boot`.
 The generator-focused `test_dsaddr` and `test_armdata_gen` tests passed.
+
+## 2026-11-23 — First LP64 runtime fault isolated
+
+GDB stopped at `GFL_NET_SetupHeaps+58`, at the indirect call of
+`GFLNetModeOps.initLibrary`. The table returned by
+`GFL_NET_DEVWIFI_GetDeviceTable` remains serialized cartridge data:
+its first two 32-bit words are `0x02155161` and `0x02155169`.
+The native caller reads them as the single 64-bit callback
+`0x0215516902155161`. This establishes a specific callback-table layout
+failure rather than only a general LP64 suspicion. The table binding in
+`ov009_link.c` is `_wifiDeviceTable`, classified `BW_DATA_BIND_DS` at
+the reference address `0x021A1B80`. Native reconstruction must resolve each
+callback separately and account for native-width reserved slots in
+`GFLNetModeOps`; widening the table's storage alone cannot fix it.
+
+Reproduction: run GDB against `build-host-boot/eidos_boot`, set a breakpoint
+at `*GFL_NET_SetupHeaps+58`, and run with `--data-root` pointing to the private
+extracted data plus `--frames 1 --no-window`. Inspect the indirect call's
+target register and the table returned by `NET_DEVICE_TABLE_Select`.
+The offset is specific to this unoptimized GCC host build.
+
+Fixed the PS4 diagnostic's direct-memory cleanup ownership: a failed allocation
+no longer attempts to release an unowned offset. A negative flip-pending query
+also no longer enters the pending-flip drain loop. These source changes remain
+uncompiled with the official target compiler due to the recorded host mismatch.

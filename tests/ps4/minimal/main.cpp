@@ -36,6 +36,7 @@ struct State {
     bool buffers_registered = false;
     off_t direct_offset = 0;
     uint64_t direct_size = 0;
+    bool direct_allocated = false;
     void *mapping = nullptr;
     void *buffers[kBufferCount] = {};
     int64_t last_flip[kBufferCount] = {
@@ -122,7 +123,7 @@ int wait_for_flip(State *state, int64_t flip_arg)
 void shutdown(State *state)
 {
     if (state->video >= 0) {
-        while (sceVideoOutIsFlipPending(state->video) != 0 && state->flip_queue != nullptr) {
+        while (sceVideoOutIsFlipPending(state->video) > 0 && state->flip_queue != nullptr) {
             SceKernelEvent event;
             int count = 0;
             if (sceKernelWaitEqueue(state->flip_queue, &event, 1, &count, nullptr) < 0) {
@@ -143,8 +144,9 @@ void shutdown(State *state)
         (void)sceKernelMunmap(state->mapping, state->direct_size);
         state->mapping = nullptr;
     }
-    if (state->direct_size != 0) {
+    if (state->direct_allocated) {
         (void)sceKernelReleaseDirectMemory(state->direct_offset, state->direct_size);
+        state->direct_allocated = false;
         state->direct_size = 0;
     }
     sce::Gnm::submitDone();
@@ -184,6 +186,7 @@ int run()
         shutdown(&state);
         return fail("sceKernelAllocateDirectMemory", result);
     }
+    state.direct_allocated = true;
 
     result = sceKernelMapDirectMemory(
         &state.mapping, state.direct_size,
