@@ -1069,3 +1069,23 @@ Validation on this host:
   texture and sampler register syntax used here.
 - The PSSL compiler, Sony target compiler, linker, package tools, and PS4
   hardware were not available for this validation.
+
+# 2026-11-24 — Recheck the LP64 title-input milestone
+
+Reran `test_boot_run` from `build-host-boot`. It passes at its configured
+6,000-frame milestone and confirms resident overlays `10 11 88`; the CTest
+log explicitly identifies this as the LP64 diagnostic path. That assertion
+does not prove the title menu is displayed or that a scripted press reached
+the game.
+
+Ran the host boot through 8,000 frames with `START@4800` and `A@5000`, saving
+the two-screen images at frames 5,000 and 7,999. The later capture still shows
+the title scene. This confirms that input-driven progression remains
+unverified and that the overlay-only boot assertion must not be reported as a
+menu or gameplay pass. Captures were written under `/tmp` and are not project
+assets.
+
+Validation: the existing boot CTest passed; the manual run reported 8,000
+frames/VBlank interrupts and resident overlays `10 11 88`. This is host-side
+LP64 evidence only. Sony compilation, target input, and PS4 hardware behavior
+remain unverified.

@@ -17,9 +17,11 @@ Ordered by the dependency chain, not by perceived difficulty.
    10/11/88 resident. A captured host image contains the Pokémon White title
    logo and animated Zekrom title scene. A 256×384 two-screen host capture and
    the G3D dump confirm the title image reaches the software capture path; they
-   do not establish visual parity or PS4 presentation. A bounded scripted-A
-   run did not leave the title scene, so input progression is not verified.
-   LP64 title
+   do not establish visual parity or PS4 presentation. `test_boot_run` reaches
+   6,000 frames and checks title-related overlay residency, but its LP64 path
+   is a diagnostic milestone rather than a rendered menu check. A manual LP64
+   capture through frame 7,999 with scripted START and A presses still shows
+   the title scene; input-driven progression is not verified. LP64 title
    character, palette, cell-bank, animation-bank, G3D dispatch, and
    render-surface adaptations still need broader behavioral validation; an
    LP64-only empty-cell guard also needs tracing against original behavior.

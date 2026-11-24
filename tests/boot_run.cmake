@@ -29,8 +29,9 @@
 # explicit unrelocated diagnostic mode. That is not pointer-relocation or
 # gameplay validation; it checks that the diagnostic reaches its known
 # frame/overlay milestone while retaining the data-layer warning.
-# PRESS passes eidos_boot's --press (START@4800: past the title screen into
-# its menu).
+# PRESS supplies scripted DS input. The LP64 diagnostic path below checks
+# only that the run reaches its expected frame/overlay milestone; it is not
+# evidence that the game consumed the input or advanced to a new scene.
 # WINDOW=1 runs it with --window (the caller sets SDL_VIDEODRIVER and
 # SDL_AUDIODRIVER to dummy): the window and the audio queue live on the
 # frame thread, and a run that stalls there fails on the watchdog.

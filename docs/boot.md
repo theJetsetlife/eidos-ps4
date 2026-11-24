@@ -355,11 +355,13 @@ set-up); then the frame loop: the Nintendo and The Pokemon Company logos
 (frame 30), the copyright screen (frame 240), the opening (ov179, from about
 frame 600), and the title screen (ov088, "PRESS START", from about frame
 4600). With no input the game loops back to the opening, as the cartridge
-does; 20000 frames run without a stop. With `--press START@4800` (or the
-key in a window) the title menu opens (NEW GAME, MYSTERY GIFT, NINTENDO WFC
-SETTINGS, MIC TEST) and runs; `test_boot_run` asserts exactly that. What
-lies past the menu (a new game's first scenes, the field) is the next
-frontier.
+does; 20000 frames run without a stop. The current `test_boot_run` sends
+`START@4800` and checks the frame count plus title-related overlays. It does
+not verify that the title menu was drawn or that the press reached the game.
+An LP64 diagnostic capture through frame 7999 with `START@4800` and
+`A@5000` still showed the title scene, so input-driven progression and the
+first new-game scenes remain unverified. What lies past the title scene is
+the next gameplay frontier.
 
 `--press BUTTONS@FRAME[:HOLD]` and `--input SCRIPT` give the run timed
 input (sdk/input.h's script), which joins a window's keys: `bw_input_frame`

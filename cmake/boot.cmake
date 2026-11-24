@@ -837,14 +837,11 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
 else()
     set(_boot_lp64 1)
 endif()
-# With the title overlays compiled in (EIDOS_OVERLAYS) the boot runs the
-# frame loop: the Nintendo and copyright screens, the opening (ov179), the
-# title (ov088, from about frame 4600), and with START pressed at frame 4800
-# the title menu, where it stays (ov010, ov011 and ov088 resident).  The test
-# asks for that: all the frames, the menu's overlays at the end.  A stop on
-# the way passes only if it is the documented next one and at or past the
-# furthest frame the boot is known to reach (tests/boot_run.cmake); update
-# these when the boot gets further.  docs/boot.md, "How far it gets".
+# With title overlays compiled in, the run is expected to reach the title
+# region around frame 4600 and continue to the configured frame count. The
+# overlay assertion records residency only; on LP64 the test explicitly runs
+# the diagnostic path and does not establish that scripted input changed the
+# game scene. New-game progression needs a separate gameplay assertion.
 set(_boot_frames 120)
 set(_boot_min_frames 0)
 set(_boot_known_stop "")
