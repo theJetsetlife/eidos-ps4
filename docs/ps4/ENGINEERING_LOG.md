@@ -119,3 +119,17 @@ the DWC invalid free. The next fault is `GFL_NET_AllocAligned`, called from
 LP64, and its saved-pointer slot uses four bytes. The native generator now
 widens the mask and uses `sizeof(void *)` for both storage and recovery.
 This subsequent correction still needs full rebuild/runtime verification.
+
+## 2026-11-24 — Network allocator correction exercised
+
+The complete host boot rebuilt and linked successfully after `f703b42`.
+GDB confirms execution passes `GFL_NET_AllocAligned` and reaches
+`SAVE_CONTROL_Create` / overlay 228 `SAVE_OUTSIDE_Load`.
+The first observed `FLASH_ACCESS_Read` requests 884 bytes at flash offset
+`0x7F800` into a native heap buffer. The read reports failure and invokes
+the game's power/error callback. That path then faults in `bw_rd16` via
+`MIi_CpuCopy16 <- APP_POWER_LoadShutdownScreen <- APP_POWER_ShowShutdownScreen
+<- APP_POWER_HaltWithMessage <- APP_POWER_ClearCallback`.
+The read-failure cause and shutdown-image source pointer remain unverified;
+neither is assumed to be a missing save file. No complete simulation frame
+has been verified. Orbis build and hardware status are unchanged.
