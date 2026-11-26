@@ -30,7 +30,7 @@ extern u16  STRBUF_GetLength(void *strbuf) WEAK;
 
 static u32 rd32(const u8 *p) { u32 v; memcpy(&v, p, 4); return v; }
 static u16 rd16(const u8 *p) { u16 v; memcpy(&v, p, 2); return v; }
-static u8 *rdp(const u8 *p) { return (u8 *)(uintptr_t)rd32(p); }
+static u8 *rdp(const u8 *p) { u32 v = rd32(p); return v != 0 ? (u8 *)bw_ds_try_ptr(v) : NULL; }
 
 static int g_target = -1;           /* the row asked for: >= 0 pick it,
                                        -2 - row: only move the cursor there */

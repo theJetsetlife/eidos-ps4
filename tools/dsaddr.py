@@ -1754,6 +1754,19 @@ def main(argv=None) -> int:
         source = _need(source, "struct DList *list, u32 val", "struct DList *list, uptr val")
         source = _need(source, "NNSi_FndFindListContainHeap(u32 a)", "NNSi_FndFindListContainHeap(uptr a)")
         source = _need(source, "NNSi_FndInitMBlock(int *p", "NNSi_FndInitMBlock(sptr *p")
+        # NNSi_FndGetMBlockRegion writes pointer-arithmetic (sptr) values
+        # into its output pair.  The parameter, the struct, and every local
+        # that receives the two words must be pointer-width on LP64.
+        source = _need(source, "struct MemRegion {\n    int start;\n    int end;\n};",
+                                "struct MemRegion {\n    sptr start;\n    sptr end;\n};")
+        source = _need(source, "NNSi_FndGetMBlockRegion(int *out, int *blk)",
+                                "NNSi_FndGetMBlockRegion(sptr *out, int *blk)")
+        source = source.replace("NNSi_FndGetMBlockRegion(int *out, int *blk);",
+                                "NNSi_FndGetMBlockRegion(sptr *out, int *blk);")
+        source = source.replace("NNSi_FndGetMBlockRegion((int *)(&rgnFree)",
+                                "NNSi_FndGetMBlockRegion((sptr *)(&rgnFree)")
+        source = source.replace("    int            start;\n",
+                                "    sptr           start;\n")
         source = _need(source, "int  pair[2];", "sptr pair[2];")
         # MemRegion contains native-width addresses after the structure
         # promotion above.  Preserve the DS source casts, but make every
@@ -1798,6 +1811,37 @@ def main(argv=None) -> int:
         source = _need(source, "const void *table_def;", "u32 table_def;")
         source = _need(source, "(struct SaveBlockDef *)param->table_def",
                        "(struct SaveBlockDef *)bw_ds_ptr(param->table_def)")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/nvram.c"):
+        # NVRAMi_Read/Write/Erase pass (OSMessage *)&result to
+        # OS_ReceiveMessage.  OSMessage is void * (8 bytes on LP64), but
+        # NVRAMResult is u32 (4 bytes) — the receive writes 8 bytes into 4,
+        # overflowing the stack.  Receive into a pointer-width local.
+        source = "#include <stdint.h>\n" + source
+        source = source.replace(
+            "    NVRAMResult result;\n"
+            "    OSMessageQueue msgQ;\n"
+            "    OSMessage msg[1];",
+            "    NVRAMResult result;\n"
+            "    OSMessageQueue msgQ;\n"
+            "    OSMessage msg[1];\n"
+            "    OSMessage _msg_rcv;")
+        source = source.replace(
+            "OS_ReceiveMessage(&msgQ, (OSMessage *)&result, 1)",
+            "OS_ReceiveMessage(&msgQ, &_msg_rcv, 1)")
+        # After each receive block, truncate the pointer-width message
+        # back to NVRAMResult before the caller reads `result`.
+        source = source.replace(
+            "if (!OS_ReceiveMessage(&msgQ, &_msg_rcv, 1)) {\n"
+            "            OS_Terminate();\n"
+            "        }\n"
+            "    }\n"
+            "    return result;",
+            "if (!OS_ReceiveMessage(&msgQ, &_msg_rcv, 1)) {\n"
+            "            OS_Terminate();\n"
+            "        }\n"
+            "        result = (NVRAMResult)(uintptr_t)_msg_rcv;\n"
+            "    }\n"
+            "    return result;")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/arc_tool.c"):
         # FSFile expands with native pointer fields. Both disk-backed and
         # memory-backed archive handles must reserve the complete object.

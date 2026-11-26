@@ -29,6 +29,7 @@
 #include "ui_lang.h"
 #include "input.h"
 #include "overlay.h"
+#include "dsmem.h"
 
 /* ------------------------------------------------------------------ */
 /* The game                                                            */
@@ -102,7 +103,8 @@ static u32 rd16(const void *p, u32 off)
 
 static void *rdp(const void *p, u32 off)
 {
-    return (void *)(uintptr_t)rd32(p, off);
+    u32 v = rd32(p, off);
+    return v != 0 ? bw_ds_try_ptr(v) : NULL;
 }
 
 /* ItemMenuWork (src/game/ov070/itemmenu_types.h). */

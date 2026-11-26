@@ -18,6 +18,8 @@ typedef unsigned char  u8;
 typedef unsigned short u16;
 typedef unsigned int   u32;
 
+extern unsigned int bw_ds_addr_of(const void *host);
+extern void *bw_ds_ptr(unsigned int);
 extern void PARTICLE_KillAllEffects(void *sys);
 extern void NNS_GfdLoadVramManager(u32 *src);
 extern u32 NNS_GfdFreeTexVram(u32 h);
@@ -64,7 +66,7 @@ void PARTICLE_DeleteSystem(u8 *p)
         F32(p, 0x08) = z;
         if (h != 0) {
             if ((*(u16 *)(p + 0x32) & 1) == 0) {
-                func_020307B0((void *)h);
+                func_020307B0(bw_ds_ptr(h));
                 F32(p, 0x04) = z;
             }
         }
@@ -74,7 +76,7 @@ void PARTICLE_DeleteSystem(u8 *p)
         int j;
         for (j = 0; j < 0x10; j++) {
             u32 *slots = (u32 *)g_pParticleMan;
-            if (slots[j] == (u32)p) {
+            if (slots[j] == bw_ds_addr_of(p)) {
                 slots[j] = z;
                 break;
             }
@@ -82,7 +84,7 @@ void PARTICLE_DeleteSystem(u8 *p)
     }
 
     if (F32(p, 0x20) != 0)
-        G3D_CAMERA_Delete((void *)F32(p, 0x20));
+        G3D_CAMERA_Delete(bw_ds_ptr(F32(p, 0x20)));
 
     func_020307B0(p);
 }

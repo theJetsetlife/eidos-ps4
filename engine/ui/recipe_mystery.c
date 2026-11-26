@@ -28,6 +28,7 @@
 #include "input.h"
 #include "textbox.h"
 #include "choice_list.h"
+#include "dsmem.h"
 
 #if defined(__GNUC__) || defined(__clang__)
 #define MG_WEAK __attribute__((weak))
@@ -104,7 +105,7 @@ enum { DLG_NONE = -1, DLG_MENU = 0, DLG_RECEIVE = 1, DLG_GIFT = 2, DLG_INFO = 3 
 static u32 rd32(const void *p, u32 off) { return *(const u32 *)((const u8 *)p + off); }
 static u32 rd16(const void *p, u32 off) { return *(const u16 *)((const u8 *)p + off); }
 static u32 rd8(const void *p, u32 off) { return *((const u8 *)p + off); }
-static void *rdp(const void *p, u32 off) { return (void *)(uintptr_t)rd32(p, off); }
+static void *rdp(const void *p, u32 off) { u32 v = rd32(p, off); return v != 0 ? bw_ds_try_ptr(v) : NULL; }
 
 /* Mystery Gift is a proc of overlay 121: of the global ProcSys when the
  * title menu starts it, of the game system's own (GameSystem: procSys

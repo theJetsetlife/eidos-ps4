@@ -73,7 +73,8 @@ static u32 rd8(const void *p, u32 off)
 
 static void *rdp(const void *p, u32 off)
 {
-    return (void *)(uintptr_t)rd32(p, off);
+    u32 v = rd32(p, off);
+    return v != 0 ? bw_ds_try_ptr(v) : NULL;
 }
 
 /* ShopTask (ov021/scrcmd_proc_fld_types.h): state 0x00, shopKind 0x02,

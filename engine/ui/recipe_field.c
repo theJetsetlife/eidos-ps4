@@ -106,7 +106,7 @@ static u32 rd32(const u8 *p) { u32 v; memcpy(&v, p, 4); return v; }
 static void wr32(u8 *p, u32 v) { memcpy(p, &v, 4); }
 /* the game's sound effects (arm9/gfl_use.c) */
 static u16 rd16(const u8 *p) { u16 v; memcpy(&v, p, 2); return v; }
-static u8 *rdp(const u8 *p) { u32 v = rd32(p); return (u8 *)(uintptr_t)v; }
+static u8 *rdp(const u8 *p) { u32 v = rd32(p); return v != 0 ? (u8 *)bw_ds_try_ptr(v) : NULL; }
 
 typedef struct FieldNow {
     u8 *gs;                 /* the game system                            */

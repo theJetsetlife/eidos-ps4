@@ -103,7 +103,8 @@ static int rds16(const u8 *p, u32 off)
 
 static u8 *rdp(const u8 *p, u32 off)
 {
-    return (u8 *)(uintptr_t)rd32(p, off);
+    u32 v = rd32(p, off);
+    return v != 0 ? (u8 *)bw_ds_try_ptr(v) : NULL;
 }
 
 /* A game pointer: inside the game's main RAM, wherever the host keeps it
@@ -426,10 +427,10 @@ static int bt_read(Bt *b)
         }
     }
     if (bw_overlay_is_loaded(197)) {
-        g_bt.bag = find_task_work(eff, (u32)(uintptr_t)(core + 0xC8));
+        g_bt.bag = find_task_work(eff, bw_ds_addr_of(core + 0xC8));
     }
     if (g_bt.bag == NULL && bw_overlay_is_loaded(198)) {
-        g_bt.plist = find_task_work(eff, (u32)(uintptr_t)(core + 0x10C));
+        g_bt.plist = find_task_work(eff, bw_ds_addr_of(core + 0x10C));
     }
     if (debug_on()) {
         static int last_screen = -2, last_bag = -1, last_pl = -1;
@@ -4194,7 +4195,7 @@ int eidos_ui_plist_outside(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame 
     if (!gptr_ok((u8 *)sys)) {
         return 0;
     }
-    plist = find_task_work(eff, (u32)(uintptr_t)host);
+    plist = find_task_work(eff, bw_ds_addr_of(host));
     if (plist == NULL) {
         return 0;
     }

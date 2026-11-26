@@ -36,6 +36,7 @@
 #include "textbox.h"
 #include "kit.h"
 #include "theme.h"
+#include "dsmem.h"
 
 #define WEAK __attribute__((weak))
 
@@ -46,7 +47,7 @@ extern int  bw_ui_field_wins(const void **out, int max) WEAK;
 
 static u32 rd32(const u8 *p) { u32 v; memcpy(&v, p, 4); return v; }
 static u16 rd16(const u8 *p) { u16 v; memcpy(&v, p, 2); return v; }
-static u8 *rdp(const u8 *p) { return (u8 *)(uintptr_t)rd32(p); }
+static u8 *rdp(const u8 *p) { u32 v = rd32(p); return v != 0 ? (u8 *)bw_ds_try_ptr(v) : NULL; }
 
 /* The approved colours (mock-ups n3A and n4b S1). */
 #define TB_PAPER    0xFFFFFFu
