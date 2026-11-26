@@ -1723,6 +1723,31 @@ def main(argv=None) -> int:
     source = _read(src_path)
     if "/src/matched/" in os.path.abspath(src_path).replace("\\", "/"):
         source = native_matched_types(source, src_path, a.pointer_width)
+    # GAME_TYPES_U32_LONG / GAME_TYPES_S32_LONG make u32/s32 = unsigned/signed
+    # long for mwccarm binary matching.  On LP64 `long` is 8 bytes, breaking
+    # every struct whose layout the rest of the program sees with 4-byte u32.
+    if a.pointer_width and a.pointer_width > 4:
+        source = source.replace("#define GAME_TYPES_U32_LONG\n", "")
+        source = source.replace("#define GAME_TYPES_S32_LONG\n", "")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/std_string.c"):
+        # STDi_FillBitset uses unsigned long (mwccarm match) but the local
+        # bitset array is u32[].  After stripping GAME_TYPES_U32_LONG these
+        # types differ on LP64.  Use u32 consistently.
+        source = source.replace(
+            "void STDi_FillBitset(unsigned long *bitset, unsigned long a, unsigned long b);",
+            "void STDi_FillBitset(u32 *bitset, u32 a, u32 b);")
+        source = source.replace(
+            "void STDi_FillBitset(unsigned long *bitset, unsigned long start, unsigned long end)",
+            "void STDi_FillBitset(u32 *bitset, u32 start, u32 end)")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/dwc_backup.c"):
+        # Forward declarations use `unsigned long num` to match mwccarm ABI.
+        # After stripping GAME_TYPES_U32_LONG, definitions use `unsigned int`.
+        source = source.replace(
+            "extern int ReadSlotInfo(NCFGSlotInfo *buf, int offset, unsigned long num);",
+            "extern int ReadSlotInfo(NCFGSlotInfo *buf, int offset, u32 num);")
+        source = source.replace(
+            "extern int ReadSlotInfoEx(NCFGSlotInfoEx *buf, int offset, unsigned long num);",
+            "extern int ReadSlotInfoEx(NCFGSlotInfoEx *buf, int offset, u32 num);")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/tcb_list.c"):
         source = "#include <stddef.h>\n" + source
         source = _need(source, "return (idx << 5) + 0x38;",
