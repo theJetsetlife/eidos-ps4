@@ -5984,7 +5984,8 @@ static int extend_sea(Ctx *c)
  * cell loads) where the grid has no zone layer or names no cell of the zone. */
 static unsigned char *grid_cells_joined(Buf mb, unsigned w, unsigned h, unsigned zone)
 {
-    unsigned char *keep = (unsigned char *)calloc((size_t)w * h ? (size_t)w * h : 1u, 1);
+    size_t cells = (size_t)w * h;
+    unsigned char *keep = (unsigned char *)calloc(cells ? cells : 1u, 1);
     unsigned *stack = (unsigned *)malloc(((size_t)w * h + 1u) * sizeof *stack);
     unsigned n = 0, cell, any = 0;
 
