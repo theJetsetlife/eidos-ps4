@@ -41,8 +41,34 @@ extern int PRINTSYS_QUE_IsFinished(void *p);
 extern int STARTMENU_RefreshSaveStatus(void *p);
 extern int STARTMENU_BeginFadeOut(void *p, int k);
 
+#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ > 4
+#include "startmenu_types.h"
+#endif
+
 int STARTMENU_StateWaitPrint(char *p)
 {
+#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ > 4
+    StartMenuWork *work = (StartMenuWork *)p;
+    unsigned i;
+    void *queue = work->printSys;
+    PRINTSYS_QUE_Main(queue);
+    for (i = 0; i < 14; i++) {
+        if (work->windows[i].textPending &&
+            PRINTSYS_QUE_IsExistTarget(queue,
+                BMP_WIN_GetBmp(work->windows[i].window)) == 0) {
+            BMP_WIN_TransferChars(work->windows[i].window);
+            work->windows[i].textPending = 0;
+        }
+    }
+    if (PRINTSYS_QUE_IsFinished(queue) == 1) {
+        if (bw_mod_title_take_rebuild())
+            return 5;
+        if (STARTMENU_RefreshSaveStatus(p) == 1)
+            return 10;
+        return STARTMENU_BeginFadeOut(p, 5);
+    }
+    return 4;
+#else
     unsigned i;
     void *t;
     PRINTSYS_QUE_Main(*(void **)(p + 0x68));
@@ -61,4 +87,5 @@ int STARTMENU_StateWaitPrint(char *p)
         return STARTMENU_BeginFadeOut(p, 5);
     }
     return 4;
+#endif
 }

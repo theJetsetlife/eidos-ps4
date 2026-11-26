@@ -77,6 +77,17 @@
 
 #include "../sdk/types.h"
 #include "../sdk/mod_script.h"
+#include "../sdk/dsmem.h"
+
+
+#if UINTPTR_MAX > UINT32_MAX
+struct BwDataImage;
+typedef void (*BwVmCodeEntry)(void);
+extern const struct BwDataImage *bw_data_installed(void);
+extern BwVmCodeEntry bw_arm9_code_entry(const struct BwDataImage *image, u32 address);
+extern BwVmCodeEntry bw_ovl_code_entry(u32 address);
+extern void bw_data_trap(u32 address);
+#endif
 
 /* sdk/mod_v6.c: the field command running, for a mod's work_get. */
 extern void *bw_mod_v6_set_field_cmd_work(void *cmd_work) __attribute__((weak));
@@ -121,6 +132,26 @@ typedef struct BwPortScriptVm {
     void                *hook_arg;
     void                *data;
 } BwPortScriptVm;
+
+/* A DS-backed table retains four-byte words even when the VM is native. */
+static BwPortScriptCmdFn bw_vm_command(const BwPortScriptVm *vm, u32 op)
+{
+#if UINTPTR_MAX > UINT32_MAX
+    if (bw_ds_addr_of(vm->params.cmds) != 0) {
+        const u8 *table = (const u8 *)vm->params.cmds;
+        u32 address = bw_rd32(table + op * 4u);
+        if (address == 0)
+            return NULL;
+        BwVmCodeEntry fn = bw_ovl_code_entry(address);
+        if (fn == NULL)
+            fn = bw_arm9_code_entry(bw_data_installed(), address);
+        if (fn == NULL)
+            bw_data_trap(address);
+        return (BwPortScriptCmdFn)fn;
+    }
+#endif
+    return vm->params.cmds[op];
+}
 
 /*
  * The game's own fetch of the opcode (src/game/arm9/vm.c's VM_ReadU16; the
@@ -215,13 +246,12 @@ static void bw_vm_count_forget(BwPortScriptVm *vm)
 #define BW_PORT_WIDTH_NONE 0xFFu
 
 /*
- * One command's dispatch: the VM it runs in, the opcode, the command's
- * operand width, where the operands sit, and the game's own answer.
+ * One command's dispatch: the VM and handler, the operand bytes, and the
+ * game's own answer.
  */
 typedef struct BwPortVmCall {
     BwPortScriptVm *vm;
-    u32             op;
-    u32             width;
+    BwPortScriptCmdFn handler;
     u8             *ops;      /* the operand bytes, at the cursor */
     u32             nargs;     /* how many operand bytes the command carries */
     int             answered;  /* the game's own handler's answer */
@@ -244,8 +274,7 @@ static int bw_vm_game_handler(void *ctx, BwModScriptCommand *cmd)
             call->ops[i] = cmd->args[i];
         }
     }
-    call->answered = call->vm->params.cmds[call->op](call->vm,
-                                                    call->vm->user);
+    call->answered = call->handler(call->vm, call->vm->user);
     return call->answered;
 }
 
@@ -253,7 +282,7 @@ static int bw_vm_game_handler(void *ctx, BwModScriptCommand *cmd)
  * One command through the port's registry.  Answers the game's own
  * answer: 1 ends the frame, as the game's handler's 1 does.
  */
-static int bw_vm_dispatch(BwPortScriptVm *vm, u32 op)
+static int bw_vm_dispatch(BwPortScriptVm *vm, u32 op, BwPortScriptCmdFn handler)
 {
     int kind;
     u32 width;
@@ -270,14 +299,14 @@ static int bw_vm_dispatch(BwPortScriptVm *vm, u32 op)
     if (kind < 0) {
         /* A VM the port does not touch: the trainer AI's and the station
          * act script's.  The game's handler runs as it is. */
-        return vm->params.cmds[op](vm, vm->user);
+        return handler(vm, vm->user);
     }
     width = bw_mod_script_operand_width((u32)kind, op);
     if (width == BW_PORT_WIDTH_NONE) {
         /* The game's table has no command at this opcode (nine of the
          * field VM's 609 are empty), and the port binds no handler to
          * one.  The game's own handler runs as it is. */
-        return vm->params.cmds[op](vm, vm->user);
+        return handler(vm, vm->user);
     }
 
     /* The opcode's own halfword is behind the cursor: the fetch read it.
@@ -298,8 +327,7 @@ static int bw_vm_dispatch(BwPortScriptVm *vm, u32 op)
     view.nargs = (u16)nargs;
 
     call.vm = vm;
-    call.op = op;
-    call.width = width;
+    call.handler = handler;
     call.ops = vm->pc;
     call.nargs = nargs;
     call.answered = 0;
@@ -383,7 +411,8 @@ int VM_Control(BwPortScriptVm *vm)
                     return 0;
                 }
             }
-            if (vm->params.cmds[op] == 0) {
+            BwPortScriptCmdFn handler = bw_vm_command(vm, op);
+            if (handler == NULL) {
                 /* The game's table has no command at this opcode (nine of
                  * the field VM's 609 are empty).  The game would call
                  * through the empty entry; the port stops the machine the
@@ -391,7 +420,7 @@ int VM_Control(BwPortScriptVm *vm)
                 bw_vm_stop(vm);
                 return 0;
             }
-            if (bw_vm_dispatch(vm, op) == 1) {
+            if (bw_vm_dispatch(vm, op, handler) == 1) {
                 break;
             }
         }

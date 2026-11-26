@@ -61,7 +61,11 @@ extern const void *eidos_opt_proc_table(void);
 typedef unsigned char u8;
 typedef unsigned int u32;
 
-extern void PROCSYS_FreeProcWork(int a);
+#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ > 4
+#include "startmenu_types.h"
+#endif
+
+extern void PROCSYS_FreeProcWork(void *proc);
 extern void GFL_HEAP_DeleteChecked(int a);
 extern void GAME_BEACON_RegisterClearCallback(void);
 extern void STARTMENU_ReplaceWithBattleFlagProcNoSave(void);
@@ -86,10 +90,16 @@ extern char ov107_id[];
 extern char ov088_id[];
 extern char d_021BD66C[];
 
-int STARTMENU_MenuExit(int a0, int a1, int a2, char *a3)
+int STARTMENU_MenuExit(void *a0, int a1, int a2, char *a3)
 {
+#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ > 4
+    StartMenuWork *work = (StartMenuWork *)a3;
+    u8 sel = work->selectedRow;
+    u8 flag = work->connectResult;
+#else
     u8 sel = *(u8 *)(a3 + 0x129);
     u8 flag = *(u8 *)(a3 + 0x12c);
+#endif
     char *w;
 
     PROCSYS_FreeProcWork(a0);

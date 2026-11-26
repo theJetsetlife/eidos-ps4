@@ -41,6 +41,17 @@ extern int eidos_sui_row_count(void);
 extern void bw_slots_settle(void);
 typedef unsigned char u8;
 
+#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ > 4
+#include "startmenu_types.h"
+#define SET_ROW_ID(p, i, value) (((StartMenuWork *)(p))->rowIds[(i)] = (u8)(value))
+#define GET_SAVE_DATA(p) (((StartMenuWork *)(p))->saveData)
+#define GET_UNLOCK_DATA(p) (((StartMenuWork *)(p))->unlockData)
+#else
+#define SET_ROW_ID(p, i, value) ((p)[0x120 + (i)] = (u8)(value))
+#define GET_SAVE_DATA(p) (*(void **)(p))
+#define GET_UNLOCK_DATA(p) (*(void **)((p) + 8))
+#endif
+
 extern int SAVE_CONTROL_HasFlashSave(void *);
 extern u8 MISC_GetSlotState(void *, unsigned);
 
@@ -53,34 +64,34 @@ void STARTMENU_BuildRowList(char *p)
         if (n > 7)
             n = 7;
         for (i = 0; i < (unsigned)n; i++)
-            (p + i)[0x120] = i + 1;
+            SET_ROW_ID(p, i, i + 1);
         while (i < 8) {
-            (p + i)[0x120] = 8;
+            SET_ROW_ID(p, i, 8);
             i++;
         }
         return;
     }
     if (hook)
         bw_slots_settle();
-    if (SAVE_CONTROL_HasFlashSave(*(void **)p) == 1) {
-        p[0x120] = 0;
+    if (SAVE_CONTROL_HasFlashSave(GET_SAVE_DATA(p)) == 1) {
+        SET_ROW_ID(p, 0, 0);
         i++;
     }
-    (p + i)[0x120] = 1;
+    SET_ROW_ID(p, i, 1);
     i++;
     if (hook) {
         /* MULTIPLAYER (kind 6, the game's Mic Test) comes third */
-        (p + i)[0x120] = 6;
+        SET_ROW_ID(p, i, 6);
         i++;
     }
-    (p + i)[0x120] = 2;
+    SET_ROW_ID(p, i, 2);
     i++;
-    if (MISC_GetSlotState(*(void **)(p + 8), 1)) {
-        (p + i)[0x120] = 3;
+    if (MISC_GetSlotState(GET_UNLOCK_DATA(p), 1)) {
+        SET_ROW_ID(p, i, 3);
         i++;
     }
-    if (MISC_GetSlotState(*(void **)(p + 8), 2)) {
-        (p + i)[0x120] = 4;
+    if (MISC_GetSlotState(GET_UNLOCK_DATA(p), 2)) {
+        SET_ROW_ID(p, i, 4);
         i++;
     }
     /* NINTENDO WFC SETTINGS (kind 5) is never listed: the service closed in
@@ -88,15 +99,15 @@ void STARTMENU_BuildRowList(char *p)
      * FS_ChangeDir into "utility:/") that the port's file system does not
      * carry */
     if (!hook) {
-        (p + i)[0x120] = 6;
+        SET_ROW_ID(p, i, 6);
         i++;
     }
-    if (MISC_GetSlotState(*(void **)(p + 8), 3) || hook) {
-        (p + i)[0x120] = 7;
+    if (MISC_GetSlotState(GET_UNLOCK_DATA(p), 3) || hook) {
+        SET_ROW_ID(p, i, 7);
         i++;
     }
     while (i < 8) {
-        (p + i)[0x120] = 8;
+        SET_ROW_ID(p, i, 8);
         i++;
     }
 }

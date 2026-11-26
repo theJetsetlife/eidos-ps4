@@ -74,11 +74,15 @@ extern void STARTMENU_LayoutRows(char *p);
 typedef unsigned char u8;
 typedef unsigned int u32;
 
+#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ > 4
+#include "startmenu_types.h"
+#endif
+
 extern void BLINK_PALANM_Update(void *p);
 extern u32 KEY_GetTrg(void);
 extern void GFL_USE_PlaySeDefaultVolume(u32);
 extern int STARTMENU_BeginSelectAnim(char *p, int v);
-extern void MISC_SetSlotState(int, int, int);
+extern void MISC_SetSlotState(void *, int, int);
 extern int STARTMENU_BeginFadeIn(char *p, int v);
 extern u32 KEY_GetRepeat(void);
 extern int STARTMENU_MoveCursor(char *p, int d);
@@ -149,8 +153,175 @@ static int autostart(char *p)
     return STARTMENU_BeginFadeIn(p, 1);
 }
 
+#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ > 4
+static int settings_state_native(StartMenuWork *work)
+{
+    int r;
+    BLINK_PALANM_Update(work->blinkPalAnm);
+    r = eidos_sui_input(KEY_GetTrg(), KEY_GetRepeat());
+    if (r & 0x10) GFL_USE_PlaySeDefaultVolume(0x548);
+    if (r & 0x20) GFL_USE_PlaySeDefaultVolume(0x54c);
+    if (r & 0x40) GFL_USE_PlaySeDefaultVolume(0x551);
+    if (r & 2) {
+        work->selectedRow = 8;
+        return STARTMENU_BeginFadeIn((char *)work, 1);
+    }
+    if (r & 1) {
+        STARTMENU_DeleteFrameManager((char *)work);
+        STARTMENU_DeleteRowWindows((char *)work);
+        STARTMENU_FreeRowBuffers((char *)work);
+        STARTMENU_BuildRowList((char *)work);
+        STARTMENU_LoadRowBuffers((char *)work);
+        STARTMENU_CreateRowWindows((char *)work);
+        STARTMENU_CreateFrameManager((char *)work);
+        STARTMENU_LayoutRows((char *)work);
+        bw_mod_title_set_rebuild();
+        return 4;
+    }
+    return 5;
+}
+
+static int rebuild_native(StartMenuWork *work)
+{
+    STARTMENU_DeleteFrameManager((char *)work);
+    STARTMENU_DeleteRowWindows((char *)work);
+    STARTMENU_FreeRowBuffers((char *)work);
+    STARTMENU_BuildRowList((char *)work);
+    STARTMENU_LoadRowBuffers((char *)work);
+    STARTMENU_CreateRowWindows((char *)work);
+    STARTMENU_CreateFrameManager((char *)work);
+    STARTMENU_LayoutRows((char *)work);
+    bw_mod_title_set_rebuild();
+    return 4;
+}
+
+static int autostart_native(StartMenuWork *work)
+{
+    GFL_USE_PlaySeDefaultVolume(0x54c);
+    if (SAVE_CONTROL_HasFlashSave(work->saveData) == 1) {
+        work->selectedRow = 0;
+        return STARTMENU_BeginSelectAnim((char *)work, 7);
+    }
+    work->selectedRow = 1;
+    return STARTMENU_BeginFadeIn((char *)work, 1);
+}
+
+static int state_select_row_native(StartMenuWork *work)
+{
+    u32 pressed;
+    u32 repeated;
+    u8 row = work->rowIds[work->cursorIndex];
+
+    if (bw_mod_title_settings_on() && bw_mod_title_in_settings())
+        return settings_state_native(work);
+    if (bw_mod_title_settings_on() &&
+        (bw_mod_title_take_autostart() | bw_mp_take_started())) {
+        int r = autostart_native(work);
+        if (r >= 0) return r;
+    }
+    if (bw_mod_title_settings_on() && bw_mod_title_join_pending()) {
+        bw_mod_title_open_multiplayer();
+        work->selectedRow = BW_TITLE_SEL_SETTINGS;
+        return STARTMENU_BeginFadeIn((char *)work, 1);
+    }
+    BLINK_PALANM_Update(work->blinkPalAnm);
+    pressed = KEY_GetTrg();
+    repeated = KEY_GetRepeat();
+    if (pressed & 1) {
+        GFL_USE_PlaySeDefaultVolume(0x54c);
+        switch (row) {
+        case 0:
+            if (bw_mod_title_settings_on() && bw_slots_replacing()) {
+                bw_slots_set_replacing(0);
+                return STARTMENU_BeginSelectAnim((char *)work, 8);
+            }
+            work->selectedRow = row;
+            return STARTMENU_BeginSelectAnim((char *)work, 7);
+        case 1:
+            if (bw_mod_title_settings_on() && !bw_mp_take_started_peek()) {
+                if (bw_slots_new_game()) {
+                    work->selectedRow = 1;
+                    return STARTMENU_BeginFadeIn((char *)work, 1);
+                }
+                if (!bw_slots_replacing() && SAVE_CONTROL_HasFlashSave(work->saveData) == 1) {
+                    bw_slots_set_replacing(1);
+                    return rebuild_native(work);
+                }
+                bw_slots_set_replacing(0);
+            }
+            return STARTMENU_BeginSelectAnim((char *)work, 8);
+        case 2:
+            work->selectedRow = row;
+            return STARTMENU_BeginSelectAnim((char *)work, 11);
+        case 3:
+            MISC_SetSlotState(work->unlockData, 1, 2);
+            work->selectedRow = row;
+            return STARTMENU_BeginSelectAnim((char *)work, 11);
+        case 4:
+            MISC_SetSlotState(work->unlockData, 2, 2);
+            work->selectedRow = row;
+            return STARTMENU_BeginSelectAnim((char *)work, 11);
+        case 7:
+            if (bw_mod_title_settings_on() && !MISC_GetSlotState(work->unlockData, 3)) {
+                work->selectedRow = BW_TITLE_SEL_SETTINGS;
+                return STARTMENU_BeginFadeIn((char *)work, 1);
+            }
+            MISC_SetSlotState(work->unlockData, 3, 2);
+            work->selectedRow = row;
+            return STARTMENU_BeginSelectAnim((char *)work, 11);
+        case 5:
+            return STARTMENU_BeginSelectAnim((char *)work, 9);
+        case 6:
+            if (bw_mod_title_settings_on()) {
+                bw_mod_title_open_multiplayer();
+                work->selectedRow = BW_TITLE_SEL_SETTINGS;
+                return STARTMENU_BeginFadeIn((char *)work, 1);
+            }
+            work->selectedRow = row;
+            return STARTMENU_BeginSelectAnim((char *)work, 11);
+        }
+    }
+    if (bw_mod_title_settings_on() && (row == 0 || bw_slots_replacing()) &&
+        (pressed & 0x30)) {
+        if (bw_slots_flip((pressed & 0x10) ? 1 : -1)) {
+            GFL_USE_PlaySeDefaultVolume(0x548);
+            return rebuild_native(work);
+        }
+    }
+    if (bw_mod_title_settings_on() && bw_slots_replacing()) {
+        if (pressed & 2) {
+            GFL_USE_PlaySeDefaultVolume(0x551);
+            bw_slots_set_replacing(0);
+            return rebuild_native(work);
+        }
+        return 5;
+    }
+    if (pressed & 2) {
+        GFL_USE_PlaySeDefaultVolume(0x551);
+        work->selectedRow = 8;
+        return STARTMENU_BeginFadeIn((char *)work, 1);
+    }
+    if (repeated & 0x40) {
+        if (STARTMENU_MoveCursor((char *)work, -1) == 1) {
+            GFL_USE_PlaySeDefaultVolume(0x548);
+            return 6;
+        }
+    }
+    if (repeated & 0x80) {
+        if (STARTMENU_MoveCursor((char *)work, 1) == 1) {
+            GFL_USE_PlaySeDefaultVolume(0x548);
+            return 6;
+        }
+    }
+    return 5;
+}
+#endif
+
 int STARTMENU_StateSelectRow(char *p)
 {
+#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ > 4
+    return state_select_row_native((StartMenuWork *)p);
+#else
     if (bw_mod_title_settings_on() && bw_mod_title_in_settings())
         return settings_state(p);
     if (bw_mod_title_settings_on() &&
@@ -273,4 +444,5 @@ int STARTMENU_StateSelectRow(char *p)
         }
     }
     return 5;
+#endif
 }

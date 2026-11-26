@@ -46,6 +46,10 @@ typedef unsigned short u16;
 typedef signed short s16;
 typedef unsigned int u32;
 
+#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ > 4
+#include "startmenu_types.h"
+#endif
+
 struct Ent {
     u16 f0;
     u16 f2;
@@ -61,6 +65,67 @@ extern void CLACT_SetActorDrawEnable(void *, int);
 
 void STARTMENU_LayoutRows(char *p)
 {
+#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ > 4
+    StartMenuWork *work = (StartMenuWork *)p;
+    u32 i;
+    s8 y;
+    u8 rowId;
+    void *actor;
+
+    if (bw_mod_title_settings_on() && bw_mod_title_in_settings()) {
+        u32 cur = eidos_sui_cursor_row();
+        BG_SYS_ClearSlot(1);
+        BG_SYS_ClearSlot(2);
+        work->cursorIndex = (u8)cur;
+        work->scrollPixels = 0;
+        work->cursorTileY = (s8)(2 + 3 * cur);
+        for (i = 0; i < 8 && work->rowIds[i] != 8; i++)
+            STARTMENU_DrawRowFrame(p, work->rowIds[i], 2 + 3 * i);
+        STARTMENU_ShowRowActors(p, 0);
+        for (i = 0; i < 8 && work->rowIds[i] != 8; i++)
+            STARTMENU_PaintRowPalette(p, work->rowIds[i], 2 + 3 * i,
+                                      i == cur ? 2 : 1);
+        return;
+    }
+
+    work->cursorIndex = 0;
+    work->scrollPixels = 0;
+    y = 2;
+    work->cursorTileY = 2;
+    for (i = 0; i < 8 && work->rowIds[i] != 8; i++) {
+        rowId = work->rowIds[i];
+        STARTMENU_DrawRowFrame(p, rowId, (u8)y);
+        if (rowId == 0) {
+            actor = work->rowActors[0];
+        } else if (rowId == 5) {
+            STARTMENU_SetRowActorY(p, 5, y * 8 + gStartMenuRowInfo[rowId].f2 * 8 / 2);
+            actor = work->rowActors[5];
+        } else if (rowId == 3) {
+            if (MISC_GetSlotState(work->unlockData, 1) != 1)
+                goto lp64_next;
+            STARTMENU_SetRowActorY(p, 2, y * 8 + gStartMenuRowInfo[rowId].f2 * 8 / 2);
+            actor = work->rowActors[2];
+        } else if (rowId == 4) {
+            if (MISC_GetSlotState(work->unlockData, 2) != 1)
+                goto lp64_next;
+            STARTMENU_SetRowActorY(p, 3, y * 8 + gStartMenuRowInfo[rowId].f2 * 8 / 2);
+            actor = work->rowActors[3];
+        } else if (rowId == 7) {
+            if (MISC_GetSlotState(work->unlockData, 3) != 1)
+                goto lp64_next;
+            STARTMENU_SetRowActorY(p, 4, y * 8 + gStartMenuRowInfo[rowId].f2 * 8 / 2);
+            actor = work->rowActors[4];
+        } else {
+            goto lp64_next;
+        }
+        CLACT_SetActorDrawEnable(actor, 1);
+lp64_next:
+        y += (s8)gStartMenuRowInfo[rowId].f2;
+    }
+    STARTMENU_SetRowActorY(p, 0, 0x40);
+    STARTMENU_PaintRowPalette(p, work->rowIds[0], work->cursorTileY, 2);
+    return;
+#else
     u32 i;
     s8 y;
     u8 v;
@@ -125,4 +190,5 @@ void STARTMENU_LayoutRows(char *p)
     }
     STARTMENU_SetRowActorY(p, 0, 0x40);
     STARTMENU_PaintRowPalette(p, (u8)p[0x120], (s8)p[0x12f], 2);
+#endif
 }

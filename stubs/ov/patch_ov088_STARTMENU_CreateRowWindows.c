@@ -29,7 +29,7 @@
  * menu text window into them.  The real extent is 1116 bytes (a literal
  * pool sits mid-body at 0x021BAEF8).
  *
- * Match levers: the bg = p->f68 load is hoisted into a local ahead of each
+ * Match levers: the bg = MENU_F68(p) load is hoisted into a local ahead of each
  * PRINTSYS_PrintQueColor call; slot[1].on = 1 sits inside both arms of the if so the
  * constant 1 stays in r7; the last seven blocks declare bg in block scope,
  * which hands out their spill slots high to low (function-scope bg gives
@@ -81,6 +81,31 @@ extern void eidos_sui_help_line(int i, char *out, int n);
 typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned int u32;
+
+#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ > 4
+#include "startmenu_types.h"
+#define MENU_F00(p) (((StartMenuWork *)(p))->saveData)
+#define MENU_F04(p) (((StartMenuWork *)(p))->playerData)
+#define MENU_F10(p) (((StartMenuWork *)(p))->eventWork)
+#define MENU_F58(p) (((StartMenuWork *)(p))->font)
+#define MENU_F5C(p) (((StartMenuWork *)(p))->msgBank)
+#define MENU_F60(p) (((StartMenuWork *)(p))->wordSet)
+#define MENU_F64(p) (((StartMenuWork *)(p))->stringBuf)
+#define MENU_F68(p) (((StartMenuWork *)(p))->printSys)
+#define MENU_SLOT_OBJ(p, i) (((StartMenuWork *)(p))->windows[(i)].window)
+#define MENU_SLOT_ON(p, i) (((StartMenuWork *)(p))->windows[(i)].textPending)
+#else
+#define MENU_F00(p) ((p)->f00)
+#define MENU_F04(p) ((p)->f04)
+#define MENU_F10(p) ((p)->f10)
+#define MENU_F58(p) ((p)->f58)
+#define MENU_F5C(p) ((p)->f5c)
+#define MENU_F60(p) ((p)->f60)
+#define MENU_F64(p) ((p)->f64)
+#define MENU_F68(p) ((p)->f68)
+#define MENU_SLOT_OBJ(p, i) ((p)->slot[(i)].obj)
+#define MENU_SLOT_ON(p, i) ((p)->slot[(i)].on)
+#endif
 
 struct Ent6 {
     u8 a0, a1, a2, a3, a4, a5;
@@ -190,17 +215,17 @@ static int settings_text_y(struct Menu *p, int slot, const char *t, int x, int r
     if (n == 0)
         return 0;
     o = ascii_obj(t, n);
-    w = PRINTSYS_MeasureWidestLine(o, p->f58, 0);
+    w = PRINTSYS_MeasureWidestLine(o, MENU_F58(p), 0);
     while (w > room && n > 1) {
         STRBUF_Delete(o);
         n--;
         o = ascii_obj(t, n);
-        w = PRINTSYS_MeasureWidestLine(o, p->f58, 0);
+        w = PRINTSYS_MeasureWidestLine(o, MENU_F58(p), 0);
     }
     if (right >= 0)
         x = right - w;
-    PRINTSYS_PrintQueColor(p->f68, BMP_WIN_GetBmp(p->slot[slot].obj), x, y, o, p->f58, 0x440);
-    p->slot[slot].on = 1;
+    PRINTSYS_PrintQueColor(MENU_F68(p), BMP_WIN_GetBmp(MENU_SLOT_OBJ(p, slot)), x, y, o, MENU_F58(p), 0x440);
+    MENU_SLOT_ON(p, slot) = 1;
     STRBUF_Delete(o);
     return w;
 }
@@ -223,15 +248,15 @@ static void settings_help(struct Menu *p)
 {
     char line[96];
     int i, n = eidos_sui_help_count();
-    BMP_Clear(BMP_WIN_GetBmp(p->slot[SETTINGS_HELP_SLOT].obj), 0xF);
+    BMP_Clear(BMP_WIN_GetBmp(MENU_SLOT_OBJ(p, SETTINGS_HELP_SLOT)), 0xF);
     for (i = 0; i < n; i++) {
         eidos_sui_help_line(i, line, sizeof line);
         if (line[0] != 0)
             settings_text_y(p, SETTINGS_HELP_SLOT, line, 4, -1, SETTINGS_HELP_PX, 2 + 16 * i + (i >= 2 ? 8 : 0));
     }
-    BMP_WIN_TransferChars(p->slot[SETTINGS_HELP_SLOT].obj);
-    BMP_WIN_MakeScreen(p->slot[SETTINGS_HELP_SLOT].obj);
-    BG_SYS_MarkTileDirty(BMP_WIN_GetBgLayer(p->slot[SETTINGS_HELP_SLOT].obj));
+    BMP_WIN_TransferChars(MENU_SLOT_OBJ(p, SETTINGS_HELP_SLOT));
+    BMP_WIN_MakeScreen(MENU_SLOT_OBJ(p, SETTINGS_HELP_SLOT));
+    BG_SYS_MarkTileDirty(BMP_WIN_GetBgLayer(MENU_SLOT_OBJ(p, SETTINGS_HELP_SLOT)));
 }
 
 static void settings_print(struct Menu *p)
@@ -271,17 +296,17 @@ void STARTMENU_CreateRowWindows(struct Menu *p)
                 layer = 4; x = 1; y = 2; w = 30; h = 10; pal = 15;
             }
         }
-        p->slot[i].obj = BMP_WIN_Create(layer, x, y, w, h, pal, 1);
+        MENU_SLOT_OBJ(p, i) = BMP_WIN_Create(layer, x, y, w, h, pal, 1);
     }
     if (bw_mod_title_settings_on() && bw_mod_title_in_settings()) {
         settings_print(p);
         return;
     }
 
-    a = MSGDATA_AllocString(p->f5c, 0);
-    bg = p->f68;
-    PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(p->slot[0].obj), 0, 4, a, p->f58, 0x440);
-    p->slot[0].on = 1;
+    a = MSGDATA_AllocString(MENU_F5C(p), 0);
+    bg = MENU_F68(p);
+    PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(MENU_SLOT_OBJ(p, 0)), 0, 4, a, MENU_F58(p), 0x440);
+    MENU_SLOT_ON(p, 0) = 1;
     STRBUF_Delete(a);
     if (bw_mod_title_settings_on()) {
         /* the save slot on the Continue card: "< 2/3 >", left and right
@@ -294,123 +319,123 @@ void STARTMENU_CreateRowWindows(struct Menu *p)
             settings_text(p, 0, label, 0, right, right / 2);
     }
 
-    a = MSGDATA_AllocString(p->f5c, 12);
-    WORDSET_SetSlotMyStatus(p->f60, 0, p->f04);
-    WORDSET_CopyTaggedText(p->f60, p->f64, a);
-    if (MYSTATUS_GetSex(p->f04) == 0) {
-        bg = p->f68;
-        PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(p->slot[1].obj), 0, 0, p->f64, p->f58, 0xC80);
-        p->slot[1].on = 1;
+    a = MSGDATA_AllocString(MENU_F5C(p), 12);
+    WORDSET_SetSlotMyStatus(MENU_F60(p), 0, MENU_F04(p));
+    WORDSET_CopyTaggedText(MENU_F60(p), MENU_F64(p), a);
+    if (MYSTATUS_GetSex(MENU_F04(p)) == 0) {
+        bg = MENU_F68(p);
+        PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(MENU_SLOT_OBJ(p, 1)), 0, 0, MENU_F64(p), MENU_F58(p), 0xC80);
+        MENU_SLOT_ON(p, 1) = 1;
     } else {
-        bg = p->f68;
-        PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(p->slot[1].obj), 0, 0, p->f64, p->f58, 0x14C0);
-        p->slot[1].on = 1;
+        bg = MENU_F68(p);
+        PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(MENU_SLOT_OBJ(p, 1)), 0, 0, MENU_F64(p), MENU_F58(p), 0x14C0);
+        MENU_SLOT_ON(p, 1) = 1;
     }
     STRBUF_Delete(a);
 
-    a = MSGDATA_AllocString(p->f5c, 16);
+    a = MSGDATA_AllocString(MENU_F5C(p), 16);
     ZONEDATA_Init(0x800B);
-    if (ZONEDATA_CheckEventFlag(p->f10, 0x966) == 1) {
-        s = ZONEDATA_GetPlaceNameId(PLAYER_LOCATION_GetLocationA(PLAYER_LOCATION_GetData(p->f00))[2]);
+    if (ZONEDATA_CheckEventFlag(MENU_F10(p), 0x966) == 1) {
+        s = ZONEDATA_GetPlaceNameId(PLAYER_LOCATION_GetLocationA(PLAYER_LOCATION_GetData(MENU_F00(p)))[2]);
     } else {
-        PLAYER_LOCATION_CopyRecord(p->f00, buf);
+        PLAYER_LOCATION_CopyRecord(MENU_F00(p), buf);
         s = ZONEDATA_GetPlaceNameId(buf[0]);
     }
     ZONEDATA_Exit();
-    WORDSET_SetSlotFromMsg59(p->f60, 0, s);
-    WORDSET_CopyTaggedText(p->f60, p->f64, a);
-    bg = p->f68;
-    PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(p->slot[2].obj), 0, 0, p->f64, p->f58, 0x440);
-    p->slot[2].on = 1;
+    WORDSET_SetSlotFromMsg59(MENU_F60(p), 0, s);
+    WORDSET_CopyTaggedText(MENU_F60(p), MENU_F64(p), a);
+    bg = MENU_F68(p);
+    PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(MENU_SLOT_OBJ(p, 2)), 0, 0, MENU_F64(p), MENU_F58(p), 0x440);
+    MENU_SLOT_ON(p, 2) = 1;
     STRBUF_Delete(a);
 
-    a = MSGDATA_AllocString(p->f5c, 9);
-    b = SYSTEM_DATA_GetPlayTime(p->f00);
-    WORDSET_SetSlotNumber(p->f60, 0, PLAYTIME_GetHours(b), 3, 0, 1);
-    WORDSET_SetSlotNumber(p->f60, 1, PLAYTIME_GetMinutes(b), 2, 2, 1);
-    WORDSET_CopyTaggedText(p->f60, p->f64, a);
-    bg = p->f68;
-    PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(p->slot[3].obj), 0, 0, p->f64, p->f58, 0x440);
-    p->slot[3].on = 1;
+    a = MSGDATA_AllocString(MENU_F5C(p), 9);
+    b = SYSTEM_DATA_GetPlayTime(MENU_F00(p));
+    WORDSET_SetSlotNumber(MENU_F60(p), 0, PLAYTIME_GetHours(b), 3, 0, 1);
+    WORDSET_SetSlotNumber(MENU_F60(p), 1, PLAYTIME_GetMinutes(b), 2, 2, 1);
+    WORDSET_CopyTaggedText(MENU_F60(p), MENU_F64(p), a);
+    bg = MENU_F68(p);
+    PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(MENU_SLOT_OBJ(p, 3)), 0, 0, MENU_F64(p), MENU_F58(p), 0x440);
+    MENU_SLOT_ON(p, 3) = 1;
     STRBUF_Delete(a);
 
-    if (ZONEDATA_CheckEventFlag(p->f10, 0x962) == 1) {
-        a = MSGDATA_AllocString(p->f5c, 10);
-        WORDSET_SetSlotNumber(p->f60, 0, ZUKAN_SAVE_CountSeen(ZUKAN_SAVE_GetBlock(p->f00), 11), 3, 0, 1);
-        WORDSET_CopyTaggedText(p->f60, p->f64, a);
-        bg = p->f68;
-        PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(p->slot[4].obj), 0, 0, p->f64, p->f58, 0x440);
-        p->slot[4].on = 1;
+    if (ZONEDATA_CheckEventFlag(MENU_F10(p), 0x962) == 1) {
+        a = MSGDATA_AllocString(MENU_F5C(p), 10);
+        WORDSET_SetSlotNumber(MENU_F60(p), 0, ZUKAN_SAVE_CountSeen(ZUKAN_SAVE_GetBlock(MENU_F00(p)), 11), 3, 0, 1);
+        WORDSET_CopyTaggedText(MENU_F60(p), MENU_F64(p), a);
+        bg = MENU_F68(p);
+        PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(MENU_SLOT_OBJ(p, 4)), 0, 0, MENU_F64(p), MENU_F58(p), 0x440);
+        MENU_SLOT_ON(p, 4) = 1;
         STRBUF_Delete(a);
     }
 
-    a = MSGDATA_AllocString(p->f5c, 11);
-    WORDSET_SetSlotNumber(p->f60, 0, MISC_CountBadges(MISC_GetBlock(p->f00)), 2, 0, 1);
-    WORDSET_CopyTaggedText(p->f60, p->f64, a);
-    bg = p->f68;
-    PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(p->slot[5].obj), 0, 0, p->f64, p->f58, 0x440);
-    p->slot[5].on = 1;
+    a = MSGDATA_AllocString(MENU_F5C(p), 11);
+    WORDSET_SetSlotNumber(MENU_F60(p), 0, MISC_CountBadges(MISC_GetBlock(MENU_F00(p))), 2, 0, 1);
+    WORDSET_CopyTaggedText(MENU_F60(p), MENU_F64(p), a);
+    bg = MENU_F68(p);
+    PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(MENU_SLOT_OBJ(p, 5)), 0, 0, MENU_F64(p), MENU_F58(p), 0x440);
+    MENU_SLOT_ON(p, 5) = 1;
     STRBUF_Delete(a);
 
-    a = MSGDATA_AllocString(p->f5c, 1);
+    a = MSGDATA_AllocString(MENU_F5C(p), 1);
     {
-        void *bg = p->f68;
-        PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(p->slot[6].obj), 0, 4, a, p->f58, 0x440);
+        void *bg = MENU_F68(p);
+        PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(MENU_SLOT_OBJ(p, 6)), 0, 4, a, MENU_F58(p), 0x440);
     }
-    p->slot[6].on = 1;
+    MENU_SLOT_ON(p, 6) = 1;
     STRBUF_Delete(a);
 
-    a = MSGDATA_AllocString(p->f5c, 2);
+    a = MSGDATA_AllocString(MENU_F5C(p), 2);
     {
-        void *bg = p->f68;
-        PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(p->slot[7].obj), 0, 4, a, p->f58, 0x440);
+        void *bg = MENU_F68(p);
+        PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(MENU_SLOT_OBJ(p, 7)), 0, 4, a, MENU_F58(p), 0x440);
     }
-    p->slot[7].on = 1;
+    MENU_SLOT_ON(p, 7) = 1;
     STRBUF_Delete(a);
 
-    a = MSGDATA_AllocString(p->f5c, 4);
+    a = MSGDATA_AllocString(MENU_F5C(p), 4);
     {
-        void *bg = p->f68;
-        PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(p->slot[8].obj), 0, 4, a, p->f58, 0x440);
+        void *bg = MENU_F68(p);
+        PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(MENU_SLOT_OBJ(p, 8)), 0, 4, a, MENU_F58(p), 0x440);
     }
-    p->slot[8].on = 1;
+    MENU_SLOT_ON(p, 8) = 1;
     STRBUF_Delete(a);
 
-    a = MSGDATA_AllocString(p->f5c, 5);
+    a = MSGDATA_AllocString(MENU_F5C(p), 5);
     {
-        void *bg = p->f68;
-        PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(p->slot[9].obj), 0, 4, a, p->f58, 0x440);
+        void *bg = MENU_F68(p);
+        PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(MENU_SLOT_OBJ(p, 9)), 0, 4, a, MENU_F58(p), 0x440);
     }
-    p->slot[9].on = 1;
+    MENU_SLOT_ON(p, 9) = 1;
     STRBUF_Delete(a);
 
-    a = MSGDATA_AllocString(p->f5c, 3);
+    a = MSGDATA_AllocString(MENU_F5C(p), 3);
     {
-        void *bg = p->f68;
-        PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(p->slot[10].obj), 0, 4, a, p->f58, 0x440);
+        void *bg = MENU_F68(p);
+        PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(MENU_SLOT_OBJ(p, 10)), 0, 4, a, MENU_F58(p), 0x440);
     }
-    p->slot[10].on = 1;
+    MENU_SLOT_ON(p, 10) = 1;
     STRBUF_Delete(a);
 
     if (bw_mod_title_settings_on())
         a = multiplayer_label();
     else
-        a = MSGDATA_AllocString(p->f5c, 7);
+        a = MSGDATA_AllocString(MENU_F5C(p), 7);
     {
-        void *bg = p->f68;
-        PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(p->slot[11].obj), 0, 4, a, p->f58, 0x440);
+        void *bg = MENU_F68(p);
+        PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(MENU_SLOT_OBJ(p, 11)), 0, 4, a, MENU_F58(p), 0x440);
     }
-    p->slot[11].on = 1;
+    MENU_SLOT_ON(p, 11) = 1;
     STRBUF_Delete(a);
 
     if (bw_mod_title_settings_on() && !MISC_GetSlotState(*(void **)((char *)p + 8), 3))
         a = settings_label();
     else
-        a = MSGDATA_AllocString(p->f5c, 6);
+        a = MSGDATA_AllocString(MENU_F5C(p), 6);
     {
-        void *bg = p->f68;
-        PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(p->slot[12].obj), 0, 4, a, p->f58, 0x440);
+        void *bg = MENU_F68(p);
+        PRINTSYS_PrintQueColor(bg, BMP_WIN_GetBmp(MENU_SLOT_OBJ(p, 12)), 0, 4, a, MENU_F58(p), 0x440);
     }
-    p->slot[12].on = 1;
+    MENU_SLOT_ON(p, 12) = 1;
     STRBUF_Delete(a);
 }
