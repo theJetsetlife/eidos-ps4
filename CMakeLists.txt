@@ -55,8 +55,8 @@ if(PS4)
 endif()
 
 # The first target-platform milestone is intentionally independent of the
-# game closure.  It proves the official compiler/link/conversion path and a
-# native 1080p scanout before failures in Aletheia integration are involved.
+# game closure. Keep its SDK build and 1080p diagnostic independent of
+# Aletheia and the local game-data tree.
 option(EIDOS_PS4_MINIMAL "Build the official-SDK PS4 video diagnostic" ${PS4})
 option(EIDOS_PS4_DIAGNOSTICS "Enable verbose PS4 diagnostics" OFF)
 if(PS4 AND EIDOS_PS4_MINIMAL)
@@ -69,7 +69,29 @@ if(PS4 AND EIDOS_PS4_MINIMAL)
         target_compile_definitions(eidos_ps4_minimal PRIVATE EIDOS_PS4_DIAGNOSTICS=1)
     endif()
     eidos_ps4_link_platform(eidos_ps4_minimal)
-    eidos_ps4_make_fself(eidos_ps4_minimal eboot.bin)
+    # Official PKG (Publishing Tools 4.12, SDK 12.508.041):
+    #   cmake --build <dir> --target eidos_ps4_minimal_pkg
+    # Fake-signed PKG for consoles that install fake packages:
+    #   cmake --build <dir> --target eidos_ps4_minimal_fpkg
+    find_program(EIDOS_BASH bash)
+    set(EIDOS_PS4_DIAG_PKG_DIR ${CMAKE_BINARY_DIR}/pkg CACHE PATH "Diagnostic PKG output directory")
+    set(_eidos_diag_pkg_args
+        --elf $<TARGET_FILE:eidos_ps4_minimal>
+        --title "Eidos Platform Diagnostic" --title-id EIDP90001
+        --label DIAGNOSTIC000001)
+    add_custom_target(eidos_ps4_minimal_pkg
+        COMMAND ${CMAKE_COMMAND} -E env SCE_ORBIS_SDK_DIR=${ORBIS_SDK_ROOT}
+            ${EIDOS_BASH} ${CMAKE_CURRENT_SOURCE_DIR}/tools/ps4/make_pkg_official.sh
+            ${_eidos_diag_pkg_args} --out ${EIDOS_PS4_DIAG_PKG_DIR}/official
+        DEPENDS eidos_ps4_minimal
+        VERBATIM USES_TERMINAL)
+    add_custom_target(eidos_ps4_minimal_fpkg
+        COMMAND ${CMAKE_COMMAND} -E env SCE_ORBIS_SDK_DIR=${ORBIS_SDK_ROOT}
+            ${EIDOS_BASH} ${CMAKE_CURRENT_SOURCE_DIR}/tools/ps4/make_fpkg.sh
+            ${_eidos_diag_pkg_args} --module libc.prx --module libSceFios2.prx --out ${EIDOS_PS4_DIAG_PKG_DIR}/fake
+        DEPENDS eidos_ps4_minimal
+        VERBATIM USES_TERMINAL)
+    return()
 endif()
 # Strict C99 on glibc hides the POSIX calls the port's Linux code uses
 # (nanosleep, clock_gettime, setenv, getaddrinfo); _DEFAULT_SOURCE shows
@@ -1148,7 +1170,12 @@ target_include_directories(eidos PUBLIC
 # fails on pow/round/ceil).  Asking the compiler whether `-lm` links a call
 # to pow() answers it for the target being built.
 include(CheckLibraryExists)
-check_library_exists(m pow "" BW_HAVE_LIBM)
+if(PS4)
+    # Orbis exposes math through its default libc, without a separate libm.
+    set(BW_HAVE_LIBM OFF)
+else()
+    check_library_exists(m pow "" BW_HAVE_LIBM)
+endif()
 if(BW_HAVE_LIBM)
     target_link_libraries(eidos PUBLIC m)
 endif()
@@ -1156,7 +1183,7 @@ endif()
 # sdk/plat_thread.c: pthreads off Windows (Threads::Threads is empty where
 # the C library already has them, and on Win32).  The wasm32 build has no
 # threads of its own: they are the host's fibers (sdk/wasm_host.h).
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "WASI")
+if(NOT PS4 AND NOT CMAKE_SYSTEM_NAME STREQUAL "WASI")
     set(THREADS_PREFER_PTHREAD_FLAG ON)
     find_package(Threads REQUIRED)
     target_link_libraries(eidos PUBLIC Threads::Threads)

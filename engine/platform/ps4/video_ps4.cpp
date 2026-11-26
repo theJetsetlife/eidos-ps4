@@ -582,7 +582,8 @@ extern "C" int eidos_ps4_video_draw_color_bars(EidosPs4Video *video)
 }
 
 extern "C" int eidos_ps4_video_draw_ds_compatibility(
-    EidosPs4Video *video, const void *top_rgba, const void *bottom_rgba)
+    EidosPs4Video *video, const void *top_rgba, const void *bottom_rgba,
+    int cursor_x, int cursor_y)
 {
     if (video == nullptr || top_rgba == nullptr || bottom_rgba == nullptr ||
         video->current_index < 0 || !video->gpu_contexts_ready ||
@@ -606,6 +607,32 @@ extern "C" int eidos_ps4_video_draw_ds_compatibility(
         __builtin_memcpy(row, top + (size_t)y * screen_row, screen_row);
         __builtin_memcpy(row + screen_row,
                          bottom + (size_t)y * screen_row, screen_row);
+    }
+
+    if (cursor_x >= 0 && cursor_x < (int)kDsScreenWidth &&
+        cursor_y >= 0 && cursor_y < (int)kDsScreenHeight) {
+        /* Draw an outlined crosshair in the uploaded bottom-screen atlas.
+         * Keep the game frame intact for screenshots and other consumers. */
+        for (int dy = -5; dy <= 5; ++dy) {
+            const int y = cursor_y + dy;
+            if (y < 0 || y >= (int)kDsScreenHeight) {
+                continue;
+            }
+            for (int dx = -5; dx <= 5; ++dx) {
+                const int x = cursor_x + dx;
+                const int ax = dx < 0 ? -dx : dx;
+                const int ay = dy < 0 ? -dy : dy;
+                if (x < 0 || x >= (int)kDsScreenWidth || (ax > 1 && ay > 1)) {
+                    continue;
+                }
+                uint8_t *pixel = texture + (size_t)y * texture_pitch +
+                                 screen_row + (size_t)x * 4u;
+                const uint8_t tone = ((dx == 0 && ay < 5) ||
+                                      (dy == 0 && ax < 5)) ? 255u : 0u;
+                pixel[0] = pixel[1] = pixel[2] = tone;
+                pixel[3] = 255u;
+            }
+        }
     }
 
     sce::Gnmx::GfxContext *context = &video->gfx_contexts[index];

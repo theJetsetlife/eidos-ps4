@@ -822,11 +822,11 @@ if(TARGET eidos_platform)
 endif()
 if(PS4)
     target_compile_definitions(eidos_boot PRIVATE EIDOS_BOOT_PS4=1)
-    target_link_libraries(eidos_boot PRIVATE eidos_setup)
+    target_link_libraries(eidos_boot PRIVATE eidos_setup
+        SceCommonDialog_stub_weak SceMsgDialog_stub_weak SceSysmodule_stub_weak
+        SceNet_stub_weak)
     eidos_ps4_link_platform(eidos_boot)
-    if(NOT EIDOS_PS4_MINIMAL)
-        eidos_ps4_make_fself(eidos_boot eboot.bin)
-    endif()
+    set_target_properties(eidos_boot PROPERTIES SUFFIX ".elf")
 endif()
 
 # The boot, run headless for a number of frames, judged by where it stops

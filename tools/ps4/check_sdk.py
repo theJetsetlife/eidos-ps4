@@ -26,7 +26,7 @@ REQUIRED_TOOLS = {
     "linker": "orbis-ld.exe",
     "ranlib": "orbis-ranlib.exe",
     "object inspector": "orbis-readelf.exe",
-    "executable converter": "orbis-bin.exe",
+    "ELF utility": "orbis-bin.exe",
     "PSSL compiler": "orbis-wave-psslc.exe",
 }
 
@@ -77,7 +77,8 @@ def candidates(explicit: str | None) -> list[Path]:
 
 def executable_format(path: Path) -> str:
     try:
-        magic = path.read_bytes()[:4]
+        with path.open("rb") as executable:
+            magic = executable.read(4)
     except OSError:
         return "unreadable"
     if magic[:2] == b"MZ":
@@ -104,8 +105,8 @@ def locate_packaging_tools() -> dict[str, str | None]:
     # Publishing Tools are a separate official installation.  Search PATH
     # only; do not guess a private installation layout or accept lookalikes.
     return {
-        "package command": shutil.which("orbis-pub-cmd.exe") or shutil.which("orbis-pub-cmd"),
-        "package generator": shutil.which("orbis-pub-gen.exe") or shutil.which("orbis-pub-gen"),
+        "package command": shutil.which("orbis_pub_cmd.exe") or shutil.which("orbis-pub-cmd.exe"),
+        "package generator": shutil.which("orbispubgen.exe") or shutil.which("orbis-pub-gen.exe"),
     }
 
 
@@ -126,7 +127,8 @@ def inspect(root: Path) -> dict[str, object]:
 
     components: dict[str, bool] = {}
     for label, rel in {**REQUIRED_DIRS, **REQUIRED_HEADERS, **REQUIRED_LIBRARIES}.items():
-        present = (root / rel).exists()
+        path = root / rel
+        present = path.is_dir() if label in REQUIRED_DIRS else path.is_file()
         components[label] = present
         if not present:
             missing.append(label)
@@ -134,13 +136,18 @@ def inspect(root: Path) -> dict[str, object]:
     version_hex, version_value = sdk_version(root)
     expected_12508 = version_value is not None and (version_value >> 8) == 0x125080
     host = platform.system().lower()
-    host_compatible = not formats or formats == {"elf"} or host == "windows"
+    expected_format = {"linux": "elf", "windows": "windows-pe"}.get(host)
+    invalid_formats = formats - {"elf", "windows-pe"}
+    host_compatible = expected_format is not None and formats <= {expected_format}
     packaging = locate_packaging_tools()
     warnings: list[str] = []
+    if invalid_formats:
+        missing.append("readable SDK tools with recognized executable headers")
     if not host_compatible:
-        warnings.append("installed SDK host tools are Windows PE executables on a non-Windows host")
-    if not any(packaging.values()):
-        warnings.append("official Publishing Tools were not found on PATH")
+        warnings.append("SDK host tool formats are incompatible with the current host")
+    for label, path in packaging.items():
+        if path is None:
+            warnings.append(f"official Publishing Tools component not found on PATH: {label}")
     if version_value is None:
         missing.append("parseable SDK version")
     elif not expected_12508:

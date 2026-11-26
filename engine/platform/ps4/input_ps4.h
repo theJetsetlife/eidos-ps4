@@ -31,6 +31,7 @@ typedef struct EidosPs4Input {
     uint8_t touch_available;
     uint8_t touch_down;
     uint8_t cursor_touch;
+    uint8_t cursor_visible_frames;
     uint8_t retry_frames;
     uint8_t stick_dead_zone;
 } EidosPs4Input;

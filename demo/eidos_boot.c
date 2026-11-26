@@ -74,7 +74,7 @@
  * not in main().
  */
 
-#ifndef _POSIX_C_SOURCE
+#if !defined(__ORBIS__) && !defined(_POSIX_C_SOURCE)
 #define _POSIX_C_SOURCE 200809L
 #endif
 
@@ -107,6 +107,10 @@
 #include "video_ps4.h"
 #include "setup.h"
 #include "install.h"
+#include <stdbool.h>
+#include <common_dialog.h>
+#include <libsysmodule.h>
+#include <message_dialog.h>
 #include <save_data.h>
 #include <system_service.h>
 #include <user_service.h>
@@ -873,7 +877,6 @@ static void boot_ps4_devices_start(void)
 {
     int result;
 
-    g_ps4_input.handle = -1;
     if (!g_ps4_user_service_initialized || g_ps4_user_id < 0) {
         return;
     }
@@ -1100,6 +1103,44 @@ static int boot_ps4_import_progress(void *ctx, u32 done, u32 total,
     return 0;
 }
 
+static void boot_ps4_report_setup_error(const char *message)
+{
+    SceMsgDialogParam params;
+    SceMsgDialogUserMessageParam user_message = {0};
+    int loaded_here;
+    int result;
+
+    fprintf(stderr, "PS4: %s\n", message);
+    if (g_ps4_user_id < 0) {
+        return;
+    }
+    loaded_here = sceSysmoduleIsLoaded(SCE_SYSMODULE_MESSAGE_DIALOG) != 0;
+    if (loaded_here && sceSysmoduleLoadModule(SCE_SYSMODULE_MESSAGE_DIALOG) < 0) {
+        return;
+    }
+    result = sceCommonDialogInitialize();
+    if (result == 0 || result == SCE_COMMON_DIALOG_ERROR_ALREADY_INITIALIZED) {
+        result = sceMsgDialogInitialize();
+        if (result == 0) {
+            sceMsgDialogParamInitialize(&params);
+            user_message.buttonType = SCE_MSG_DIALOG_BUTTON_TYPE_OK;
+            user_message.msg = message;
+            params.mode = SCE_MSG_DIALOG_MODE_USER_MSG;
+            params.userMsgParam = &user_message;
+            params.userId = g_ps4_user_id;
+            if (sceMsgDialogOpen(&params) == 0) {
+                while (sceMsgDialogUpdateStatus() == SCE_COMMON_DIALOG_STATUS_RUNNING) {
+                    sceKernelUsleep(16000);
+                }
+            }
+            sceMsgDialogTerminate();
+        }
+    }
+    if (loaded_here) {
+        sceSysmoduleUnloadModule(SCE_SYSMODULE_MESSAGE_DIALOG);
+    }
+}
+
 static int boot_ps4_prepare_game_data(const BwSetupRequest *request,
                                       char *data_dir, size_t data_dir_size)
 {
@@ -1113,7 +1154,7 @@ static int boot_ps4_prepare_game_data(const BwSetupRequest *request,
     int written;
 
     if (!g_ps4_data_path_ready) {
-        fprintf(stderr, "PS4: user game-data storage is unavailable.\n");
+        boot_ps4_report_setup_error("Eidos could not open its game data storage.");
         return -1;
     }
     written = snprintf(extract_dir, sizeof(extract_dir), "%s/extract",
@@ -1125,7 +1166,7 @@ static int boot_ps4_prepare_game_data(const BwSetupRequest *request,
     if (written < 0 || (size_t)written >= sizeof(rom_dir) ||
         bw_mkdirs_utf8(g_ps4_data_path) != 0 ||
         bw_mkdirs_utf8(rom_dir) != 0 || bw_mkdirs_utf8(extract_dir) != 0) {
-        fprintf(stderr, "PS4: could not prepare the user game-data folders.\n");
+        boot_ps4_report_setup_error("Eidos could not prepare its ROM import folder.");
         return -1;
     }
 
@@ -1145,19 +1186,19 @@ static int boot_ps4_prepare_game_data(const BwSetupRequest *request,
         }
     }
     if (rom == NULL || rom[0] == '\0') {
-        fprintf(stderr,
-                "PS4: no playable game data is installed. %s\n"
-                "Copy your legally obtained Black or White .nds file to:\n"
-                "  %s/pokemon.nds\n"
-                "or provide --rom <path> in a supported development launcher.\n",
-                why, rom_dir);
+        snprintf(message, sizeof(message),
+                 "Eidos needs your own Pokemon Black or White Nintendo DS ROM.\n"
+                 "Place it in the game's ROM import folder as pokemon.nds, "
+                 "then relaunch Eidos.\n\nImport path: %s/pokemon.nds",
+                 rom_dir);
+        boot_ps4_report_setup_error(message);
         return -1;
     }
 
     printf("PS4: importing user-provided ROM into application storage.\n");
     if (bw_setup_install(rom, extract_dir, 0, 1, boot_ps4_import_progress,
                          &last_progress, NULL, message, sizeof(message)) != 0) {
-        fprintf(stderr, "PS4 ROM import failed: %s\n", message);
+        boot_ps4_report_setup_error(message);
         return -1;
     }
     written = snprintf(data_dir, data_dir_size, "%s/data", extract_dir);
@@ -1211,7 +1252,11 @@ static void boot_render_ps4(void *user, u8 *top, u8 *bottom)
         boot_ps4_video_failure("back-buffer acquisition", result);
         return;
     }
-    result = eidos_ps4_video_draw_ds_compatibility(g_ps4_video, top, bottom);
+    const int show_cursor = g_ps4_input.connected && !g_ps4_input.touch_down &&
+                            g_ps4_input.cursor_visible_frames != 0;
+    result = eidos_ps4_video_draw_ds_compatibility(
+        g_ps4_video, top, bottom, show_cursor ? g_ps4_input.cursor_x : -1,
+        show_cursor ? g_ps4_input.cursor_y : -1);
     if (result < 0) {
         boot_ps4_video_failure("GNM DS compatibility draw", result);
         return;
@@ -3637,7 +3682,9 @@ static int boot_run_start(EidosFrameHooks *hooks, int own_thread)
     /* the other players' figures each in their own look: the private
      * object codes go in before a field opens the archives
      * (engine/avatar/avatar_field.c) */
+#if EIDOS_BOOT_SDL
     (void)avatar_field_register();
+#endif
     /* The content limits the mods raise, and the game's per-id tables
      * extended to match (sdk/limits.h): the mod list is final and the
      * game's data is bound, and nothing of the game has run yet. */

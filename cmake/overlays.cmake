@@ -33,9 +33,8 @@ get_filename_component(EIDOS_OVLINK_TOOL "${EIDOS_OVLINK_TOOL}" ABSOLUTE)
 get_filename_component(_eidos_ovl_tools "${EIDOS_OVLINK_TOOL}" DIRECTORY)
 
 set(EIDOS_OVLINK_PLATFORM_ARGS)
-if(CMAKE_SYSTEM_NAME STREQUAL "WASI" AND DEFINED EIDOS_SDL AND NOT EIDOS_SDL)
-    # Headless diagnostic modules have no platform settings UI. The shared
-    # SDL host supports the regular settings patches in full-game builds.
+if(PS4 OR (CMAKE_SYSTEM_NAME STREQUAL "WASI" AND DEFINED EIDOS_SDL AND NOT EIDOS_SDL))
+    # Select the game menus when the build has no SDL settings UI.
     list(APPEND EIDOS_OVLINK_PLATFORM_ARGS --no-platform-ui)
 endif()
 
@@ -254,6 +253,10 @@ function(eidos_overlays name)
         endif()
         set(copy ${dir}/src/${rel})
         get_filename_component(src_dir "${src}" DIRECTORY)
+        set(src_includes "${src_dir}")
+        if(rel STREQUAL "port/patch_ov194_namein_main.c")
+            list(APPEND src_includes "${A_ROOT}/src")
+        endif()
         # A src/game unit's copy has its asm bodies cut (docs/game-tree.md).
         set(cut_args)
         set(cut_dep)
@@ -282,7 +285,7 @@ function(eidos_overlays name)
         endif()
         set_source_files_properties(${copy} PROPERTIES
             GENERATED TRUE
-            INCLUDE_DIRECTORIES "${src_dir}"
+            INCLUDE_DIRECTORIES "${src_includes}"
             OBJECT_DEPENDS "${hdr}"
             COMPILE_OPTIONS "${fi};${EIDOS_OVL_MATCHED_OPTIONS}")
         list(APPEND copies ${copy})
@@ -292,6 +295,7 @@ function(eidos_overlays name)
     set(gen_c ${link_c} ${dir}/ovl_dispatch.c ${dir}/ovl_arm9_stubs.c)
     add_library(${name}_ovl OBJECT ${copies} ${gen_c})
     target_include_directories(${name}_ovl PRIVATE
+        ${A_ROOT}/src/game/ov088
         $<TARGET_PROPERTY:eidos,INTERFACE_INCLUDE_DIRECTORIES>)
     target_compile_definitions(${name}_ovl PRIVATE
         $<TARGET_PROPERTY:eidos,INTERFACE_COMPILE_DEFINITIONS>)

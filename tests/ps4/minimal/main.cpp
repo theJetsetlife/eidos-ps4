@@ -1,5 +1,5 @@
 /*
- * PS4 SDK video-output and controller-input diagnostic.
+ * PS4 SDK video-output, controller-input, and optional audio diagnostic.
  *
  * The reusable VideoOut/GNM scanout owner lives in engine/platform/ps4. This
  * diagnostic draws color bars with a PSSL pixel shader and GNMX fullscreen
@@ -9,9 +9,11 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #include <user_service.h>
 
+#include "audio_ps4.h"
 #include "input_ps4.h"
 #include "video_ps4.h"
 
@@ -26,6 +28,7 @@ struct State {
     EidosPs4Input input = {};
     bool input_ready = false;
     EidosPs4Video *video = nullptr;
+    EidosPs4Audio *audio = nullptr;
 };
 
 int fail(const char *stage, int result)
@@ -44,6 +47,14 @@ int shutdown(State *state)
             state->video = nullptr;
         }
     }
+    if (state->audio != nullptr) {
+        const int result = eidos_ps4_audio_destroy(state->audio);
+        if (result == 0) {
+            state->audio = nullptr;
+        } else if (first_error == 0) {
+            first_error = result;
+        }
+    }
     eidos_ps4_input_close(&state->input);
     if (state->user_service_initialized) {
         const int result = sceUserServiceTerminate();
@@ -55,7 +66,27 @@ int shutdown(State *state)
     return first_error;
 }
 
-int run()
+int submit_tone(State *state, unsigned frame)
+{
+    constexpr unsigned kSourceRate = 32768;
+    constexpr unsigned kRefreshRate = 60;
+    constexpr unsigned kTonePeriod = 128;
+    int16_t samples[2 * ((kSourceRate + kRefreshRate - 1) / kRefreshRate)];
+    const unsigned start = frame * kSourceRate / kRefreshRate;
+    const unsigned end = (frame + 1) * kSourceRate / kRefreshRate;
+
+    for (unsigned sample = start; sample < end; ++sample) {
+        const unsigned phase = sample % kTonePeriod;
+        const int triangle = phase < kTonePeriod / 2 ? phase : kTonePeriod - phase;
+        const int16_t value = static_cast<int16_t>((triangle - 32) * 64);
+        const unsigned index = 2 * (sample - start);
+        samples[index] = value;
+        samples[index + 1] = value;
+    }
+    return eidos_ps4_audio_submit(state->audio, samples, end - start);
+}
+
+int run(bool test_audio)
 {
     State state;
     state.input.handle = -1;
@@ -84,6 +115,15 @@ int run()
     } else {
         printf("WARNING ps4-minimal: UserService unavailable: 0x%08x\n",
                static_cast<unsigned>(result));
+    }
+
+    if (test_audio) {
+        result = eidos_ps4_audio_create(&state.audio, user_id);
+        if (result < 0) {
+            (void)shutdown(&state);
+            return fail("AudioOut", result);
+        }
+        printf("INFO ps4-minimal: playing a synthetic stereo test tone\n");
     }
 
     result = eidos_ps4_video_create(&state.video, kWidth, kHeight);
@@ -139,6 +179,13 @@ int run()
             }
             return fail("eidos_ps4_video_present", result);
         }
+        if (state.audio != nullptr && frame < 60) {
+            result = submit_tone(&state, static_cast<unsigned>(frame));
+            if (result < 0) {
+                (void)shutdown(&state);
+                return fail("audio submit", result);
+            }
+        }
         ++completed_frames;
     }
 
@@ -153,7 +200,9 @@ int run()
 
 } // namespace
 
-int main()
+int main(int argc, char **argv)
 {
-    return run();
+    // A home-screen launch passes no arguments, so the tone is on by default
+    // and the packaged diagnostic exercises AudioOut. --no-audio skips it.
+    return run(!(argc > 1 && strcmp(argv[1], "--no-audio") == 0));
 }

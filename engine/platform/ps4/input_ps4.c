@@ -5,6 +5,7 @@
 
 #define EIDOS_PS4_PAD_RETRY_FRAMES 60u
 #define EIDOS_PS4_DEFAULT_STICK_DEAD_ZONE 48u
+#define EIDOS_PS4_CURSOR_VISIBLE_FRAMES 120u
 
 static uint32_t map_buttons(uint32_t source)
 {
@@ -131,6 +132,7 @@ int eidos_ps4_input_poll(EidosPs4Input *input, uint32_t *buttons)
         input->left_trigger = input->right_trigger = 0;
         input->touch_down = 0;
         input->cursor_touch = 0;
+        input->cursor_visible_frames = 0;
         *buttons = 0;
         if (input->retry_frames > 0) {
             --input->retry_frames;
@@ -154,6 +156,7 @@ int eidos_ps4_input_poll(EidosPs4Input *input, uint32_t *buttons)
         input->left_trigger = input->right_trigger = 0;
         input->touch_down = 0;
         input->cursor_touch = 0;
+        input->cursor_visible_frames = 0;
         input->retry_frames = EIDOS_PS4_PAD_RETRY_FRAMES;
         *buttons = 0;
         return 0;
@@ -168,6 +171,10 @@ int eidos_ps4_input_poll(EidosPs4Input *input, uint32_t *buttons)
         input->right_y = data.rightStick.y;
         input->left_trigger = data.analogButtons.l2;
         input->right_trigger = data.analogButtons.r2;
+        input->cursor_touch = (data.buttons & SCE_PAD_BUTTON_R3) != 0;
+        if (input->cursor_visible_frames > 0) {
+            --input->cursor_visible_frames;
+        }
         {
             int x_delta = (int)input->right_x - 128;
             int y_delta = (int)input->right_y - 128;
@@ -176,7 +183,10 @@ int eidos_ps4_input_poll(EidosPs4Input *input, uint32_t *buttons)
             if (y_delta > -(int)input->stick_dead_zone &&
                 y_delta < (int)input->stick_dead_zone) y_delta = 0;
             input->cursor_x = cursor_step(input->cursor_x, x_delta, 255u);
-            input->cursor_y = cursor_step(input->cursor_y, -y_delta, 191u);
+            input->cursor_y = cursor_step(input->cursor_y, y_delta, 191u);
+            if (x_delta != 0 || y_delta != 0 || input->cursor_touch) {
+                input->cursor_visible_frames = EIDOS_PS4_CURSOR_VISIBLE_FRAMES;
+            }
         }
         input->buttons |= map_stick_directions(
             input->left_x, input->left_y, input->stick_dead_zone);
@@ -187,7 +197,6 @@ int eidos_ps4_input_poll(EidosPs4Input *input, uint32_t *buttons)
             input->buttons |= EIDOS_PAD_R;
         }
         input->touch_down = input->touch_available && data.touchData.touchNum != 0;
-        input->cursor_touch = (data.buttons & SCE_PAD_BUTTON_R3) != 0;
         if (input->touch_down) {
             input->touch_x = data.touchData.touch[0].x;
             input->touch_y = data.touchData.touch[0].y;
@@ -200,6 +209,7 @@ int eidos_ps4_input_poll(EidosPs4Input *input, uint32_t *buttons)
         input->left_trigger = input->right_trigger = 0;
         input->touch_down = 0;
         input->cursor_touch = 0;
+        input->cursor_visible_frames = 0;
         input->retry_frames = EIDOS_PS4_PAD_RETRY_FRAMES;
     }
     *buttons = input->buttons;

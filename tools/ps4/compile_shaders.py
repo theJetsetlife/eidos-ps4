@@ -19,7 +19,7 @@ def main() -> int:
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--profile", required=True,
-                        choices=("sce_vs_vs_lvp", "sce_ps_lvp"))
+                        choices=("sce_vs_vs_orbis", "sce_ps_orbis"))
     parser.add_argument("--cache-dir", required=True, type=Path)
     parser.add_argument("--include-dir", action="append", default=[], type=Path)
     parser.add_argument("--auxdata", action="store_true",
