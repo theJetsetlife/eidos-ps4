@@ -537,7 +537,7 @@ static int nickname(u8 *mon, char *out, int cap)
     for (i = 0; i < 40; i++) {
         sb.chars[i] = 0xFFFF;
     }
-    POKE_TOOL_GetPartyValue((struct PokemonParam *)mon, 0x73, (u32)(uintptr_t)&sb);
+    POKE_TOOL_GetPartyValue((struct PokemonParam *)mon, 0x73, (uintptr_t)&sb);
     if (sb.length == 0 || sb.length > 22) {
         return 0;
     }

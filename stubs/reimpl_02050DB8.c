@@ -23,8 +23,8 @@ extern void NNS_GfdLoadVramManager(u32 *src);
 extern u32 NNS_GfdFreeTexVram(u32 h);
 extern void NNSi_GfdSetVramManagerWork(void *p);
 extern int NNS_GfdFreePlttVram(u32 id);
-extern u32 func_020307B0(void *p);
-extern u32 G3D_CAMERA_Delete(void *ptr);
+extern void func_020307B0(void *p);
+extern void G3D_CAMERA_Delete(void *ptr);
 extern void *g_pParticleMan;
 
 #define F32(p, off) (*(u32 *)((p) + (off)))

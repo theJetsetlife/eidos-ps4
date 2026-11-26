@@ -52,38 +52,38 @@ struct ExpHeap {
     u16               feature;
 };
 
-extern void           NNSi_FndGetMBlockRegion(int *out, struct MBlock *blk);
+extern void           NNSi_FndGetMBlockRegion(intptr_t *out, struct MBlock *blk);
 extern struct MBlock *NNSi_FndRemoveMBlock(struct MBlockList *list,
                                            struct MBlock *node);
 extern struct MBlock *NNSi_FndInsertMBlock(struct MBlockList *list,
                                            struct MBlock *node,
                                            struct MBlock *after);
-extern struct MBlock *NNSi_FndInitMBlock(int *pair, u16 sig);
+extern struct MBlock *NNSi_FndInitMBlock(intptr_t *pair, u16 sig);
 extern void           MIi_CpuClear32(u32 data, void *dest, u32 size);
 
 void *NNSi_FndAllocFromExpHeap(struct ExpHeap *heap, struct MBlock *block,
                                void *ptr, u32 size, u16 fromTail)
 {
-    int            r[2];      /* the matched source's `start`, `end` */
-    int            rest[2];
-    int            alloc[2];
+    intptr_t       r[2];
+    intptr_t       rest[2];
+    intptr_t       alloc[2];
     struct MBlock *prev;
     struct MBlock *node;
     u32            sz;
 
     NNSi_FndGetMBlockRegion(r, block);
     rest[1] = r[1];
-    r[1] = (int)ptr - 0x10;
-    rest[0] = (int)(size + (u32)ptr);
+    r[1] = (intptr_t)ptr - 0x10;
+    rest[0] = (intptr_t)((u8 *)ptr + size);
 
     prev = NNSi_FndRemoveMBlock(&heap->freeList, block);
-    if ((u32)(r[1] - r[0]) < 0x14) {
+    if ((uintptr_t)(r[1] - r[0]) < 0x14) {
         r[1] = r[0];
     } else {
         prev = NNSi_FndInsertMBlock(&heap->freeList,
                                     NNSi_FndInitMBlock(r, 0x4652), prev);
     }
-    if ((u32)(rest[1] - rest[0]) < 0x14) {
+    if ((uintptr_t)(rest[1] - rest[0]) < 0x14) {
         rest[0] = rest[1];
     } else {
         NNSi_FndInsertMBlock(&heap->freeList,
@@ -91,16 +91,16 @@ void *NNSi_FndAllocFromExpHeap(struct ExpHeap *heap, struct MBlock *block,
     }
 
     sz = (u32)(rest[0] - r[1]);
-    if ((u8)((u32 *)heap)[-1] & 1) {
-        MIi_CpuClear32(0, (void *)(uintptr_t)(u32)r[1], sz);
+    if ((u8)((u8 *)heap)[-sizeof(u32)] & 1) {
+        MIi_CpuClear32(0, (void *)(uintptr_t)r[1], sz);
     }
 
-    alloc[0] = (int)ptr - 0x10;
+    alloc[0] = (intptr_t)ptr - 0x10;
     alloc[1] = rest[0];
     node = NNSi_FndInitMBlock(alloc, 0x5544);
     node->attr = node->attr & ~0x8000;
     node->attr = node->attr | (u16)(fromTail << 15);
-    sz = (u16)((u32)(uintptr_t)node - (u32)r[1]);
+    sz = (u16)((uintptr_t)node - (uintptr_t)r[1]);
     node->attr = node->attr & ~0x7f00;
     node->attr = node->attr | ((sz & 0x7f) << 8);
     sz = heap->groupId & 0xff;

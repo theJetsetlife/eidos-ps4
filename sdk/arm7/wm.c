@@ -926,7 +926,7 @@ static void bind_buffers(const u8 *cmd)
     u32 w7 = rd32(cmd + 4);
 
     g_wm.w7 = host_of(w7);
-    g_wm.w7_wire = (u32)(uintptr_t)g_wm.w7;
+    g_wm.w7_wire = w7;
     g_wm.status = host_of(rd32(cmd + 8));
     if (g_wm.w7_wire >= (1u << 26)) {
         fprintf(stderr, "wm: the ARM7 buffer is out of the FIFO's reach\n");

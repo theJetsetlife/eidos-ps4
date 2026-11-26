@@ -610,7 +610,7 @@ static int read_party(const FieldNow *f, PartyLine *out, int max)
             continue;
         }
         memset(nick, 0xFF, sizeof(nick));
-        (void)POKE_TOOL_GetPartyValue(pp, P_NICKNAME, (u32)(uintptr_t)nick);
+        (void)POKE_TOOL_GetPartyValue(pp, P_NICKNAME, (uintptr_t)nick);
         units_to_utf8(nick, 48, l->name, (int)sizeof(l->name));
         l->egg = POKE_TOOL_GetPartyValue(pp, P_IS_EGG, 0) != 0;
         l->species = (int)POKE_TOOL_GetPartyValue(pp, P_SPECIES, 0);

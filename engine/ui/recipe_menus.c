@@ -5651,7 +5651,7 @@ static int ut_mon(void *mon, int party, UtMon *m)
         m->moves[i] = (int)get(mon, 0x36u + (u32)i, 0);
     }
     memset(name, 0xFF, sizeof name);
-    (void)get(mon, 0x74, (u32)(uintptr_t)name);
+    (void)get(mon, 0x74, (uintptr_t)name);
     units_utf8(name, 12, m->nick, (int)sizeof m->nick);
     return 1;
 }

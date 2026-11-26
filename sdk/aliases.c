@@ -138,12 +138,11 @@ void *sub_02060C5C(void *mem, u32 size, u32 mode)
  *   declared as sub_0202FED8  in src/matched/sub_0202FDC4.c (res and bound
  *                             as pointers)
  */
-extern int GFL_HEAP_AddRecord(u32 a0, u32 a1, u32 a2, u32 a3);
+extern int GFL_HEAP_AddRecord(void *a0, u32 a1, void *a2, u32 a3);
 
 int sub_0202FED8(void *res, u32 idx, void *bound, u32 param)
 {
-    return GFL_HEAP_AddRecord((u32)(uintptr_t)res, idx,
-                              (u32)(uintptr_t)bound, param);
+    return GFL_HEAP_AddRecord(res, idx, bound, param);
 }
 
 /*

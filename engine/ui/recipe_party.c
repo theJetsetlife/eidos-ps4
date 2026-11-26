@@ -383,7 +383,7 @@ static void mon_nick(void *mon, char *out, int cap)
     u16 buf[32];
 
     memset(buf, 0xFF, sizeof buf);
-    (void)POKE_TOOL_GetPartyValue(mon, P_NICK, (u32)(uintptr_t)buf);
+    (void)POKE_TOOL_GetPartyValue(mon, P_NICK, (uintptr_t)buf);
     units_to_utf8(buf, 12, out, cap, 0);
 }
 
@@ -392,7 +392,7 @@ static void mon_ot(void *mon, char *out, int cap)
     u16 buf[32];
 
     memset(buf, 0xFF, sizeof buf);
-    (void)POKE_TOOL_GetPartyValue(mon, P_OT_NAME, (u32)(uintptr_t)buf);
+    (void)POKE_TOOL_GetPartyValue(mon, P_OT_NAME, (uintptr_t)buf);
     units_to_utf8(buf, 8, out, cap, 0);
 }
 
