@@ -617,7 +617,12 @@ static int sock_would_block(void)
 #include <sys/time.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#if defined(__ORBIS__)
+#include <net.h>
+#include <pthread.h>
+#else
 #include <netdb.h>
+#endif
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -732,19 +737,60 @@ static int sock_startup(void)
 #endif
 }
 
+#if defined(__ORBIS__)
+static pthread_once_t g_net_pool_once = PTHREAD_ONCE_INIT;
+static int g_net_pool = -1;
+
+static void sock_init_resolver(void)
+{
+    int result = sceNetInit();
+
+    if (result == 0 || result == SCE_NET_ERROR_EALREADY)
+        g_net_pool = sceNetPoolCreate("eidos-dns", 32 * 1024, 0);
+}
+
+static int sock_resolve_orbis(const char *host, struct in_addr *address)
+{
+    SceNetInAddr resolved;
+    SceNetId resolver;
+    int result;
+
+    pthread_once(&g_net_pool_once, sock_init_resolver);
+    if (g_net_pool < 0)
+        return -1;
+    resolver = sceNetResolverCreate("eidos-dns", g_net_pool, 0);
+    if (resolver < 0)
+        return -1;
+    result = sceNetResolverStartNtoa(resolver, host, &resolved, 0, 0, 0);
+    sceNetResolverDestroy(resolver);
+    if (result < 0)
+        return -1;
+    address->s_addr = resolved.s_addr;
+    return 0;
+}
+#endif
+
 /* The address of a host: a name or a dotted address, and a port. */
 static int sock_addr(const char *host, u16 port, struct sockaddr_in *out)
 {
+#if !defined(__ORBIS__)
     struct hostent *he;
     struct in_addr addr;
+#endif
 
     memset(out, 0, sizeof(*out));
     out->sin_family = AF_INET;
+#if defined(__ORBIS__)
+    out->sin_len = sizeof(*out);
+#endif
     out->sin_port = SOCK_HTONS(port);
     if (host == NULL || *host == '\0') {
         out->sin_addr.s_addr = SOCK_HTONL(INADDR_LOOPBACK);   /* 127.0.0.1 */
         return 0;
     }
+#if defined(__ORBIS__)
+    return sock_resolve_orbis(host, &out->sin_addr);
+#else
     addr.s_addr = SOCK_INET_ADDR(host);
     if (addr.s_addr != 0xFFFFFFFFu) {
         out->sin_addr = addr;
@@ -756,6 +802,7 @@ static int sock_addr(const char *host, u16 port, struct sockaddr_in *out)
     }
     memcpy(&out->sin_addr, he->h_addr_list[0], sizeof(out->sin_addr));
     return 0;
+#endif
 }
 
 /* The socket's send and receive timeouts, in milliseconds. */

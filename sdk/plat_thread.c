@@ -517,6 +517,9 @@ unsigned long long bw_clock_ns(void)
 
 #include <pthread.h>
 #include <unistd.h>
+#if defined(__ORBIS__)
+#include <_kernel.h>
+#endif
 #include <time.h>
 
 struct BwMutex  { pthread_mutex_t mx; };
@@ -641,9 +644,16 @@ unsigned long long bw_thread_self_id(void)
 
 unsigned bw_cpu_count(void)
 {
+#if defined(__ORBIS__)
+    int mode = sceKernelGetCpumode();
+    if (mode == SCE_KERNEL_CPUMODE_7CPU_LOW || mode == SCE_KERNEL_CPUMODE_7CPU_NORMAL)
+        return 7u;
+    return mode == SCE_KERNEL_CPUMODE_6CPU ? 6u : 1u;
+#else
     long n = sysconf(_SC_NPROCESSORS_ONLN);
 
     return n > 0 ? (unsigned)n : 1u;
+#endif
 }
 
 unsigned long long bw_clock_ns(void)

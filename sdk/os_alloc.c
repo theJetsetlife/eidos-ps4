@@ -131,6 +131,8 @@ void *bw_block_alloc(u32 size, u32 align)
     block = payload - BW_BLOCK_HEADER;
 
     memcpy(block - sizeof(base), &base, sizeof(base));
+    /* Preserve the size field read by NNSi_FndGetMBlockSize. */
+    memcpy(block - 0x0c, &size, sizeof(size));
     return block;
 }
 

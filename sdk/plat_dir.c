@@ -4,12 +4,12 @@
  *
  * Win32 uses GetFileAttributesA and FindFirstFileA/FindNextFileA, the ANSI
  * forms, because the rest of the file layer opens files with narrow fopen
- * and both must agree on what a path names.  Everything else uses stat and
- * opendir/readdir.
+ * and both must agree on what a path names.  POSIX hosts use stat and opendir/readdir. Orbis lists
+ * directories through its SDK file API.
  */
 
 /* stat and opendir are POSIX, not C99: ask for them under -std=c99. */
-#if !defined(_WIN32) && !defined(_POSIX_C_SOURCE)
+#if !defined(_WIN32) && !defined(__ORBIS__) && !defined(_POSIX_C_SOURCE)
 #define _POSIX_C_SOURCE 200809L
 #endif
 
@@ -73,7 +73,13 @@ int bw_plat_list_dir(const char *path, int (*fn)(void *ctx, const char *name),
 
 #else /* POSIX */
 
+#if defined(__ORBIS__)
+#include <_fs.h>
+#include <stddef.h>
+#include <sys/dirent.h>
+#else
 #include <dirent.h>
+#endif
 #include <sys/stat.h>
 #include <sys/types.h>
 
@@ -96,6 +102,49 @@ int bw_plat_path_kind(const char *path)
 int bw_plat_list_dir(const char *path, int (*fn)(void *ctx, const char *name),
                      void *ctx)
 {
+#if defined(__ORBIS__)
+    union {
+        struct dirent alignment;
+        char bytes[4096];
+    } buffer;
+    const size_t header = offsetof(struct dirent, d_name);
+    int result = 0;
+    int count;
+    int fd;
+
+    if (path == NULL || (fd = sceKernelOpen(path, SCE_KERNEL_O_RDONLY |
+                                          SCE_KERNEL_O_DIRECTORY, 0)) < 0) {
+        return -1;
+    }
+    while (result == 0 &&
+           (count = sceKernelGetdents(fd, buffer.bytes, sizeof(buffer.bytes))) > 0) {
+        size_t offset = 0;
+        while (result == 0 && offset < (size_t)count) {
+            struct dirent entry;
+            size_t remaining = (size_t)count - offset;
+            const char *name = buffer.bytes + offset + header;
+
+            if (remaining <= header) {
+                result = -1;
+                break;
+            }
+            memcpy(&entry, buffer.bytes + offset, header);
+            if (entry.d_reclen > remaining || entry.d_reclen <= header ||
+                entry.d_namlen >= entry.d_reclen - header ||
+                name[entry.d_namlen] != '\0') {
+                result = -1;
+                break;
+            }
+            offset += entry.d_reclen;
+            if (entry.d_fileno != 0 && strcmp(name, ".") != 0 &&
+                strcmp(name, "..") != 0) {
+                result = fn(ctx, name);
+            }
+        }
+    }
+    sceKernelClose(fd);
+    return result == 0 && count < 0 ? -1 : result;
+#else
     DIR *d;
     struct dirent *e;
     int rc = 0;
@@ -111,6 +160,7 @@ int bw_plat_list_dir(const char *path, int (*fn)(void *ctx, const char *name),
     }
     closedir(d);
     return rc;
+#endif
 }
 
 #endif

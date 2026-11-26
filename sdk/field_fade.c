@@ -20,7 +20,11 @@ extern int eidos_settings_get(int id);
 
 int eidos_field_transition(void)
 {
+#if defined(__ORBIS__)
+    return 0;
+#else
     return eidos_settings_get(OPT_TRANSITIONS);
+#endif
 }
 
 int eidos_door_fade_step(void)

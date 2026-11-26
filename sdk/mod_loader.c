@@ -151,7 +151,7 @@
 
 #ifdef _WIN32
 #include <windows.h>
-#elif !defined(__wasi__)
+#elif !defined(__wasi__) && !defined(__ORBIS__)
 #include <dlfcn.h>
 #endif
 
@@ -477,6 +477,9 @@ static BwModLibrary library_open(const char *path)
      * Data-only mods still work; executable mods need the mod wasm runtime. */
     fprintf(stderr, "eidos: native mod libraries are unavailable in the wasm32 game (%s)\n", path);
     return NULL;
+#elif defined(__ORBIS__)
+    fprintf(stderr, "eidos: native mod libraries are unavailable on PS4 (%s)\n", path);
+    return NULL;
 #elif defined(_WIN32)
     wchar_t wide[BW_MOD_LOADER_PATH_MAX];
 
@@ -504,7 +507,7 @@ static void library_close(BwModLibrary library)
     if (library == NULL) {
         return;
     }
-#ifdef __wasi__
+#if defined(__wasi__) || defined(__ORBIS__)
     (void)library;
 #elif defined(_WIN32)
     FreeLibrary((HMODULE)library);
@@ -520,7 +523,7 @@ static void library_close(BwModLibrary library)
  */
 static void *library_symbol(BwModLibrary library, const char *name)
 {
-#ifdef __wasi__
+#if defined(__wasi__) || defined(__ORBIS__)
     (void)library;
     (void)name;
     return NULL;

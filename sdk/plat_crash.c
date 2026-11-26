@@ -14,7 +14,7 @@
  * Both exit with status 3 and never return into the faulting code.
  */
 
-#if !defined(_WIN32) && !defined(__wasm__) && !defined(__vita__) && !defined(_POSIX_C_SOURCE)
+#if !defined(_WIN32) && !defined(__wasm__) && !defined(__vita__) && !defined(__ORBIS__) && !defined(_POSIX_C_SOURCE)
 #define _POSIX_C_SOURCE 200809L   /* sigaction, siginfo_t */
 #endif
 
@@ -865,11 +865,14 @@ void bw_plat_crash_code_resolver(BwCodeResolver resolve)
 #else /* POSIX */
 
 #include <pthread.h>
+#if !defined(__ORBIS__)
 #include <signal.h>
+#endif
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
 
+#if !defined(__ORBIS__)
 static void bw_crash_handler(int sig, siginfo_t *si, void *uc)
 {
     (void)uc;
@@ -882,6 +885,8 @@ static void bw_crash_handler(int sig, siginfo_t *si, void *uc)
     fflush(stderr);
     _exit(3);
 }
+
+#endif
 
 static int bw_crash_on;
 
@@ -927,7 +932,11 @@ static void *bw_watchdog_main(void *arg)
             g_watchdog.seconds, last);
     bw_plat_crash_context_run();
     fflush(stderr);
+#if defined(__ORBIS__)
+    _Exit(3);
+#else
     _exit(3);
+#endif
     return NULL;
 }
 
@@ -952,6 +961,7 @@ void bw_plat_console_open(void)
 
 void bw_plat_crash_install(void)
 {
+#if !defined(__ORBIS__)
     static const int sigs[] = { SIGSEGV, SIGBUS, SIGILL, SIGFPE };
     struct sigaction sa;
     size_t i;
@@ -964,6 +974,7 @@ void bw_plat_crash_install(void)
         sigaction(sigs[i], &sa, NULL);
     }
     bw_crash_on = 1;
+#endif
 }
 
 void bw_plat_crash_code_resolver(BwCodeResolver resolve)

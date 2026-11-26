@@ -164,6 +164,9 @@ void bw_vm_discard(void *p, size_t size)
 
 #include <sys/mman.h>
 #include <unistd.h>
+#if defined(__ORBIS__)
+#include <sys/dmem.h>
+#endif
 
 #if !defined(MAP_ANONYMOUS) && defined(MAP_ANON)
 #define MAP_ANONYMOUS MAP_ANON
@@ -219,7 +222,11 @@ int bw_vm_commit(void *p, size_t size)
 {
     /* A movable block is mapped read-write already; a fixed one is mapped
      * PROT_NONE until committed.  mprotect works on whole pages. */
+#if defined(__ORBIS__)
+    size_t page = SCE_KERNEL_PAGE_SIZE;
+#else
     size_t page = (size_t)sysconf(_SC_PAGESIZE);
+#endif
     size_t lo = (size_t)p & ~(page - 1u);
     size_t hi = ((size_t)p + size + page - 1u) & ~(page - 1u);
 

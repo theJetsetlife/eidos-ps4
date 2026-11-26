@@ -385,7 +385,7 @@ typedef struct BwPortFieldMenu {
     void              *fieldMap;       /* 0x04 */
     void              *parent;         /* 0x08 */
     int                state;          /* 0x0C */
-    u32                mapInfo;        /* 0x10 */
+    void              *mapInfo;        /* 0x10 */
     void              *eventWork;      /* 0x14 */
     void              *myStatus;       /* 0x18 */
     u16                zoneId;         /* 0x1C */
@@ -410,7 +410,7 @@ BW_PORT_STATIC_ASSERT(menu_cursor_dirty, sizeof(void *) != 4 ||
 BW_PORT_STATIC_ASSERT(menu_chosen_button, sizeof(void *) != 4 ||
                       offsetof(BwPortFieldMenu, chosenButton) == 0x30u);
 BW_PORT_STATIC_ASSERT(menu_size, sizeof(BwPortFieldMenu) ==
-                      (sizeof(void *) == 4 ? 0x0F8u : 0x160u));
+                      (sizeof(void *) == 4 ? 0x0F8u : 0x168u));
 BW_PORT_STATIC_ASSERT(menu_item_in_use, sizeof(void *) != 4 ||
                       offsetof(BwPortFieldMenuItem, inUse) == 0x00u);
 BW_PORT_STATIC_ASSERT(menu_item_bmp_win, sizeof(void *) != 4 ||
