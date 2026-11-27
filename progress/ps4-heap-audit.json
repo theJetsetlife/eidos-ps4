@@ -1,6 +1,6 @@
 {
   "scope": "Native heap boundary in the synchronized direct-LP64 game profile; not a whole-engine audit",
-  "source_revision": "f078734",
+  "source_revision": "7f4196e",
   "aletheia_revision": "995615a30f1b1d47109d435a7cb355983ec32e18",
   "owner": "Codex",
   "status": "audit-open",
@@ -124,7 +124,7 @@
     {
       "id": "H-LAYOUT",
       "requirement": "Every active native arena view uses canonical offsets and alignment.",
-      "status": "source-corrected; target rebuild in progress",
+      "status": "canonical-type correction target-linked; integration unverified",
       "evidence": "Official SDK layout: NNSiFndHeapHead.heapEnd at byte 56, ExpHeap 112 bytes aligned 8; generated gfl_heap now uses canonical NNSiFndHeapHead and typed heapEnd."
     },
     {
@@ -165,7 +165,7 @@
     {
       "id": "H-BUILD",
       "requirement": "Address aliases do not suppress canonical implementations; small tools retain fallback aliases.",
-      "status": "source-selection-corrected; full host and prior SDK package passed",
+      "status": "source-selection corrected; official SDK eidos_boot linked",
       "correcting_commit": "f078734"
     }
   ],
@@ -192,8 +192,8 @@
   "validation_gates": {
     "A": "partial: representations and producers/consumers recorded; lifetime/accounting open",
     "B": "partial: canonical heap-end view corrected; GFL_HEAP_GetTotalFreeSize return-signature mismatch open",
-    "C": "prior host and official SDK build passed; latest canonical heap-end target rebuild in progress",
-    "D": "query and ABI-tool regressions passed; full subsystem not covered",
+    "C": "official SDK 12.508.041 eidos_boot linked with canonical heap-end and single-screen shader",
+    "D": "13 ABI-tool tests, 66 dsaddr tests (5 skipped), GCC/Clang native query fixtures, host touch edge test passed",
     "E": "failed: natural encounter advances past query and then faults in cutin text rendering; no localization patch applied",
     "F": "126 host tests passed; 3 skipped and 2 disabled; latest source batch not rerun full suite",
     "G": "not run for this batch"
@@ -220,8 +220,8 @@
       "confirmed": 1,
       "corrected": 1,
       "exceptions": 0,
-      "validation": "source-derived GCC and Clang query fixtures passed; official target rebuild in progress",
-      "commit": null
+      "validation": "focused host tests passed; official SDK eidos_boot linked; subsystem integration remains open",
+      "commit": "401473c"
     },
     {
       "defect_class": "compiler evidence false-success",
@@ -236,8 +236,8 @@
       "confirmed": 2,
       "corrected": 2,
       "exceptions": 0,
-      "validation": "13 focused host tool tests passed; mutation checks still pending",
-      "commit": null
+      "validation": "focused host tests passed; official SDK eidos_boot linked; subsystem integration remains open",
+      "commit": "401473c"
     },
     {
       "defect_class": "cross-translation-unit heap signature mismatch",
