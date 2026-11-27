@@ -1274,3 +1274,11 @@ party, encounter, warp and related consumers. The actual optimized host compile
 command passes a syntax check with implicit declarations treated as errors.
 Runtime validation follows the rebuilt game; this does not by itself establish
 normal encounter completion.
+
+Both host and official SDK links verified that the canonical query bodies now
+survive, and caught two remaining library references to their historical
+sub_02060E6C/sub_02060E94 names. These are link aliases, not replacements.
+Compile sdk/heap_query_aliases.c directly into the boot after closure planning,
+so address-based shim selection does not suppress its callees. The compiled
+GCC/Clang regression links the actual production aliases to source-derived
+canonical query bodies. Both links are being rerun with that source included.

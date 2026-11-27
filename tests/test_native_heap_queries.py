@@ -83,8 +83,7 @@ with tempfile.TemporaryDirectory() as directory:
     cfile.write_text(fixture)
     binary = directory / 'query'
     subprocess.run([args.cc, '-std=c99', '-O2', '-I' + str(root / 'sdk'),
-                    str(cfile), str(root / 'stubs/stub_02060E6C.c'),
-                    str(root / 'stubs/stub_02060E94.c'),
+                    str(cfile), str(root / 'sdk/heap_query_aliases.c'),
                     '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
 

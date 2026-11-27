@@ -812,6 +812,14 @@ if(NOT MSVC AND NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
 endif()
 
 target_sources(eidos_boot PRIVATE $<TARGET_OBJECTS:eidos_boot_game>)
+# Legacy names used by matched library callers must link to the native query
+# bodies. These are aliases, not shims: register after closure planning so
+# their DS addresses do not cause the canonical implementations to be cut.
+if(NOT EIDOS_HEAP_MATCHED AND EIDOS_SOURCE_TREE STREQUAL "game")
+    target_sources(eidos_boot PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/sdk/heap_query_aliases.c)
+endif()
+
 target_compile_definitions(eidos_boot PRIVATE EIDOS_BOOT=1)
 # A window for `eidos_boot --window` where the SDL platform layer is built.
 if(TARGET eidos_platform)
