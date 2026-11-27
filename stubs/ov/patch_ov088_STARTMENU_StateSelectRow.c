@@ -229,10 +229,6 @@ static int state_select_row_native(StartMenuWork *work)
         GFL_USE_PlaySeDefaultVolume(0x54c);
         switch (row) {
         case 0:
-            if (bw_mod_title_settings_on() && bw_slots_replacing()) {
-                bw_slots_set_replacing(0);
-                return STARTMENU_BeginSelectAnim((char *)work, 8);
-            }
             work->selectedRow = row;
             return STARTMENU_BeginSelectAnim((char *)work, 7);
         case 1:
@@ -241,11 +237,6 @@ static int state_select_row_native(StartMenuWork *work)
                     work->selectedRow = 1;
                     return STARTMENU_BeginFadeIn((char *)work, 1);
                 }
-                if (!bw_slots_replacing() && SAVE_CONTROL_HasFlashSave(work->saveData) == 1) {
-                    bw_slots_set_replacing(1);
-                    return rebuild_native(work);
-                }
-                bw_slots_set_replacing(0);
             }
             return STARTMENU_BeginSelectAnim((char *)work, 8);
         case 2:
@@ -279,20 +270,12 @@ static int state_select_row_native(StartMenuWork *work)
             return STARTMENU_BeginSelectAnim((char *)work, 11);
         }
     }
-    if (bw_mod_title_settings_on() && (row == 0 || bw_slots_replacing()) &&
+    if (bw_mod_title_settings_on() && row == 0 &&
         (pressed & 0x30)) {
         if (bw_slots_flip((pressed & 0x10) ? 1 : -1)) {
             GFL_USE_PlaySeDefaultVolume(0x548);
             return rebuild_native(work);
         }
-    }
-    if (bw_mod_title_settings_on() && bw_slots_replacing()) {
-        if (pressed & 2) {
-            GFL_USE_PlaySeDefaultVolume(0x551);
-            bw_slots_set_replacing(0);
-            return rebuild_native(work);
-        }
-        return 5;
     }
     if (pressed & 2) {
         GFL_USE_PlaySeDefaultVolume(0x551);

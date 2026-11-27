@@ -959,6 +959,15 @@ int bw_setup_install_game(const char *rom, BwGame want,
     }
 }
 
+static int from_recomp_launcher(void)
+{
+#if defined(__ORBIS__)
+    return 0;
+#else
+    return getenv("RECOMPLAUNCHER") != NULL;
+#endif
+}
+
 static int stderr_bar(void *ctx, u32 done, u32 total, const char *what)
 {
     static int last = -1;
@@ -978,7 +987,7 @@ static int stderr_bar(void *ctx, u32 done, u32 total, const char *what)
             fputc('\n', stderr);
         }
         fflush(stderr);
-        if (getenv("RECOMPLAUNCHER") != NULL) {
+        if (from_recomp_launcher()) {
             /* RecompLauncher's setup step reads whole lines from the
              * output: "progress <0 to 1> <text>".  The check is the first
              * half of the bar, the writing the second. */
@@ -996,7 +1005,7 @@ static int stderr_bar(void *ctx, u32 done, u32 total, const char *what)
  * line says the whole of it. */
 static void bar_end(void)
 {
-    if (getenv("RECOMPLAUNCHER") != NULL) {
+    if (from_recomp_launcher()) {
         printf("progress 1.00 The game data is ready\n");
         fflush(stdout);
     }
