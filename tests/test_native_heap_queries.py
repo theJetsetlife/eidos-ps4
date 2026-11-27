@@ -83,7 +83,8 @@ with tempfile.TemporaryDirectory() as directory:
     cfile.write_text(fixture)
     binary = directory / 'query'
     subprocess.run([args.cc, '-std=c99', '-O2', '-I' + str(root / 'sdk'),
-                    str(cfile), str(root / 'sdk/heap_query_aliases.c'),
+                    str(cfile), str(root / 'stubs/stub_02060E6C.c'),
+                    str(root / 'stubs/stub_02060E94.c'),
                     '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
 
@@ -98,6 +99,6 @@ if args.build:
     cuts = (build / 'boot/boot_cuts.txt').read_text()
     for name in ('NNSi_FndGetListTotalSize', 'NNSi_FndGetListAllocatableSize'):
         assert name not in cuts, 'canonical query removed from generated closure: ' + name
-    sources = (build / 'eidos_sources.txt').read_text()
+    sources = (build / 'boot/shim_sources_gen.txt').read_text()
     for name in ('stub_02060E6C.c', 'stub_02060E94.c'):
-        assert name not in sources, 'address alias overrides native query: ' + name
+        assert name not in sources, 'alias incorrectly marked as query replacement: ' + name

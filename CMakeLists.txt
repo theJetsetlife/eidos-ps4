@@ -872,14 +872,6 @@ set(BW_HEAP_REIMPL
     ${CMAKE_CURRENT_SOURCE_DIR}/stubs/stub_02060E94.c
     ${CMAKE_CURRENT_SOURCE_DIR}/stubs/stub_02060F90.c
 )
-# In the native game boot the typed query bodies come from nns_fnd_expheap.c.
-# Address-named stubs would mark the same DS addresses as port replacements
-# and make bootlink cut those bodies, even when the stub only forwards weakly.
-if(EIDOS_BOOT AND EIDOS_SOURCE_TREE STREQUAL "game" AND NOT EIDOS_HEAP_MATCHED)
-    list(REMOVE_ITEM BW_HEAP_REIMPL
-        ${CMAKE_CURRENT_SOURCE_DIR}/stubs/stub_02060E6C.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/stubs/stub_02060E94.c)
-endif()
 if(EIDOS_HEAP_MATCHED)
     list(APPEND BW_MATCHED_SOURCES ${BW_HEAP_MATCHED})
 else()

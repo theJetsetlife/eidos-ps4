@@ -1282,3 +1282,15 @@ Compile sdk/heap_query_aliases.c directly into the boot after closure planning,
 so address-based shim selection does not suppress its callees. The compiled
 GCC/Clang regression links the actual production aliases to source-derived
 canonical query bodies. Both links are being rerun with that source included.
+
+The broader host build caught a shared-library regression in that initial
+source-selection approach: eidos_view does not link the boot's canonical game
+objects, so removing the library's fallback aliases leaves it with unresolved
+names. The final boundary retains the weak forwarding aliases in libeidos and
+excludes only those alias files from the boot planner's shim inventory. The
+canonical query bodies are then linked by the game closure, and the same
+library still supports smaller tools. The temporary boot-only alias source is
+removed. The compiled fixture tests the production weak forwarders; the build
+regression checks shim_sources_gen.txt rather than incorrectly forbidding
+aliases in the shared library. Rebuild the complete host target set as well as
+the game executable to validate this boundary.

@@ -485,6 +485,16 @@ file(WRITE ${EIDOS_BOOT_DIR}/shim_replaced.txt "${_boot_excl}\n")
 # are passed separately (they are subtracted from the closure).
 set(_boot_shims ${BW_SDK_SOURCES} ${BW_STUB_SOURCES})
 list(REMOVE_ITEM _boot_shims ${BW_OVERLAY_TABLE})
+# These historical-name wrappers forward weakly to the canonical query, and
+# are retained in the library for tools without a full game closure. They
+# are aliases, not replacements: counting their DS addresses as shims would
+# cut the canonical bodies the game boot must provide.
+if(NOT EIDOS_HEAP_MATCHED AND EIDOS_SOURCE_TREE STREQUAL "game")
+    list(REMOVE_ITEM _boot_shims
+        ${CMAKE_CURRENT_SOURCE_DIR}/stubs/stub_02060E6C.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/stubs/stub_02060E94.c)
+endif()
+
 string(REPLACE ";" "\n" _boot_shim_txt "${_boot_shims}")
 file(WRITE ${EIDOS_BOOT_DIR}/shim_sources.txt "${_boot_shim_txt}\n")
 # The generator also sees what the compiled overlays define outside them
@@ -812,13 +822,7 @@ if(NOT MSVC AND NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
 endif()
 
 target_sources(eidos_boot PRIVATE $<TARGET_OBJECTS:eidos_boot_game>)
-# Legacy names used by matched library callers must link to the native query
-# bodies. These are aliases, not shims: register after closure planning so
-# their DS addresses do not cause the canonical implementations to be cut.
-if(NOT EIDOS_HEAP_MATCHED AND EIDOS_SOURCE_TREE STREQUAL "game")
-    target_sources(eidos_boot PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/sdk/heap_query_aliases.c)
-endif()
+
 
 target_compile_definitions(eidos_boot PRIVATE EIDOS_BOOT=1)
 # A window for `eidos_boot --window` where the SDL platform layer is built.
