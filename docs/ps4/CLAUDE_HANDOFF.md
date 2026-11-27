@@ -1,6 +1,79 @@
 # Claude handoff for the native Eidos PS4 port
 
-Updated 2026-11-25.
+## Integration handoff, 2026-11-27
+
+Codex is working in the separate Eidos worktree
+`/tmp/eidos-upstream-integration` on `integration/upstream-20261127`.
+Merge `15ad0e8` has parents `012c525` (downstream) and `6d8a7a9`
+(upstream main). The checkpoint branch is `checkpoint/pre-upstream-20261127`.
+The common base before integration was `bb70c8a` with 62 downstream and
+74 upstream commits. The local Aletheia branch `integration/eidos-20261127`
+in `/tmp/aletheia-upstream-integration` builds on upstream `ea39ea3ad6`.
+Its exact build pin lives in `cmake/aletheia_pin.cmake`. Both integration
+branches have local Git refs in their respective main repositories.
+
+The locked Claude worktree was clean at `fc85b77`. The main Eidos worktree
+at `641cb1c` and main Aletheia worktree at `f15bb66a81` contain local
+development. Relay listing and native self-registration returned HTTP 403
+`not_a_relay_session`. Claude's active session and current file ownership
+are unconfirmed.
+
+The native build uses direct LP64, preserving original DS wire layouts and
+resolving stored addresses at representation boundaries. For the current
+sound regression, Aletheia owns the native channel pointers. The fixed-width
+channel fields in the ARM9 voice record store presence flags. Upstream cry
+cleanup interpreted those flags as pointers. With START at frame 4800 the
+Linux boot failed at frame 4929 in `NNS_SndWaveOutStop`. Eidos `e3e92dd`
+selects the canonical cleanup and Aletheia `49ad8dbfab` guards absent
+channels there. Inventory entry C10 tracks the defect.
+
+For local builds, put `/tmp/eidos-build-tools/bin` on PATH. The configured
+all-overlay Linux build is `/tmp/eidos-upstream-host`. The Orbis game build
+is `/tmp/eidos-merged-orbis`, with `EIDOS_PS4_MINIMAL=OFF`, `EIDOS_SDL=OFF`,
+`EIDOS_BOOT=ON`, `EIDOS_OVERLAYS=ALL` and an empty `BW_DATA_ROOT`.
+Set SCE_ORBIS_SDK_DIR from `/tmp/eidos-orbis-sdk-path`. Build either tree
+with `cmake --build <build-dir> --target eidos_boot`. Run the host suite
+with `ctest --test-dir /tmp/eidos-upstream-host --output-on-failure`.
+The boot test now creates its own save folder.
+
+The offline shader target builds four PSSL programs, tracks compiler-generated
+dependencies and emits `ps4-shaders/manifest.json`. The binaries are embedded
+via `eidos_platform_ps4`. The upstream desktop backend has twelve HLSL source
+files under `engine/platform/shaders`. Native parity for geometry, world,
+battle effects and UI composition still needs backend and hardware validation.
+
+The available physical console is a retail PS4 Slim, firmware 13.52, running
+GoldHEN. The latest user-reported startup reached the game-data storage error.
+Commit `06a4a10` reports the operation and return code. USB ROM selection,
+normal battle completion, save/reload, native presentation and performance
+still require hardware evidence. The native picker offers .nds files in the roots of accessible /mnt/usb0 and
+/mnt/usb1 volumes. Console visibility remains unverified. Current acceptance evidence is recorded in
+`progress/ps4.json`. The notes below describe the earlier development worktree.
+
+### Saved implementation checkpoint
+
+At Eidos `87e9893` and Aletheia `49ad8dbfab`, the host title regression
+passes after the voice correction. An isolated headless White run also
+completed 35,000 frames without input. Before the voice correction, the
+all-overlay suite recorded 117 passes, one failure, three skips and two
+disabled tests across 123 registered tests. The standalone title retest
+passed. The latest full host and Orbis builds were in progress at save time.
+
+The forced trainer 18 battle first failed loading the input screen archive.
+The incoming port mirror placed the native archive handle at the wrong offset.
+Commit `87e9893` uses the same BtlvInput type as its producer. Relinking that
+object and repeating the probe reached opponent send-out and the HP gauge.
+The new trace stops in bw_rd16 from BTLV_GAUGE_DrawBar. Inspect tileGfx at
+construction: the unpacker retains the NCGR +0x14 offset on LP64, while
+BtlvGaugeTileFile reads a native pointer. Confirm the actual tile address
+and bound its payload against the loaded file before changing the reader.
+
+Local recovery bundles and checkpoint logs are under
+`~/.local/state/eidos/checkpoints/20261127-87e9893/`. The Eidos bundle
+requires the live upstream and pre-merge downstream commits. The Aletheia
+bundle requires its upstream base. No branch has been pushed.
+
+## Handoff from 2026-11-25
 
 ## Workspace and build artifacts
 

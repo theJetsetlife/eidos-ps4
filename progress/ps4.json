@@ -1,0 +1,244 @@
+{
+  "date": "2026-11-27",
+  "eidos_upstream": "6d8a7a95c4c199828ae059dba51f882fa8388703",
+  "aletheia": "49ad8dbfaba0132fa7c82b76c4f4064e1d8cb2ec",
+  "milestones": [
+    {
+      "id": "sync",
+      "subsystem": "upstream",
+      "acceptance": "Both upstream base commits are ancestors of the integration branches",
+      "status": "verified-local",
+      "commit": "15ad0e8",
+      "evidence": "6d8a7a95 in Eidos; ea39ea3a in Aletheia; port dependency 49ad8dbfab",
+      "remaining": "Promotion to shared development branch pending"
+    },
+    {
+      "id": "lp64",
+      "subsystem": "compatibility",
+      "acceptance": "Classify generated-source candidates against ABI and runtime evidence",
+      "status": "scanned",
+      "commit": "e3e92dd",
+      "evidence": "15 stride candidates across 12 files; 47 DS-bound calls across 33 tables, of which 35 member calls; C10 tracks sound sidecar fault",
+      "remaining": "Review candidates individually"
+    },
+    {
+      "id": "field",
+      "subsystem": "overworld",
+      "acceptance": "Traverse two connected locations through normal input",
+      "status": "historical-host",
+      "commit": null,
+      "evidence": "Prior field checkpoints in docs/ps4/CLAUDE_HANDOFF.md",
+      "remaining": "Revalidate on synchronized sources and hardware"
+    },
+    {
+      "id": "battle",
+      "subsystem": "battle",
+      "acceptance": "Complete trainer and wild encounters, return to field, repeat",
+      "status": "blocked",
+      "commit": "87e9893",
+      "evidence": "Trainer 18 debug run reproduced a BtlvInput archive-handle crash. With the canonical input work layout it reaches opponent send-out and fails in bw_rd16 from BTLV_GAUGE_DrawBar.",
+      "remaining": "Validate the gauge tile payload address. The NCGR unpacker retains the self-relative field at 0x14 on LP64, while BtlvGaugeTileFile declares a native pointer."
+    },
+    {
+      "id": "menus",
+      "subsystem": "menus",
+      "acceptance": "Title, field and battle menus respond to controller",
+      "status": "implemented-partial",
+      "commit": "8bb5310",
+      "evidence": "LP64 title input follows upstream free-slot semantics",
+      "remaining": "Exercise on console"
+    },
+    {
+      "id": "ui",
+      "subsystem": "upstream presentation",
+      "acceptance": "Render upstream widescreen battle recipe on PS4",
+      "status": "unverified",
+      "commit": null,
+      "evidence": "Upstream recipes merged; PS4 uses DS composite",
+      "remaining": "Native rendering backend parity"
+    },
+    {
+      "id": "shaders",
+      "subsystem": "offline shaders",
+      "acceptance": "Compile and index every program currently bound by the PS4 backend",
+      "status": "verified-build",
+      "commit": "c0d50c1",
+      "evidence": "4 of 4 declared PSSL programs compiled; Ninja no-op and single-source rebuild checked",
+      "remaining": "Port outstanding upstream rendering passes"
+    },
+    {
+      "id": "graphics",
+      "subsystem": "graphics",
+      "acceptance": "Present native game layers at 1920x1080",
+      "status": "partial",
+      "commit": null,
+      "evidence": "GNMX presenter and DS screen composite exist",
+      "remaining": "Hardware capture of native-detail layers"
+    },
+    {
+      "id": "pad",
+      "subsystem": "input",
+      "acceptance": "Drive overworld, dialogue, battle and USB selection on console",
+      "status": "unverified",
+      "commit": null,
+      "evidence": "DualShock adapter and native picker present",
+      "remaining": "Hardware checks"
+    },
+    {
+      "id": "audio",
+      "subsystem": "audio",
+      "acceptance": "Music and effects survive scene and battle transitions",
+      "status": "unverified",
+      "commit": "e3e92dd",
+      "evidence": "AudioOut worker exists; native voice cleanup corrected",
+      "remaining": "Listen on hardware and measure underruns"
+    },
+    {
+      "id": "storage",
+      "subsystem": "storage",
+      "acceptance": "Mount both per-user directories across restarts",
+      "status": "blocked-hardware",
+      "commit": "06a4a10",
+      "evidence": "Earlier user report of game-data startup failure; operation/code now reported",
+      "remaining": "Collect native startup result"
+    },
+    {
+      "id": "usb",
+      "subsystem": "ROM install",
+      "acceptance": "Choose a user ROM from USB and relaunch from installed data",
+      "status": "compiled",
+      "commit": "0bb3fa8",
+      "evidence": "Official compiler accepted picker and boot; USB root candidates are /mnt/usb0 and /mnt/usb1",
+      "remaining": "Verify filesystem access, picker and extraction on Slim"
+    },
+    {
+      "id": "save",
+      "subsystem": "saves",
+      "acceptance": "Write, restart and load each game independently",
+      "status": "unverified",
+      "commit": "9cbb01b",
+      "evidence": "SaveData mount, native filesystem adaptation and isolated host boot tests",
+      "remaining": "Verify persistence and interrupt recovery on console"
+    },
+    {
+      "id": "console",
+      "subsystem": "hardware",
+      "acceptance": "Install and play on base, Slim and Pro",
+      "status": "blocked-hardware",
+      "commit": null,
+      "evidence": "Retail Slim 13.52 GoldHEN reported by user",
+      "remaining": "No measured gameplay on integrated build"
+    },
+    {
+      "id": "perf",
+      "subsystem": "performance",
+      "acceptance": "Measure resolution and frame times on each console model",
+      "status": "unmeasured",
+      "commit": null,
+      "evidence": "Target 1920x1080 and 60 FPS",
+      "remaining": "Hardware measurements"
+    },
+    {
+      "id": "host-runtime",
+      "subsystem": "host runtime",
+      "status": "partial",
+      "evidence": "35000 frames without input on White using an isolated save folder; overlays 10 11 88. Separate 6000-frame START@4800 regression passed after e3e92dd.",
+      "remaining": "Natural progression and repeated battle validation"
+    },
+    {
+      "id": "regressions",
+      "subsystem": "all-overlay host regression",
+      "status": "partial",
+      "evidence": "Before the voice fix: 117 passed, 1 failed, 3 skipped, 2 disabled out of 123 registered. The failing test passed in isolation after the correction. Full post-correction run pending at checkpoint."
+    },
+    {
+      "id": "orbis-build",
+      "subsystem": "official SDK",
+      "status": "in-progress",
+      "evidence": "SDK 12.508.041 compiled the new USB picker, boot, save backend and installer directory visitor. Full link first failed on missing bw_list_dir_utf8. Implemented in ffd6af5. Final integrated link pending at checkpoint."
+    },
+    {
+      "id": "package",
+      "subsystem": "native packaging",
+      "status": "pending",
+      "evidence": "Local Nov 26 official game PKG predates integration. Integrated official game PKG pending a successful link and package verification."
+    }
+  ],
+  "campaign": [
+    {
+      "checkpoint": "new game",
+      "natural": "unverified-on-integrated-build",
+      "debug_assisted": "unverified-on-integrated-build"
+    },
+    {
+      "checkpoint": "introduction",
+      "natural": "unverified-on-integrated-build",
+      "debug_assisted": "unverified-on-integrated-build"
+    },
+    {
+      "checkpoint": "starter selection",
+      "natural": "unverified-on-integrated-build",
+      "debug_assisted": "unverified-on-integrated-build"
+    },
+    {
+      "checkpoint": "rival battles",
+      "natural": "unverified-on-integrated-build",
+      "debug_assisted": "unverified-on-integrated-build"
+    },
+    {
+      "checkpoint": "early routes",
+      "natural": "unverified-on-integrated-build",
+      "debug_assisted": "unverified-on-integrated-build"
+    },
+    {
+      "checkpoint": "towns and buildings",
+      "natural": "unverified-on-integrated-build",
+      "debug_assisted": "unverified-on-integrated-build"
+    },
+    {
+      "checkpoint": "required dialogue",
+      "natural": "unverified-on-integrated-build",
+      "debug_assisted": "unverified-on-integrated-build"
+    },
+    {
+      "checkpoint": "gyms",
+      "natural": "unverified-on-integrated-build",
+      "debug_assisted": "unverified-on-integrated-build"
+    },
+    {
+      "checkpoint": "Team Plasma encounters",
+      "natural": "unverified-on-integrated-build",
+      "debug_assisted": "unverified-on-integrated-build"
+    },
+    {
+      "checkpoint": "required scripted events",
+      "natural": "unverified-on-integrated-build",
+      "debug_assisted": "unverified-on-integrated-build"
+    },
+    {
+      "checkpoint": "late-game locations",
+      "natural": "unverified-on-integrated-build",
+      "debug_assisted": "unverified-on-integrated-build"
+    },
+    {
+      "checkpoint": "Elite Four",
+      "natural": "unverified-on-integrated-build",
+      "debug_assisted": "unverified-on-integrated-build"
+    },
+    {
+      "checkpoint": "final story",
+      "natural": "unverified-on-integrated-build",
+      "debug_assisted": "unverified-on-integrated-build"
+    },
+    {
+      "checkpoint": "credits",
+      "natural": "unverified-on-integrated-build",
+      "debug_assisted": "unverified-on-integrated-build"
+    },
+    {
+      "checkpoint": "postgame",
+      "natural": "unverified-on-integrated-build",
+      "debug_assisted": "unverified-on-integrated-build"
+    }
+  ]
+}
