@@ -1092,3 +1092,85 @@ Validation: the existing boot CTest passed; the manual run reported 8,000
 frames/VBlank interrupts and resident overlays `10 11 88`. This is host-side
 LP64 evidence only. Sony compilation, target input, and PS4 hardware behavior
 remain unverified.
+
+# 2026-11-27 — First on-console run through the opening
+
+Status: the game package installs on a PS4 Slim (firmware 13.52, jailbroken),
+imports the player's ROM, boots the game, and the player reached the player's
+bedroom after the opening. Sound, the heap faults and the storage faults below
+were fixed from that run. Gameplay beyond the bedroom, battles on hardware,
+saves across an update, and the display path's quality are not yet verified.
+
+## What the console run found, each checked against the SDK 12.508 reference
+
+- **SaveData directory names** may use only `a-z A-Z 0-9 - . @`
+  (`SceSaveDataDirName`). An underscore made `sceSaveDataMount2` return
+  `SCE_SAVE_DATA_ERROR_PARAMETER` (`0x809f0000`). Names are now
+  `eidos-ps4-saves` and `eidos-ps4-game-data`. When SaveData is unavailable
+  the platform layer falls back to plain folders under `/data/eidos`.
+- **AudioOut:** the MAIN port is opened for `SCE_USER_SERVICE_USER_ID_SYSTEM`;
+  a player's user id returns `SCE_DEVICE_SERVICE_ERROR_INVALID_USER`
+  (`0x809b0001`).
+- **Exit status:** the system reports a non-zero exit status of the main
+  function as an application crash. All exits end with status 0; the real
+  status goes to the run log. `sceSystemServiceLoadExec` takes only programs
+  under `/app0/` and is not a way to quit.
+- **Splash screen:** `sce_sys/pic1.png` stays over the application, system
+  dialogs included, until `sceSystemServiceHideSplashScreen()` is called.
+- **Message dialogs** run in another process: the status is `NONE` until it
+  starts, then `INITIALIZED`, `RUNNING`, `FINISHED`. Waits end on `FINISHED`.
+  The ROM prompt is a single OK button: confirm installs, back skips.
+- **File size:** `fstat` is refused in the application sandbox for `/data`;
+  the size is taken by seeking to the end. The SDK libc has no `fseeko`,
+  `ftello`, `dup2`, `signal.h`, `sigaction` or `sceKernelDebugOutText`.
+- **libc heap:** the default cap made the ROM import fail with out of memory.
+  `sceLibcHeapSize` is unlimited and `sceLibcHeapExtendedAlloc` is 1.
+- **USB:** `/mnt/usbN` is not visible from the application sandbox even when
+  a file transfer client shows the drive mounted. The ROM search also covers
+  `/data/eidos/rom`, which the application creates.
+- **Run log:** stdout and stderr go to `EIDOS_LOG.txt` (a USB drive if one is
+  accepted, else `/data/eidos`). A log without the closing `exit` line means
+  the program crashed or hung.
+
+## Faults found running the game at 8-byte pointers (host, AddressSanitizer)
+
+All in `tools/dsaddr.py`, each with a unit test that fails without the fix:
+
+- Ability, field, position and side handler registries are rows of 32-bit
+  words on the DS; they are read as words, not native structs
+  (`sdk/battle_registry.h`).
+- Trainer AI script jumps are signed 32-bit offsets; added as unsigned to a
+  64-bit cursor a backward jump landed 4 GiB ahead.
+- The battle core's layout in `patch_ov093_btlv_core.c` differed from the
+  game's header (two fields were ints, not pointers); LP64 offset asserts
+  were added.
+- The print stream's task work (`struct TextPrinter`) and the music switch
+  set (`struct IssSwitchSet`) were allocated at their DS sizes. The print
+  stream deleted its task and then cleared a field inside the freed block.
+  These caused the libc heap error on the console and streaks in text boxes.
+- Instrument banks: at 8-byte pointers the game keeps wave-archive links in a
+  native side table, so the bank file's DS-width slot (`+0x18 + 8 * i`) that
+  the sound driver reads stayed empty and no instrument note sounded. The
+  slot is now written and cleared with the links.
+
+## Tests added
+
+`test_ps4_rules` (source rules from the items above), the `dsaddr` LP64 path
+rules, `test_battle_registry`, `test_wav_level`, an AudioOut mock that rejects
+a non-system user, and scripted boot scenarios (`test_boot_battle_trainer`,
+`test_boot_new_game_intro`, `test_boot_intro_audio`) that skip without game
+data. The host suite passes in full (127 tests; five skipped or disabled).
+
+## Open
+
+- A read a few bytes past a tile buffer when the title logo's characters are
+  uploaded (AddressSanitizer, `GX_LoadBG1Char`).
+- The sound driver's driver-info command is refused at 8-byte pointers (the
+  game's reader expects its own native layout of the sequencer state, 0x1320
+  bytes against the 0x11E0 the game hard-codes); the game does not depend on
+  the answer yet.
+- `gBtlEventFactorList` and `gBtlEventVarStack` are file-local in
+  `btl_event.c` after the rewrite while `patch_ov093_btl_event.c` still uses
+  the DS-bound externs; handler execution is unverified.
+- Display: the DS frame still goes through the transitional 1080p path.
+- Hardware: saves across a package update, battles, and performance.
