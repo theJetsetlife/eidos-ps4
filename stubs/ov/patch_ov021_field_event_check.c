@@ -94,8 +94,13 @@ extern u32 ZONEDATA_IsNormalFieldZone(u32 id);
 extern int FIELD_PLAYER_CheckSurfStartAttr(void *player, u32 here, u32 ahead);
 extern int FIELD_PLAYER_CheckWaterfallClimbAttr(void *player, u32 here, u32 ahead);
 
-/* The DS bytes of the table (armdata BW_DATA_BIND_DS): a host pointer. */
-extern void *bw_dsref_ov021_data_021D3CE8;
+/* Resolve the DS address of data_021D3CE8 to host memory ourselves, rather
+ * than trusting the bw_dsref_ov021_data_021D3CE8 binding: during the opening
+ * field sequence a grid-event check can run while that binding is stale (a
+ * garbage non-null value, not this overlay's data), which faults.  bw_ds_try_ptr
+ * returns the live mapping of the DS address, or NULL when it is not mapped. */
+extern void *bw_ds_try_ptr(u32 addr);
+#define BW_OV021_DATA_021D3CE8_DS 0x021D3CE8u
 
 typedef int (*BwAttrTest)(u16 attr);
 
@@ -128,7 +133,7 @@ static BwAttrTest bw_front_tile_test(u32 address)
 u16 FIELD_EVENT_CHECK_GetFrontTileMessage(void *inputv, void *fieldMap)
 {
     BwFieldEventInputHead *input = (BwFieldEventInputHead *)inputv;
-    const u8 *table = (const u8 *)bw_dsref_ov021_data_021D3CE8;  /* 8-byte DS entries */
+    const u8 *table = (const u8 *)bw_ds_try_ptr(BW_OV021_DATA_021D3CE8_DS);  /* 8-byte DS entries */
     u32 tileAttrHere;
     u32 tileAttrAhead;
     u16 aheadBehavior;
