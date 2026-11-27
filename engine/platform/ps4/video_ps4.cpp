@@ -44,7 +44,8 @@ void *gpu_arena_allocate(GpuArena *arena, size_t size, size_t alignment);
 int destroy_gpu_arena(GpuArena *arena);
 int initialize_gnm(EidosPs4Video *video,
                    const EidosPs4ShaderBlob *diagnostic_shader,
-                   const EidosPs4ShaderBlob *ds_compatibility_shader);
+                   const EidosPs4ShaderBlob *ds_compatibility_shader,
+                   const EidosPs4ShaderBlob *single_screen_shader);
 
 } // namespace
 
@@ -69,6 +70,7 @@ struct EidosPs4Video {
     sce::Gnmx::GfxContext gfx_contexts[kBufferCount];
     sce::Gnmx::PsShader *diagnostic_pixel_shader = nullptr;
     sce::Gnmx::PsShader *ds_compatibility_pixel_shader = nullptr;
+    sce::Gnmx::PsShader *single_screen_pixel_shader = nullptr;
     void *ds_texture_memory[kBufferCount] = {};
     uint32_t ds_texture_pitch = 0;
     off_t direct_offset = 0;
@@ -219,30 +221,41 @@ sce::Gnmx::PsShader *copy_shader(GpuArena *arena,
 
 int initialize_gnm(EidosPs4Video *video,
                    const EidosPs4ShaderBlob *diagnostic_shader,
-                   const EidosPs4ShaderBlob *ds_compatibility_shader)
+                   const EidosPs4ShaderBlob *ds_compatibility_shader,
+                   const EidosPs4ShaderBlob *single_screen_shader)
 {
     if (video == nullptr || diagnostic_shader == nullptr ||
         diagnostic_shader->data == nullptr || diagnostic_shader->size == 0 ||
         ds_compatibility_shader == nullptr ||
         ds_compatibility_shader->data == nullptr ||
-        ds_compatibility_shader->size == 0) {
+        ds_compatibility_shader->size == 0 ||
+        single_screen_shader == nullptr ||
+        single_screen_shader->data == nullptr ||
+        single_screen_shader->size == 0) {
         return -1;
     }
 
     sce::Gnmx::ShaderInfo diagnostic_info = {};
     sce::Gnmx::ShaderInfo ds_info = {};
+    sce::Gnmx::ShaderInfo single_info = {};
     sce::Gnmx::parseShader(&diagnostic_info, diagnostic_shader->data);
     sce::Gnmx::parseShader(&ds_info, ds_compatibility_shader->data);
+    sce::Gnmx::parseShader(&single_info, single_screen_shader->data);
     size_t diagnostic_struct_size = 0;
     size_t diagnostic_code_offset = 0;
     size_t diagnostic_storage_size = 0;
     size_t ds_struct_size = 0;
     size_t ds_code_offset = 0;
     size_t ds_storage_size = 0;
+    size_t single_struct_size = 0;
+    size_t single_code_offset = 0;
+    size_t single_storage_size = 0;
     if (!shader_layout(diagnostic_info, &diagnostic_struct_size,
                        &diagnostic_code_offset, &diagnostic_storage_size) ||
         !shader_layout(ds_info, &ds_struct_size, &ds_code_offset,
-                       &ds_storage_size)) {
+                       &ds_storage_size) ||
+        !shader_layout(single_info, &single_struct_size, &single_code_offset,
+                       &single_storage_size)) {
         return -1;
     }
 
@@ -290,6 +303,7 @@ int initialize_gnm(EidosPs4Video *video,
     size_t garlic_size = kDirectAlignment;
     if (!add_size(&garlic_size, diagnostic_storage_size) ||
         !add_size(&garlic_size, ds_storage_size) ||
+        !add_size(&garlic_size, single_storage_size) ||
         cue_heap_size > std::numeric_limits<size_t>::max() / kBufferCount ||
         !add_size(&garlic_size, cue_heap_size * kBufferCount) ||
         !add_size(&garlic_size,
@@ -316,8 +330,12 @@ int initialize_gnm(EidosPs4Video *video,
     video->ds_compatibility_pixel_shader = copy_shader(
         &video->garlic_arena, ds_info, ds_struct_size, ds_code_offset,
         ds_storage_size);
+    video->single_screen_pixel_shader = copy_shader(
+        &video->garlic_arena, single_info, single_struct_size,
+        single_code_offset, single_storage_size);
     if (video->diagnostic_pixel_shader == nullptr ||
-        video->ds_compatibility_pixel_shader == nullptr) {
+        video->ds_compatibility_pixel_shader == nullptr ||
+        video->single_screen_pixel_shader == nullptr) {
         return -1;
     }
 
@@ -468,7 +486,8 @@ extern "C" int eidos_ps4_video_create(EidosPs4Video **out, uint32_t width,
     }
 
     result = initialize_gnm(video, eidos_ps4_diagnostic_pixel_shader(),
-                            eidos_ps4_diagnostic_ds_shader());
+                            eidos_ps4_diagnostic_ds_shader(),
+                            eidos_ps4_single_ds_shader());
     if (result < 0) {
         return result;
     }
@@ -583,13 +602,15 @@ extern "C" int eidos_ps4_video_draw_color_bars(EidosPs4Video *video)
 
 extern "C" int eidos_ps4_video_draw_ds_compatibility(
     EidosPs4Video *video, const void *top_rgba, const void *bottom_rgba,
-    int cursor_x, int cursor_y)
+    int cursor_x, int cursor_y, uint8_t presentation_mode)
 {
     if (video == nullptr || top_rgba == nullptr || bottom_rgba == nullptr ||
         video->current_index < 0 || !video->gpu_contexts_ready ||
         video->gpu_frame_ready || video->width != 1920u ||
         video->height != 1080u ||
         video->ds_compatibility_pixel_shader == nullptr ||
+        video->single_screen_pixel_shader == nullptr ||
+        presentation_mode > EIDOS_PS4_PRESENT_BOTH ||
         video->ds_texture_memory[0] == nullptr ||
         video->ds_texture_memory[1] == nullptr ||
         video->ds_texture_pitch < kDsAtlasWidth) {
@@ -602,14 +623,19 @@ extern "C" int eidos_ps4_video_draw_ds_compatibility(
     const size_t screen_row = (size_t)kDsScreenWidth * 4u;
     const uint8_t *top = static_cast<const uint8_t *>(top_rgba);
     const uint8_t *bottom = static_cast<const uint8_t *>(bottom_rgba);
+    const uint8_t *primary = presentation_mode == EIDOS_PS4_PRESENT_BOTTOM
+                                 ? bottom : top;
+    const uint8_t *secondary = presentation_mode == EIDOS_PS4_PRESENT_BOTTOM
+                                   ? top : bottom;
     for (uint32_t y = 0; y < kDsScreenHeight; ++y) {
         uint8_t *row = texture + (size_t)y * texture_pitch;
-        __builtin_memcpy(row, top + (size_t)y * screen_row, screen_row);
+        __builtin_memcpy(row, primary + (size_t)y * screen_row, screen_row);
         __builtin_memcpy(row + screen_row,
-                         bottom + (size_t)y * screen_row, screen_row);
+                         secondary + (size_t)y * screen_row, screen_row);
     }
 
-    if (cursor_x >= 0 && cursor_x < (int)kDsScreenWidth &&
+    if (presentation_mode != EIDOS_PS4_PRESENT_TOP &&
+        cursor_x >= 0 && cursor_x < (int)kDsScreenWidth &&
         cursor_y >= 0 && cursor_y < (int)kDsScreenHeight) {
         /* Draw an outlined crosshair in the uploaded bottom-screen atlas.
          * Keep the game frame intact for screenshots and other consumers. */
@@ -626,7 +652,9 @@ extern "C" int eidos_ps4_video_draw_ds_compatibility(
                     continue;
                 }
                 uint8_t *pixel = texture + (size_t)y * texture_pitch +
-                                 screen_row + (size_t)x * 4u;
+                                 (presentation_mode == EIDOS_PS4_PRESENT_BOTTOM
+                                      ? 0u : screen_row) +
+                                 (size_t)x * 4u;
                 const uint8_t tone = ((dx == 0 && ay < 5) ||
                                       (dy == 0 && ax < 5)) ? 255u : 0u;
                 pixel[0] = pixel[1] = pixel[2] = tone;
@@ -644,7 +672,9 @@ extern "C" int eidos_ps4_video_draw_ds_compatibility(
     context->setCbControl(sce::Gnm::kCbModeNormal, sce::Gnm::kRasterOpCopy);
     context->setRenderTargetMask(0x0fu);
     context->setActiveShaderStages(sce::Gnm::kActiveShaderStagesVsPs);
-    context->setPsShader(video->ds_compatibility_pixel_shader);
+    context->setPsShader(presentation_mode == EIDOS_PS4_PRESENT_BOTH
+                             ? video->ds_compatibility_pixel_shader
+                             : video->single_screen_pixel_shader);
     context->setTextures(sce::Gnm::kShaderStagePs, 0, 1,
                          &video->ds_textures[index]);
     context->setSamplers(sce::Gnm::kShaderStagePs, 0, 1, &video->ds_sampler);

@@ -26,6 +26,17 @@ int main(void)
     if (eidos_ps4_input_touch_position(&pad, &x, &y)) return 4;
     pad.touch_width = 1920; pad.touch_height = 0;
     if (eidos_ps4_input_touch_position(&pad, &x, &y)) return 5;
-    puts("test_ps4_touch: coordinates, bounds, release and disconnect passed");
+    pad.presentation_mode = pad.presentation_button_prev = 0;
+    eidos_ps4_input_presentation_button(&pad, 1);
+    if (pad.presentation_mode != 1) return 6;
+    eidos_ps4_input_presentation_button(&pad, 1);
+    if (pad.presentation_mode != 1) return 7;
+    eidos_ps4_input_presentation_button(&pad, 0);
+    eidos_ps4_input_presentation_button(&pad, 1);
+    if (pad.presentation_mode != 2) return 8;
+    eidos_ps4_input_presentation_button(&pad, 0);
+    eidos_ps4_input_presentation_button(&pad, 1);
+    if (pad.presentation_mode != 0) return 9;
+    puts("test_ps4_touch: coordinates, disconnect and presentation edge passed");
     return 0;
 }

@@ -2,6 +2,7 @@
 #define EIDOS_PLATFORM_PS4_VIDEO_H
 
 #include <stdint.h>
+#include "presentation_ps4.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,11 +30,15 @@ int eidos_ps4_video_draw_color_bars(EidosPs4Video *video);
 
 /* Upload two software-composed 256x192 RGBA DS screens to per-back-buffer
  * GPU textures and draw the compatibility view through GNMX. If the cursor
- * coordinates are inside the bottom screen, draw the stylus crosshair there. */
+ * coordinates are inside the bottom screen, draw the stylus crosshair there.
+ * Mode 0 shows the top screen full height, 1 the bottom screen full height,
+ * and 2 both screens side by side. The single-screen modes are a native
+ * presentation step; upstream one-screen UI recipes are not yet connected. */
 int eidos_ps4_video_draw_ds_compatibility(EidosPs4Video *video,
                                           const void *top_rgba,
                                           const void *bottom_rgba,
-                                          int cursor_x, int cursor_y);
+                                          int cursor_x, int cursor_y,
+                                          uint8_t presentation_mode);
 
 /* Make CPU writes visible to the GPU/display path and submit a vsync flip. */
 int eidos_ps4_video_present(EidosPs4Video *video);

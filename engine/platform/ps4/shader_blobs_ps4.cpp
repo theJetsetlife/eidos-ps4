@@ -4,6 +4,7 @@
 #include "fullscreen_vs.h"
 #include "diagnostic_colorbars_ps.h"
 #include "diagnostic_ds_composite_ps.h"
+#include "single_ds_screen_ps.h"
 
 namespace {
 
@@ -37,6 +38,15 @@ extern "C" const EidosPs4ShaderBlob *eidos_ps4_diagnostic_ds_shader(void)
     static const EidosPs4ShaderBlob blob = {
         eidos_ps4_diagnostic_ds_composite_ps_sb,
         sizeof(eidos_ps4_diagnostic_ds_composite_ps_sb),
+    };
+    return &blob;
+}
+
+extern "C" const EidosPs4ShaderBlob *eidos_ps4_single_ds_shader(void)
+{
+    static const EidosPs4ShaderBlob blob = {
+        eidos_ps4_single_ds_screen_ps_sb,
+        sizeof(eidos_ps4_single_ds_screen_ps_sb),
     };
     return &blob;
 }

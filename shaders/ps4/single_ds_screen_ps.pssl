@@ -1,0 +1,15 @@
+Texture2D dsScreens : register(t0);
+SamplerState dsPointSampler : register(s0);
+
+/* The selected 256x192 DS frame is placed in the left half of the atlas.
+ * Preserve its 4:3 aspect at the full height of the 1920x1080 output. */
+float4 main(float4 position : S_POSITION) : S_TARGET_OUTPUT
+{
+    if (position.x < 240.0f || position.x >= 1680.0f ||
+        position.y < 0.0f || position.y >= 1080.0f) {
+        return float4(0.0f, 0.0f, 0.0f, 1.0f);
+    }
+    float2 uv = float2((position.x - 240.0f) / 2880.0f,
+                       position.y / 1080.0f);
+    return dsScreens.Sample(dsPointSampler, uv);
+}

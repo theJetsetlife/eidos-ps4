@@ -84,6 +84,7 @@ int eidos_ps4_input_open(EidosPs4Input *input, SceUserServiceUserId user_id)
     input->stick_dead_zone = EIDOS_PS4_DEFAULT_STICK_DEAD_ZONE;
     input->cursor_x = 128u;
     input->cursor_y = 96u;
+    input->presentation_mode = EIDOS_PS4_PRESENT_TOP;
 
     result = scePadInit();
     if (result < 0) {
@@ -133,6 +134,7 @@ int eidos_ps4_input_poll(EidosPs4Input *input, uint32_t *buttons)
         input->touch_down = 0;
         input->cursor_touch = 0;
         input->cursor_visible_frames = 0;
+        input->presentation_button_prev = 0;
         *buttons = 0;
         if (input->retry_frames > 0) {
             --input->retry_frames;
@@ -157,6 +159,7 @@ int eidos_ps4_input_poll(EidosPs4Input *input, uint32_t *buttons)
         input->touch_down = 0;
         input->cursor_touch = 0;
         input->cursor_visible_frames = 0;
+        input->presentation_button_prev = 0;
         input->retry_frames = EIDOS_PS4_PAD_RETRY_FRAMES;
         *buttons = 0;
         return 0;
@@ -165,6 +168,11 @@ int eidos_ps4_input_poll(EidosPs4Input *input, uint32_t *buttons)
     input->connected = data.connected ? 1 : 0;
     input->buttons = input->connected ? map_buttons(data.buttons) : 0;
     if (input->connected) {
+        /* Touchpad click cycles presentation on its press edge. Touching the
+         * surface still supplies the DS stylus and does not switch screens. */
+        const uint8_t presentation_pressed =
+            (data.buttons & SCE_PAD_BUTTON_TOUCH_PAD) != 0;
+        eidos_ps4_input_presentation_button(input, presentation_pressed);
         input->left_x = data.leftStick.x;
         input->left_y = data.leftStick.y;
         input->right_x = data.rightStick.x;
@@ -196,12 +204,16 @@ int eidos_ps4_input_poll(EidosPs4Input *input, uint32_t *buttons)
         if (input->right_trigger >= input->stick_dead_zone) {
             input->buttons |= EIDOS_PAD_R;
         }
-        input->touch_down = input->touch_available && data.touchData.touchNum != 0;
+        /* The screen-switch click must not also tap a game menu item. */
+        input->touch_down = input->touch_available &&
+                            data.touchData.touchNum != 0 &&
+                            !presentation_pressed;
         if (input->touch_down) {
             input->touch_x = data.touchData.touch[0].x;
             input->touch_y = data.touchData.touch[0].y;
         }
     } else {
+        input->presentation_button_prev = 0;
         (void)scePadClose(input->handle);
         input->handle = -1;
         input->left_x = input->left_y = 0;

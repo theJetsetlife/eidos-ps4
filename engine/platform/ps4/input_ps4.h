@@ -5,6 +5,7 @@
 #include <user_service.h>
 
 #include "platform.h"
+#include "presentation_ps4.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,7 +35,21 @@ typedef struct EidosPs4Input {
     uint8_t cursor_visible_frames;
     uint8_t retry_frames;
     uint8_t stick_dead_zone;
+    uint8_t presentation_mode;
+    uint8_t presentation_button_prev;
 } EidosPs4Input;
+
+/* Present mode changes only on the touchpad button's rising edge. */
+static inline void eidos_ps4_input_presentation_button(EidosPs4Input *input,
+                                                       uint8_t pressed)
+{
+    if (pressed && !input->presentation_button_prev) {
+        input->presentation_mode =
+            (uint8_t)((input->presentation_mode + 1u) %
+                      (EIDOS_PS4_PRESENT_BOTH + 1u));
+    }
+    input->presentation_button_prev = pressed;
+}
 
 /* One coordinate conversion for gameplay and the visible stylus marker.
  * Pad resolution is a range size; clamp out-of-range device samples. */

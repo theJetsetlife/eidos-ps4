@@ -1362,7 +1362,8 @@ static void boot_render_ps4(void *user, u8 *top, u8 *bottom)
         cursor_y = g_ps4_input.cursor_y;
     }
     result = eidos_ps4_video_draw_ds_compatibility(
-        g_ps4_video, top, bottom, cursor_x, cursor_y);
+        g_ps4_video, top, bottom, cursor_x, cursor_y,
+        g_ps4_input.presentation_mode);
     if (result < 0) {
         boot_ps4_video_failure("GNM DS compatibility draw", result);
         return;
