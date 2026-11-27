@@ -26,6 +26,15 @@ gUiState 0x021469BC 0x8 sdk/game_globals.c
 _pTouchPanelWork 0x021469C4 0x4 sdk/game_globals.c
 _GflUse 0x020AA194 0x18 sdk/game_globals.c
 
+# GAME_BEACON_Work (ov010) is the matched `GameBeaconWork *` that the ov010
+# field-beacon code sets to the heap block it just allocated.  On LP64 the
+# host pointer is eight bytes, but the DS global reserves only four at
+# 0x02146940, so storing through the bw_dsref pointer corrupts the next
+# global and reading back reconstructs junk (gdb at the first trainer
+# battle: info=0x5776e92000000008).  Owning it here gives the host its own
+# pointer-wide storage; the matched access reaches the port object.
+GAME_BEACON_Work 0x02146940 0x4 sdk/game_globals.c
+
 # sdk/fs.c: the ROM archive object (FSArchive, 0x5C bytes).
 d_02150DA8                 0x02150DA8  0x5C   sdk/fs.c
 
