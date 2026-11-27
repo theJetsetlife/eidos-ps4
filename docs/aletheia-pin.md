@@ -8,7 +8,7 @@ This file records that revision.
 
 ## The pin
 
-The native port builds against `49ad8dbfaba0132fa7c82b76c4f4064e1d8cb2ec`
+The native port builds against `995615a30f1b1d47109d435a7cb355983ec32e18`
 on the local Aletheia branch `integration/eidos-20261127`. Its upstream
 base is `ea39ea3ad618b328cb5df5230800506461759b82`, the revision required
 by Eidos `6d8a7a95`. Commit `8e38c84d55` carries the native layout changes

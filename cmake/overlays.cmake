@@ -255,7 +255,9 @@ function(eidos_overlays name)
         get_filename_component(src_dir "${src}" DIRECTORY)
         set(src_includes "${src_dir}")
         if(rel STREQUAL "port/patch_ov194_namein_main.c" OR
-           rel STREQUAL "port/patch_ov094_btlv_input.c")
+           rel STREQUAL "port/patch_ov094_btlv_input.c" OR
+           rel STREQUAL "port/patch_ov094_btlv_gauge.c" OR
+           rel STREQUAL "port/patch_ov094_btlv_ballbar.c")
             list(APPEND src_includes "${A_ROOT}/src")
         endif()
         # A src/game unit's copy has its asm bodies cut (docs/game-tree.md).

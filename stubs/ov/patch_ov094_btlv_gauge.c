@@ -17,29 +17,19 @@
  *   sGaugeStatusAnimTable     0x0220AAF0  data   ov094  a4
  */
 
-typedef unsigned int u32;
-
-struct ClactActor;
+#include "game/ov094/btlv_gauge_types.h"
 
 extern void bw_ui_gauge_status(int slot, int status);
-
-typedef struct BtlvGaugeStatusAnimTable {
-    u32 anim[7];
-} BtlvGaugeStatusAnimTable;
 
 extern BtlvGaugeStatusAnimTable sGaugeStatusAnimTable;
 
 void CLACT_SetActorDrawEnable(struct ClactActor *actor, u32 value);
 void CLACT_SetActorAnimSeq(struct ClactActor *actor, unsigned short value);
 
-/* BtlvGaugeWork's native layout starts its slots at +0x70.  The six actor
- * pointers at the front of BtlvGaugeSlot grow from 4 to 8 bytes on LP64,
- * making the native slot 0x98 bytes and moving statusActor to +0x28.
- * These offsets match sizeof/offsetof in ov094/btlv_gauge_types.h. */
-void BTLV_GAUGE_SetStatusIcon(void *work, int status, int slotIdx)
+void BTLV_GAUGE_SetStatusIcon(BtlvGaugeWork *work, int status, int slotIdx)
 {
     BtlvGaugeStatusAnimTable statusAnim = sGaugeStatusAnimTable;
-    struct ClactActor *actor = *(struct ClactActor **)((char *)work + 0x70 + slotIdx * 0x98 + 0x28);
+    struct ClactActor *actor = work->slots[slotIdx].statusActor;
 
     bw_ui_gauge_status(slotIdx, status);
     if (actor != 0) {

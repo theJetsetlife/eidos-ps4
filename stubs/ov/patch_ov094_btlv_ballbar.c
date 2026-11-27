@@ -17,32 +17,21 @@
  *   BTLV_B_GAUGE_DeletePartyBallBar 0x02209068 thumb ov094
  */
 
-typedef unsigned int u32;
-
-typedef struct BtlvPartyBallBarParam {
-    int side;
-    int ballKind[6];
-} BtlvPartyBallBarParam;
+#include "game/ov094/btlv_effect_shared_types.h"
+#include "game/ov094/btlv_b_gauge.h"
 
 extern void bw_ui_ballbar(int side, const int *kinds);
 extern void bw_ui_ballbar_end(int side);
+extern BtlvEff *gBtlvEff;
 
-extern char *gBtlvEff;
-void *BTLV_B_GAUGE_CreatePartyBallBar(const BtlvPartyBallBarParam *param, u32 heapId);
-void BTLV_B_GAUGE_DeletePartyBallBar(void *bar);
-
-/* BtlvEff (ov094/btlv_effect_shared_types.h): partyBallBar[2] at 0x1A8,
- * heap at 0x1F0. */
 void BTLV_EFFECT_CreatePartyBallBar(const BtlvPartyBallBarParam *param)
 {
-    void *r = BTLV_B_GAUGE_CreatePartyBallBar(param, *(unsigned short *)(gBtlvEff + 0x1F0));
-
-    ((void **)(gBtlvEff + 0x1A8))[param->side] = r;
+    gBtlvEff->partyBallBar[param->side] = BTLV_B_GAUGE_CreatePartyBallBar(param, gBtlvEff->heap);
     bw_ui_ballbar(param->side, param->ballKind);
 }
 
 void BTLV_EFFECT_DeletePartyBallBar(u32 i)
 {
     bw_ui_ballbar_end((int)i);
-    BTLV_B_GAUGE_DeletePartyBallBar(((void **)(gBtlvEff + 0x1A8))[i]);
+    BTLV_B_GAUGE_DeletePartyBallBar(gBtlvEff->partyBallBar[i]);
 }
