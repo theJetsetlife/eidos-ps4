@@ -1,5 +1,14 @@
 /*
  * patches: src/game/ov021/field_event_check.c FIELD_EVENT_CHECK_FindPartyMemberWithMove FIELD_EVENT_CHECK_GetFrontTileMessage
+ * keeps declarations
+ *
+ * `keeps declarations` matters here: GetFrontTileMessage returns u16, and its
+ * callers in the unit read the result into a wider scriptId and test it against
+ * 0xFFFF before passing it on.  If the cut removed the prototype too, those
+ * callers would fall back to an implicit int return and read 32 bits -- the
+ * upper half garbage -- so the `!= 0xFFFF` guard passes on junk and the u16
+ * argument then truncates back to 0xFFFF, panicking the script system.  Keeping
+ * the real u16 prototypes makes the callers read the return at its true width.
  *
  * The field's A check for a move (Surf at the water's edge, Waterfall at a
  * waterfall): the first party Pokemon that knows the move uses it, or none
