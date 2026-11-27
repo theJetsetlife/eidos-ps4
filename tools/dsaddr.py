@@ -1898,6 +1898,113 @@ def main(argv=None) -> int:
             and src_path.replace("\\", "/").endswith("/src/game/arm9/convert.c")):
         source = source.replace("#define GAME_TYPES_U32_LONG\n", "")
         source = source.replace("#define GAME_TYPES_S32_LONG\n", "")
+    if (a.pointer_width and a.pointer_width > 4
+            and src_path.replace("\\", "/").endswith("/src/game/ov093/btl_client.c")):
+        source = _need(source, "extern const CodeEntry gServerCommandHandlers[];",
+            "extern const CodeEntry gServerCommandHandlers[];\n"
+            "extern void (*bw_ds_code_word(const void *, unsigned long))(void);")
+        # Server command rows pair one DS opcode word with one code word.
+        source = _need(source,
+            "        for (tableIndex = 0; tableIndex < 0x5D; tableIndex++) {\n"
+            "            if (commandCode == gServerCommandHandlers[tableIndex].code) break;",
+            "        for (tableIndex = 0; tableIndex < 0x5D; tableIndex++) {\n"
+            "            const u32 *codes = (const void *)gServerCommandHandlers;\n"
+            "            if ((u32)commandCode == codes[tableIndex * 2u]) break;")
+        source = _need(source,
+            "client->seqFn = gServerCommandHandlers[tableIndex].fn;",
+            "client->seqFn = (BtlClientSeqFn)bw_ds_code_word(\n"
+            "            gServerCommandHandlers, tableIndex * 2u + 1u);")
+    if (a.pointer_width and a.pointer_width > 4
+            and src_path.replace("\\", "/").endswith("/src/game/ov093/btl_main.c")):
+        # Both the work allocation and its clear must cover the native type.
+        source = _need(source,
+            "main = PROCSYS_AllocProcWork((struct Proc *)proc, 0x474, 0x12);",
+            "main = PROCSYS_AllocProcWork((struct Proc *)proc, sizeof(*main), 0x12);")
+        source = _need(source, "MIi_CpuClear32(0, main, 0x474);",
+                       "MIi_CpuClear32(0, main, sizeof(*main));")
+    if (a.pointer_width and a.pointer_width > 4
+            and src_path.replace("\\", "/").endswith("/src/game/ov093/btlv_core.c")):
+        # Opening-step rows are a DS state word followed by a DS code word.
+        source = _need(source,
+            "void BTLV_CORE_StartOpening(struct BtlvCore *core, u32 state)\n{",
+            "extern void (*bw_ds_code_word(const void *, unsigned long))(void);\n"
+            "void BTLV_CORE_StartOpening(struct BtlvCore *core, u32 state)\n{")
+        source = _need(source,
+            "        if (state == gBtlvOpeningStepTable[i].state) {\n"
+            "            core->state = state;\n"
+            "            core->stepFn = gBtlvOpeningStepTable[i].step;",
+            "        const u32 *row = (const u32 *)(const void *)gBtlvOpeningStepTable + i * 2u;\n"
+            "        if (state == row[0]) {\n"
+            "            core->state = state;\n"
+            "            core->stepFn = (BtlvCoreStepFn)bw_ds_code_word(row, 1u);")
+    if (a.pointer_width and a.pointer_width > 4
+            and src_path.replace("\\", "/").endswith("/src/game/ov021/fld3d_ci.c")):
+        # The native matrix shim accepts the full address of the destination.
+        source = _need(source, "extern u32 MTX_Identity33_(u32);",
+                       "extern void MTX_Identity33_(void *);")
+        source = _need(source, "MTX_Identity33_((uptr)&ci->status.rotate);",
+                       "MTX_Identity33_(&ci->status.rotate);")
+        # NCGR and TTLP retain their 32-bit offsets after unpacking.
+        source = _need(source, "chrSrc = ci->chr->raw;",
+            "chrSrc = (u8 *)ci->chr + *(const u32 *)((const u8 *)ci->chr + 0x14);")
+        source = _need(source, "ci->pltt->raw, 0x20);",
+            "(u8 *)ci->pltt + *(const u32 *)((const u8 *)ci->pltt + 0x0C), 0x20);")
+    if (a.pointer_width and a.pointer_width > 4
+            and src_path.replace("\\", "/").endswith("/src/game/ov093/btl_event.c")):
+        # These private DS objects are adjacent. Native pointers enlarge
+        # each of them, so keep them in native storage owned by this TU.
+        source = _need(source,
+            "extern struct BtlEventFactor gBtlEventFactorStorage[BTL_EVENT_FACTOR_MAX];",
+            "#undef gBtlEventFactorStorage\n"
+            "static struct BtlEventFactor gBtlEventFactorStorage[BTL_EVENT_FACTOR_MAX];")
+        source = _need(source, "extern struct BtlEventFactorList gBtlEventFactorList;",
+            "#undef gBtlEventFactorList\n"
+            "static struct BtlEventFactorList gBtlEventFactorList;")
+        source = _need(source,
+            "extern struct BtlEventFactor *gBtlEventFactorFreePool[BTL_EVENT_FACTOR_MAX];",
+            "#undef gBtlEventFactorFreePool\n"
+            "#define gBtlEventFactorFreePool (gBtlEventFactorList.freePool)")
+        source = _need(source, "extern struct BtlEventVarStack gBtlEventVarStack;",
+            "#undef gBtlEventVarStack\n"
+            "static struct BtlEventVarStack gBtlEventVarStack;")
+    if (a.pointer_width and a.pointer_width > 4
+            and src_path.replace("\\", "/").endswith("/src/game/ov093/btl_msg.c")):
+        source = _need(source, "extern struct BtlMsgState gBtlMsgState;",
+            "#undef gBtlMsgState\nstatic struct BtlMsgState gBtlMsgState;")
+        source = _need(source, "extern struct BtlMsgBuilder sBtlMsgBuilders[];",
+            "extern struct BtlMsgBuilder sBtlMsgBuilders[];\n"
+            "extern void (*bw_ds_code_word(const void *, unsigned long))(void);")
+        source = _need(source,
+            "        if (msgId == sBtlMsgBuilders[i].tag) {\n"
+            "            sBtlMsgBuilders[i].build(dest, msgId, args);",
+            "        const u8 *row = (const u8 *)sBtlMsgBuilders + i * 8u;\n"
+            "        if (msgId == (u16)(row[0] | ((u16)row[1] << 8))) {\n"
+            "            __typeof__(sBtlMsgBuilders[0].build) build =\n"
+            "                (__typeof__(sBtlMsgBuilders[0].build))bw_ds_code_word(row, 1u);\n"
+            "            build(dest, msgId, args);")
+    if a.pointer_width and a.pointer_width > 4:
+        # The effect and trainer AI VMs share an inline DS parameter table.
+        vm_param_sources = {
+            "/src/game/ov094/btlv_effvm.c": "(const struct ScriptVmParams *)d_02209DCC",
+            "/src/game/ov096/tr_ai.c": "&gTrAiVmParams",
+        }
+        for suffix, table in vm_param_sources.items():
+            if not src_path.replace("\\", "/").endswith(suffix):
+                continue
+            source = _need(source, '#include "../arm9/vm.h"',
+                '#include "../arm9/vm.h"\n'
+                "extern void *bw_ds_ptr(unsigned int);\n"
+                "static ScriptVm *bw_vm_create_from_ds(u32 heapId, const void *table)\n"
+                "{\n"
+                "    const u32 *words = table;\n"
+                "    const ScriptVmParams params = {\n"
+                "        (u16)words[0], (u16)(words[0] >> 16),\n"
+                "        bw_ds_ptr(words[1]), words[2]\n"
+                "    };\n"
+                "    return VM_Create(heapId, &params);\n"
+                "}")
+            source = _need(source, f"VM_Create(heapId, {table})",
+                           f"bw_vm_create_from_ds(heapId, {table})")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/nns_fnd_expheap.c"):
         # NNSi_FndGetListAllocatableSize views the heap through a simplified
         # `struct Heap { u8 pad_00[0x24]; struct HeapBlock *head; }` that
@@ -2352,6 +2459,29 @@ static void bw_native_unlink_bank(BwNativeBankWaveLink *link)
         source = _need(source,
                        "sFreeList.freeListEnd = &sCommandArray[SND_COMMAND_NUM - 1];",
                        "sFreeList.freeListEnd = &sCommandArray[SND_COMMAND_NUM - 1];\n    bw_arm7_snd_bind_pool(sCommandArray, SND_COMMAND_NUM, sizeof(sCommandArray[0]));")
+    if (a.pointer_width and a.pointer_width > 4
+            and src_path.replace("\\", "/").endswith("/src/game/arm9/particle.c")):
+        # Obj3D is a view of the native SPLEmitter in spl_emitter.c.
+        # Its resource follows two link pointers and two particle lists.
+        source = _need(source, "struct Obj3D {\n    u8      pad00[0x20];",
+            "struct Obj3D {\n"
+            "    void *next, *prev;\n"
+            "    struct { void *first; int count; void *last; } particles[2];")
+        # The behavior array follows the resource header and five optional
+        # animation/child pointers in SPLResource.
+        source = _need(source, "u8               pad04[0x14];",
+                       "void            *optional[5];")
+    if (a.pointer_width and a.pointer_width > 4
+            and src_path.replace("\\", "/").endswith("/src/game/arm9/palanm.c")):
+        # The unpacker leaves TTLP's 32-bit block-relative data offset intact.
+        source = _need(source, "    u16 *data;\n};\n\n#include \"os_tick.h\"",
+            "    u32 dataOffset;\n};\n\n"
+            "static const u16 *bw_palanm_data(const struct PalAnmRes *res)\n"
+            "{\n"
+            "    return (const u16 *)((const u8 *)res + res->dataOffset);\n"
+            "}\n\n"
+            "#include \"os_tick.h\"")
+        source = source.replace("res->data + srcOffset", "bw_palanm_data(res) + srcOffset")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/arc_util.c"):
         source = _need(source, "    void *data;\n};\n\nstruct UnpackedPalette",
                        "    u32 data;\n};\n\nstatic void *bw_unpacked_gfx_data(const struct UnpackedGfxBlock *res)\n{\n    if (sizeof(void *) == 4) return (void *)(uptr)res->data;\n    return (u8 *)res + res->data;\n}\n\nstruct UnpackedPalette")

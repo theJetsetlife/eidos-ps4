@@ -1,5 +1,6 @@
 /*
  * patches: src/game/ov093/btl_client.c BTL_CLIENT_FindCommandStepFn
+ * keeps declarations
  *
  * A test switch: the player's side chosen by the trainer AI
  * (EIDOS_DEBUG_AUTO_PLAYER=1, docs/test-switches.md), so a battle plays
@@ -34,14 +35,10 @@
  *   TR_AI_Create                      0x02187F00  thumb  ov096
  */
 
-typedef unsigned char u8;
-typedef unsigned short u16;
-typedef unsigned int u32;
+#include "../types.h"
+#include "../ov093/btl_client_types.h"
 
-struct BtlMain;
 struct BtlServerFlow;
-typedef struct BtlClient BtlClient;
-typedef int (*BtlClientStepFn)(BtlClient *client, int *state);
 
 /* btl_client.c's own record of a command */
 typedef struct {
@@ -63,69 +60,75 @@ extern void *TR_AI_Create(struct BtlMain *battleMain, struct BtlServerFlow *serv
 extern int bw_ui_battle_auto(void);
 extern void bw_ui_battle_auto_set(int move);
 
-/* BtlClient (ov093/btl_client_types.h): main 0x000, side 0x004, recorder
- * (the AI's script machine) 0x0F0, actions[3] 0x124 (a word each; a fight
- * action: kind 1 in bits 0 to 3, the move in bits 7 to 22), heapId 0x19A,
- * slotCount 0x1A4 is not read: the rule comes from the action count the
- * AI sent (sendSize 0x0DC, four bytes an action), kind 0x1A7. */
-#define CL_MAIN     0x000
-#define CL_SIDE     0x004
-#define CL_SENDSIZE 0x0DC
-#define CL_AI       0x0F0
-#define CL_ACTIONS  0x124
-#define CL_HEAP     0x19A
-#define CL_KIND     0x1A7
+/* The matched table is 16 bytes per row. ILP32 relocates its callbacks in
+ * place. LP64 leaves the three 4-byte code addresses in the copied image. */
+extern void (*bw_ds_code_word(const void *table, unsigned long index))(void);
 
-/* The command that asks for a turn.s action (its AI function is
+static const u8 *command_row(u32 index)
+{
+    return (const u8 *)gBtlClientCommandTable + index * 16u;
+}
+
+static BtlClientStepFn command_callback(const u8 *row, u32 kind)
+{
+    if (sizeof(void *) == 4) {
+        return ((const BtlCommandEntry *)(const void *)row)->callbacks[kind];
+    }
+    return (BtlClientStepFn)bw_ds_code_word(row, 1u + kind);
+}
+
+/* The command that asks for a turn's action (its AI function is
  * BTL_CLIENT_StepAutoChooseActions). */
 #define CMD_SELECT_ACTION 3
 
 BtlClientStepFn BTL_CLIENT_FindCommandStepFn(BtlClient *client, u32 id, int *outFlag)
 {
-    u8 *cl = (u8 *)client;
     u32 i;
 
     for (i = 0; i < 15; i++) {
-        const BtlCommandEntry *e = &gBtlClientCommandTable[i];
+        const u8 *row = command_row(i);
+        BtlClientStepFn player;
+        BtlClientStepFn ai;
 
-        if (e->id == id) {
-            u32 kind = cl[CL_KIND];
-
-            if (outFlag) {
-                *outFlag = e->flag;
-            }
-            if (kind == 0 && e->callbacks[1] != 0 && e->callbacks[1] != e->callbacks[0] && bw_ui_battle_auto()) {
-                void **ai = (void **)(cl + CL_AI);
-
-                if (*ai == 0) {
-                    struct BtlMain *main = *(struct BtlMain **)(cl + CL_MAIN);
-
-                    *ai = TR_AI_Create(main, BTL_MAIN_GetServerFlow(main), *(void **)(cl + CL_SIDE),
-                                       (u32)BTL_MAIN_GetTrainerAiFlags(main, 1), *(u16 *)(cl + CL_HEAP));
-                }
-                kind = 1;
-                bw_ui_battle_auto_set(0);
-                if (e->id == CMD_SELECT_ACTION && bw_ui_battle_auto() != 2) {
-                    u32 st = 0, word;
-                    int n, done = 0;
-
-                    for (n = 0; n < 100000 && !done; n++) {
-                        done = BTL_CLIENT_StepAutoChooseActions(client, &st);
-                    }
-                    if (done) {
-                        word = *(u32 *)(cl + CL_ACTIONS);
-                        if ((word & 15u) == 1u && *(u32 *)(cl + CL_SENDSIZE) == 4u) {
-                            /* a move, one Pokemon: chosen again in the menus */
-                            bw_ui_battle_auto_set((int)((word >> 7) & 0xFFFFu));
-                            return e->callbacks[0];
-                        }
-                    }
-                    /* any other choice: the AI's own function makes it
-                     * (again) and sends it */
-                }
-            }
-            return e->callbacks[kind];
+        if (row[0] != id) {
+            continue;
         }
+        if (outFlag != 0) {
+            *outFlag = row[1];
+        }
+        if (client->kind != 0 || !bw_ui_battle_auto()) {
+            return command_callback(row, client->kind);
+        }
+        player = command_callback(row, 0);
+        ai = command_callback(row, 1);
+        if (ai == 0 || ai == player) {
+            return player;
+        }
+
+        if (client->recorder == 0) {
+            struct BtlMain *main = client->main;
+
+            client->recorder = TR_AI_Create(main, BTL_MAIN_GetServerFlow(main), client->side,
+                                           (u32)BTL_MAIN_GetTrainerAiFlags(main, 1),
+                                           client->heapId);
+        }
+        bw_ui_battle_auto_set(0);
+        if (id == CMD_SELECT_ACTION && bw_ui_battle_auto() != 2) {
+            u32 state = 0;
+            int n;
+            int done = 0;
+
+            for (n = 0; n < 100000 && !done; n++) {
+                done = BTL_CLIENT_StepAutoChooseActions(client, &state);
+            }
+            if (done && client->actions[0].head.kind == BTL_ACTION_KIND_FIGHT
+                && client->sendSize == sizeof(client->actions[0])) {
+                /* Replay the AI's single move selection in the menus. */
+                bw_ui_battle_auto_set((int)client->actions[0].fight.moveId);
+                return player;
+            }
+        }
+        return ai;
     }
     return 0;
 }

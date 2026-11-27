@@ -2280,6 +2280,8 @@ typedef struct { uint16_t magic; GRender *render; GAnime **anm; uint16_t nanm; }
 extern int G3D_SYSTEM_GetObjectAnimeFrame(void *obj, uint32_t idx, int32_t *frame) WEAK;
 int __real_G3D_SYSTEM_DrawObjectCulling(void *obj, void *status);
 
+extern void *GAMESYSTEM_GetFieldMap(const void *gameSystem) WEAK;
+extern uint16_t ov021_FIELDMAP_GetZoneId(void *fieldMap) WEAK;
 extern void *ov021_FIELDMAP_GetCamera(void *fieldMap) WEAK;
 extern uint16_t ov021_FIELD_CAMERA_GetPitch(void *camera) WEAK;
 
@@ -2337,22 +2339,21 @@ static void field_note(void *obj_, const void *status_)
     const int32_t *st = (const int32_t *)status_;
     FieldObj *e = NULL;
     BmapLive *l;
-    uintptr_t gs, fm;
+    const void *gs;
+    void *fm;
     unsigned zone, k, a, b;
 
-    if (&bw_dsref__GameSystemGlobal == NULL || bw_dsref__GameSystemGlobal == NULL || o == NULL || st == NULL) {
+    if (&bw_dsref__GameSystemGlobal == NULL || bw_dsref__GameSystemGlobal == NULL
+        || GAMESYSTEM_GetFieldMap == NULL || ov021_FIELDMAP_GetZoneId == NULL
+        || o == NULL || st == NULL || battle_on()) {
         return;
     }
-    gs = (uintptr_t)*(void **)bw_dsref__GameSystemGlobal;
-    fm = gs != 0 ? (uintptr_t)*(void **)(gs + 0x20) : 0;
-    if (fm == 0 || battle_on() || o->render == NULL || o->render->mdl == NULL) {
-        return;                         /* (not in the field) */
+    gs = *(void **)bw_dsref__GameSystemGlobal;
+    fm = gs != NULL ? GAMESYSTEM_GetFieldMap(gs) : NULL;
+    if (fm == NULL || o->render == NULL || o->render->mdl == NULL) {
+        return;
     }
-    {
-        const uint8_t *pw = *(uint8_t **)(gs + 0x1C) + 4 + 4 * 0x44;
-
-        zone = (unsigned)(pw[0] | (pw[1] << 8));
-    }
+    zone = ov021_FIELDMAP_GetZoneId(fm);
     if (zone != g_fo_zone) {            /* another place: its objects are other objects */
         g_fo_zone = zone;
         g_nfo = 0;
