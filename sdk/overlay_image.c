@@ -723,6 +723,33 @@ BwDataFn bw_ovl_code_entry(u32 value)
     return ambiguous ? NULL : found;
 }
 
+/*
+ * Entry `index` of a function table bound to the raw DS bytes
+ * (BW_DATA_BIND_DS).  On LP64 bw_data_relocate leaves such tables as the DS
+ * wrote them -- 4-byte code addresses at a 4-byte stride -- so tools/dsaddr.py
+ * rewrites a call `TABLE[i](...)` through one into a call through this.  The
+ * word resolves like a relocated code word: the resident overlay's function,
+ * else the ARM9's (a mod's hook wins either way).  An empty slot is NULL, as
+ * on the DS; a word naming no known function traps with its address.
+ */
+BwDataFn bw_ds_code_word(const void *table, unsigned long index)
+{
+    u32 addr = bw_rd32((const u8 *)table + index * 4u);
+    BwDataFn fn;
+
+    if (addr == 0) {
+        return NULL;
+    }
+    fn = bw_ovl_code_entry(addr);
+    if (fn == NULL) {
+        fn = bw_arm9_code_entry(bw_data_installed(), addr);
+    }
+    if (fn == NULL) {
+        bw_data_trap(addr);
+    }
+    return fn;
+}
+
 void bw_ovl_stub(u32 id, u32 addr)
 {
     char why[200];

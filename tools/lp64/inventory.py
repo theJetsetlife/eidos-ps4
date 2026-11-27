@@ -14,7 +14,8 @@ import json, re, sys
 # v0.1 scope (docs: online services deferred).  Overlay id -> reachability.
 ONLINE = {9, 16, 97, 100, 114, 119, 120, 135, 172, 177}
 GAMEPLAY = {70, 112, 132, 208, 225}
-CRITICAL = {10, 21, 93, 204}          # field, scripts, battle, intro
+CRITICAL = {10, 21, 93, 95, 197, 198, 204}   # field, scripts, battle (+effects,
+                                             # bag, party), intro
 
 CORRECTED = [
     ("convert.c GAME_TYPES_U32_LONG", "type-width", "1ead0d0",
@@ -31,8 +32,11 @@ CORRECTED = [
      "--cut-decls dropped u16 prototype -> implicit int return; patch header 'keeps declarations'"),
     ("mod_event_battle BwPortSetup", "port-mirror-layout", "422197a",
      "netHandle/mapMatrix u32 vs game pointers shifted fields; void*, verified 0 mismatches via abi_dump"),
-    ("btl_setup BTL_SETUP_SetTrainer", "ptr-array-stride", "pending",
+    ("btl_setup BTL_SETUP_SetTrainer", "ptr-array-stride", "4b20ed5",
      "off=client*4 into trainerData[] with 8B store; sizeof(struct BattleTrainerData *)"),
+    ("calls through DS-bound fn-pointer arrays (94 sites)", "ds-fnptr-table", "pending",
+     "dsaddr.py rewrites TABLE[i](..)/TABLE[i][j](..) through BIND_DS names to "
+     "bw_ds_code_word (4-byte DS word, resolved); overlays now get --pointer-width"),
 ]
 
 def reach(path):
@@ -63,6 +67,21 @@ def main():
             evidence="pattern %s: %s" % (h["pattern"], h["snippet"][:120]),
             fix="stride *4 -> *sizeof(ptr) AND verify the DS base offset against "
                 "the struct's LP64 layout (abi_dump) before rewriting"))
+    # Optional second input: detect_ds_fntable.py hits.  After the dsaddr
+    # rewrite only struct tables (`TABLE[i].fn(...)`) remain: they need the
+    # element's DS layout (abi_dump with -m32) before they can be converted.
+    if len(sys.argv) > 2:
+        for n, ln in enumerate(open(sys.argv[2]), 1):
+            h = json.loads(ln)
+            r = reach(h["file"])
+            rows.append(dict(
+                id="F%03d" % n, cls="ds-fnptr-struct-table",
+                file=h["file"].split("/src/game/")[-1].split("/dsaddr/")[-1],
+                line=h["line"], symbol=h["symbol"], member=h.get("member"), reach=r,
+                status="deferred" if r == "online" else "probable",
+                evidence=h["snippet"][:120],
+                fix="read the member's 4-byte DS word at i*DS_ELEM+DS_OFF "
+                    "(ILP32 layout via abi_dump -m32) and resolve with bw_ds_code_word"))
     for row in rows:
         print(json.dumps(row))
     by = {}

@@ -274,7 +274,8 @@ function(eidos_overlays name)
         endif()
         add_custom_command(
             OUTPUT ${copy}
-            COMMAND ${Python3_EXECUTABLE} ${EIDOS_DSADDR_TOOL} ${src} -o ${copy} --name ${src} ${cut_args}
+            COMMAND ${Python3_EXECUTABLE} ${EIDOS_DSADDR_TOOL} ${src} -o ${copy} --name ${src}
+                    --pointer-width ${CMAKE_SIZEOF_VOID_P} ${cut_args}
             DEPENDS ${src} ${EIDOS_DSADDR_TOOL} ${cut_dep}
             COMMENT "dsaddr ${rel} (overlays ${name})"
             VERBATIM)

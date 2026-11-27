@@ -1021,6 +1021,170 @@ def _read(path: str) -> str:
         return f.read().decode("latin-1")
 
 
+# --- calls through DS-bound function tables (LP64) -----------------------
+#
+# A name the data loader binds BW_DATA_BIND_DS is the raw DS bytes, and on
+# LP64 bw_data_relocate leaves its code words as the DS wrote them: 4-byte
+# addresses at a 4-byte stride (sdk/armdata.h).  A matched call
+# `TABLE[i](...)` would read an 8-byte slot at the native stride and jump to
+# junk.  Rewrite each such call to read the DS word and resolve it
+# (sdk/overlay_image.c bw_ds_code_word), the convention the hand-converted
+# sites (wipe.c, arc_util.c, intro_cmd.c) already follow.  Struct tables
+# (`TABLE[i].fn(...)`) need the DS element layout and are not touched here.
+
+_DS_BIND_RE = re.compile(r'\{\s*"(\w+)",\s*0x[0-9A-Fa-f]+u?,\s*&bw_dsref_\w+,\s*BW_DATA_BIND_DS\b')
+_DS_FN_CALL_RE = re.compile(
+    r"\b([A-Za-z_]\w*)\s*\[([^\[\]]+)\](?:\s*\[([^\[\]]+)\])?\s*(?=\()")
+_WIDE_IF_RE = re.compile(r"__SIZEOF_POINTER__\s*>\s*4|UINTPTR_MAX\s*>\s*UINT32_MAX")
+_NARROW_IF_RE = re.compile(r"__SIZEOF_POINTER__\s*(?:<=|==)\s*4|UINTPTR_MAX\s*<=\s*UINT32_MAX")
+
+
+def _build_root(path: str):
+    d = os.path.dirname(os.path.abspath(path))
+    while True:
+        if os.path.exists(os.path.join(d, "CMakeCache.txt")):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None
+        d = parent
+
+
+def _ds_bound_names(output_path: str):
+    """{region: set(names)} bound BW_DATA_BIND_DS; region 'arm9' or 'NNN'.
+    Cached in <build>/lp64/ds_bound.json, rebuilt when a link table changes."""
+    import glob, json
+    root = _build_root(output_path)
+    if root is None:
+        return None
+    files = (glob.glob(os.path.join(root, "ovl", "*", "ov[0-9][0-9][0-9]_link.c"))
+             + glob.glob(os.path.join(root, "armdata", "*.c")))
+    if not files:
+        return None
+    newest = max(os.path.getmtime(f) for f in files)
+    cache = os.path.join(root, "lp64", "ds_bound.json")
+    try:
+        if os.path.getmtime(cache) >= newest:
+            with open(cache, encoding="utf-8") as fh:
+                return {k: set(v) for k, v in json.load(fh).items()}
+    except (OSError, ValueError):
+        pass
+    regions = {}
+    for f in files:
+        m = re.search(r"ov(\d{3})_link\.c$", f)
+        key = m.group(1) if m else "arm9"
+        with open(f, encoding="utf-8", errors="replace") as fh:
+            regions.setdefault(key, set()).update(_DS_BIND_RE.findall(fh.read()))
+    os.makedirs(os.path.dirname(cache), exist_ok=True)
+    tmp = "%s.%d.tmp" % (cache, os.getpid())
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump({k: sorted(v) for k, v in regions.items()}, fh)
+    os.replace(tmp, cache)
+    return regions
+
+
+def _code_spans(text: str):
+    """Char ranges that are comments, string or char literals, or lines in a
+    branch compiled only for 4-byte pointers: never rewritten."""
+    spans, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            spans.append((i, j))
+            i = j
+        elif text.startswith("//", i):
+            j = text.find("\n", i)
+            j = n if j < 0 else j
+            spans.append((i, j))
+            i = j
+        elif c in "\"'":
+            j = i + 1
+            while j < n and text[j] != c and text[j] != "\n":
+                j += 2 if text[j] == "\\" else 1
+            spans.append((i, j + 1))
+            i = j + 1
+        else:
+            i += 1
+    stack, pos = [], 0
+    for line in text.splitlines(True):
+        s = line.strip()
+        if s.startswith("#if"):
+            stack.append("w" if _WIDE_IF_RE.search(s) else "n" if _NARROW_IF_RE.search(s) else "")
+        elif s.startswith("#el") and stack:
+            stack[-1] = {"w": "n", "n": "w"}.get(stack[-1], "")
+        elif s.startswith("#endif") and stack:
+            stack.pop()
+        elif "n" in stack:
+            spans.append((pos, pos + len(line)))
+        pos += len(line)
+    spans.sort()
+    return spans
+
+
+def _ds_fntable_rewrite(text: str, output_path: str, name: str):
+    """Rewrite calls through DS-bound function tables.  Returns (text, n, skipped)."""
+    regions = _ds_bound_names(output_path)
+    if not regions:
+        return text, 0, []
+    m = re.search(r"/ov(\d{3})/", output_path.replace("\\", "/"))
+    names = set(regions.get("arm9", ()))
+    if m:
+        names |= regions.get(m.group(1), set())
+    if not names or not any(n in text for n in names):
+        return text, 0, []
+    spans = _code_spans(text)
+
+    def in_span(p):
+        lo, hi = 0, len(spans)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if spans[mid][1] <= p:
+                lo = mid + 1
+            else:
+                hi = mid
+        return lo < len(spans) and spans[lo][0] <= p < spans[lo][1]
+
+    out, last, count, skipped = [], 0, 0, []
+    for mt in _DS_FN_CALL_RE.finditer(text):
+        sym, i1, i2 = mt.group(1), mt.group(2), mt.group(3)
+        if sym not in names or in_span(mt.start()):
+            continue
+        before = text[max(0, mt.start() - 2):mt.start()]
+        if before.endswith(".") or before.endswith("->"):
+            continue                    # a member that happens to share the name
+        # The source must declare the name an array with exactly this many
+        # dimensions: a 2D call through an array of row pointers, or a
+        # pointer-typed name, is not contiguous code words.
+        dims = r"\s*\[[^\]]*\]" * (2 if i2 else 1)
+        if not re.search(r"(?:\bextern\b|\(\s*\*\s*(?:const\s+)?)[^;{}]*?\b%s%s(?!\s*\[)"
+                         % (re.escape(sym), dims), text):
+            skipped.append(sym)
+            continue
+        if i2:
+            idx = ("(unsigned long)(%s) * (sizeof(%s[0]) / sizeof(%s[0][0])) + (unsigned long)(%s)"
+                   % (i1, sym, sym, i2))
+            elem = "%s[0][0]" % sym
+        else:
+            idx, elem = "(unsigned long)(%s)" % i1, "%s[0]" % sym
+        out.append(text[last:mt.start()])
+        out.append("((__typeof__(%s))bw_ds_code_word((const void *)%s, %s))" % (elem, sym, idx))
+        last = mt.end()
+        count += 1
+    if not count:
+        return text, 0, skipped
+    out.append(text[last:])
+    text = "".join(out)
+    proto = ("/* tools/dsaddr.py: calls through DS-bound function tables */\n"
+             "void (*bw_ds_code_word(const void *, unsigned long))(void);\n")
+    if text.startswith("/* tools/dsaddr.py:"):
+        text = proto + text           # the existing prelude carries #line 1
+    else:
+        text = proto + '#line 1 "%s"\n' % name.replace("\\", "/") + text
+    return text, count, skipped
+
+
 def _write(path: str, text: str) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     data = text.encode("latin-1")
@@ -2297,11 +2461,21 @@ static void (*bw_save_callback(unsigned int address))(void)
 
             source = _LOCAL_INCLUDE_RE.sub(_host_include, source)
             text = _rewrite_with_defines(source, name, src_path)
-            _write(a.output, text)
+            _write(a.output, _ds_fntables(a, text, name))
             return 0
     text, _, _ = rewrite(source, name)
-    _write(a.output, text)
+    _write(a.output, _ds_fntables(a, text, name))
     return 0
+
+
+def _ds_fntables(a, text: str, name: str) -> str:
+    if not (a.pointer_width and a.pointer_width > 4):
+        return text
+    text, _n, skipped = _ds_fntable_rewrite(text, a.output, name)
+    for sym in sorted(set(skipped)):
+        sys.stderr.write("dsaddr.py: %s: call through DS table %s not rewritten "
+                         "(no array declaration in the file)\n" % (name, sym))
+    return text
 
 
 _NUM_DEFINE_RE = re.compile(r"(?m)^[ \t]*#[ \t]*define[ \t]+[A-Za-z_]\w*[ \t]+\(?\s*0[xX][0-9A-Fa-f]+[uUlL]*\s*\)?[ \t]*$")
