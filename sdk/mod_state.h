@@ -276,6 +276,22 @@ typedef struct BwModState {
      * English White; the last letter is the language), copied to `out`
      * (up to `size` bytes, ended with a NUL when there is room).  0. */
     int (*game_code)(char *out, u32 size);
+    /* Version 7. */
+    /* Whether the Pokedex has its National mode: 1 or 0, a negative
+     * number with no game loaded. */
+    s32 (*national_dex)(void);
+    /* Turn the Pokedex's National mode on, as the game's own script
+     * command does.  The game has no call that turns it off.  0, or -1
+     * with no game loaded. */
+    int (*national_dex_set)(void);
+    /* Put a Wonder Card (the 204 bytes of a .pgf file) in the Mystery
+     * Gift album, once per save: the card is dated today, and the
+     * delivery man in a Pokemon Centre hands its gift over, as for a card
+     * received from Mystery Gift.  Returns the album slot (0 to 11).
+     * -1: not a card (the size, the gift type, a card id past 2047), or no
+     * game loaded.  -2: the save received a card of this id before, or the
+     * album holds one: nothing changes.  -3: the album is full. */
+    s32 (*mystery_card_add)(const void *pgf, u32 size);
 } BwModState;
 
 /* Version 6: the type chart, as the battle keeps it: 17 rows of 17, the
@@ -551,6 +567,43 @@ typedef struct BwModServices {
      * bar shows a Tracker button while a mod has one.  0, or -1 when it is
      * longer than 128 KB. */
     int  (*tracker_set)(const char *text, u32 size);
+    /* Version 7 (docs/mod-services.md, "Version 7: the web, the clock, the
+     * game's hash and the pop-up").  web_request: an https address; a POST
+     * of `body_size` bytes with that Content-Type when there is a body or a
+     * type, a GET when `body_size` is 0 and the type is "" or NULL (the
+     * type of a POST with none: application/x-www-form-urlencoded).  0 with
+     * *ticket set, the answer
+     * comes as the event `web`; -1 when refused (not https, too long, four
+     * requests already waiting).  web_read: inside the `web` handler of the
+     * mod that made the request, copies up to `size` bytes of the answer
+     * and answers its whole size; -1 elsewhere. */
+    int  (*web_request)(const char *url, const void *body, u32 body_size, const char *content_type,
+                        u32 *ticket);
+    int  (*web_read)(void *out, u32 size);
+    /* The clock: the seconds since 1970 (UTC), and a millisecond count
+     * that only goes up. */
+    s64  (*time_utc)(void);
+    u64  (*ticks_ms)(void);
+    /* The game in force's hash of `kind` (BW_GAME_HASH_*) as 32 hex
+     * characters and a 0 (`size` at least 33): 32, or -1. */
+    int  (*game_hash)(u32 kind, char *out, u32 size);
+    /* A pop-up in the interface's style, over the game for a few seconds;
+     * several wait their turn.  `icon` is BW_POPUP_*.  0, or -1 when
+     * eight already wait. */
+    int  (*popup)(const char *title, const char *text, u32 icon);
+    /* Version 7, the mod's settings (docs/mod-services.md, "Mod settings"):
+     * setting_show sets a `show` row's text (at most 63 bytes, no line
+     * end; "" hides the row); setting_set_text sets a text or secret
+     * option (the password, cleared at once after reading it).  0, or -1
+     * when the mod declares no such row.  The choice of a `button` row is
+     * the event setting.button. */
+    int  (*setting_show)(const char *key, const char *text);
+    int  (*setting_set_text)(const char *key, const char *text);
+    /* RetroAchievements' hardcore: 1 when nothing in force changes the
+     * game but the calling mod; 0 with the reason in `why` (a short line,
+     * cut to `size`) while another mod is on or a test switch that changes
+     * the game is set. */
+    int  (*hardcore_allowed)(char *why, u32 size);
 } BwModServices;
 
 /* ------------------------------------------------------------------ */

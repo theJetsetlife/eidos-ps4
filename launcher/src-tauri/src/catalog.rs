@@ -65,6 +65,9 @@ pub struct CatalogMod {
     pub version: String,
     pub author: String,
     pub description: String,
+    /// The Official badge: a mod of the index repository unless the index
+    /// marks it `unofficial`, another repository's mod only when the index
+    /// marks it `official` ([`Mark`]).
     pub official: bool,
     pub multiplayer: bool,
     pub has_code: bool,
@@ -125,8 +128,41 @@ fn index_url(setting: &str) -> &str {
     }
 }
 
-fn read_index(agent: &ureq::Agent, url: &str) -> Result<Index, String> {
-    let idx: Index = serde_json::from_slice(&get(agent, url, MAX_JSON)?)
+/// The entries' badge marks (katalogos README, "The index"): a mod of the
+/// index repository (`mod`) is official unless marked `"unofficial": true`;
+/// another repository's mod (`repo`) is not, unless marked
+/// `"official": true`.  Read beside the katalogos crate's `Index`, which
+/// this launcher pins at an older tag.
+#[derive(Deserialize, Default)]
+struct Marks {
+    #[serde(default)]
+    mods: Vec<Mark>,
+}
+
+#[derive(Deserialize, Default, Clone, Copy)]
+struct Mark {
+    #[serde(default)]
+    unofficial: bool,
+    #[serde(default)]
+    official: bool,
+}
+
+impl Mark {
+    /// The badge of an entry: `repo_entry` for a `repo` line, `hosted` what
+    /// its mod.json says (official: kept in the index repository).
+    fn badge(&self, repo_entry: bool, hosted: bool) -> bool {
+        if repo_entry {
+            self.official
+        } else {
+            hosted && !self.unofficial
+        }
+    }
+}
+
+/// The index, and each entry's marks.
+fn read_index(agent: &ureq::Agent, url: &str) -> Result<(Index, Vec<Mark>), String> {
+    let bytes = get(agent, url, MAX_JSON)?;
+    let idx: Index = serde_json::from_slice(&bytes)
         .map_err(|e| format!("The mod index does not read: {e}"))?;
     if idx.format != FORMAT {
         return Err(format!(
@@ -134,31 +170,59 @@ fn read_index(agent: &ureq::Agent, url: &str) -> Result<Index, String> {
             idx.format
         ));
     }
-    Ok(idx)
+    // (an index whose marks do not read keeps every badge as mod.json says)
+    let marks = serde_json::from_slice::<Marks>(&bytes).unwrap_or_default();
+    let marks = (0..idx.mods.len())
+        .map(|i| marks.mods.get(i).copied().unwrap_or_default())
+        .collect();
+    Ok((idx, marks))
 }
 
-/// A release file of a mod, kept on disk by its address.  A release's
-/// files never change once its tag is out (a new version is a new tag, so
-/// a new address), so a kept copy is the file: it is read from disk and
-/// GitHub is not asked again until the index names another release.  That
-/// is also what keeps the list showing while GitHub's downloads fail.
-fn get_kept(agent: &ureq::Agent, cache: &Path, url: &str, max: u64) -> Result<Vec<u8>, String> {
+/// Where a release file's copy is kept: a name made from its address.
+fn kept_path(cache: &Path, url: &str) -> std::path::PathBuf {
     use sha2::Digest;
     let key: String = sha2::Sha256::digest(url.as_bytes()).iter().take(16).map(|b| format!("{b:02x}")).collect();
-    let path = cache.join(key);
-    if let Ok(bytes) = fs::read(&path) {
-        if bytes.len() as u64 <= max {
+    cache.join(key)
+}
+
+fn keep(cache: &Path, path: &Path, bytes: &[u8]) {
+    if fs::create_dir_all(cache).is_ok() {
+        let tmp = path.with_extension("part");
+        if fs::write(&tmp, bytes).is_ok() {
+            let _ = fs::rename(&tmp, path);
+        }
+    }
+}
+
+/// A release file of a mod, kept on disk by its address.
+///
+/// `pinned`: the address names its release (the index gives the mod's
+/// version).  A release's files never change once its tag is out (a new
+/// version is a new tag, so a new address), so a kept copy is the file: it
+/// is read from disk and GitHub is not asked again until the index names
+/// another release.
+///
+/// Not pinned: the address is the mod's newest release
+/// (`releases/latest/download`), which names another file after the mod's
+/// next release.  GitHub is asked every time, and the kept copy is only
+/// what the list shows when GitHub does not answer.
+///
+/// Either way the list keeps showing while GitHub's downloads fail.
+fn get_kept(agent: &ureq::Agent, cache: &Path, url: &str, max: u64, pinned: bool) -> Result<Vec<u8>, String> {
+    let path = kept_path(cache, url);
+    let kept = || fs::read(&path).ok().filter(|b| b.len() as u64 <= max);
+    if pinned {
+        if let Some(bytes) = kept() {
             return Ok(bytes);
         }
     }
-    let bytes = get(agent, url, max)?;
-    if fs::create_dir_all(cache).is_ok() {
-        let tmp = path.with_extension("part");
-        if fs::write(&tmp, &bytes).is_ok() {
-            let _ = fs::rename(&tmp, &path);
+    match get(agent, url, max) {
+        Ok(bytes) => {
+            keep(cache, &path, &bytes);
+            Ok(bytes)
         }
+        Err(e) => kept().ok_or(e),
     }
-    Ok(bytes)
 }
 
 /// The mods of the index, with their mod.json read (`cache`: where release
@@ -166,14 +230,15 @@ fn get_kept(agent: &ureq::Agent, cache: &Path, url: &str, max: u64) -> Result<Ve
 /// among the errors and the others still show.
 pub fn list(index_setting: &str, cache: &Path) -> Result<Catalog, String> {
     let agent = agent();
-    let idx = read_index(&agent, index_url(index_setting))?;
+    let (idx, marks) = read_index(&agent, index_url(index_setting))?;
     let mut out = Catalog { mods: Vec::new(), errors: Vec::new() };
     for (i, e) in idx.mods.iter().enumerate() {
         let url = release_url(e, "mod.json");
+        let pinned = e.version.is_some();
         let r = if url.is_empty() {
             Err("the entry names no mod".to_string())
         } else {
-            get_kept(&agent, cache, &url, MAX_JSON).and_then(|b| {
+            get_kept(&agent, cache, &url, MAX_JSON, pinned).and_then(|b| {
                 serde_json::from_slice::<ModJson>(&b).map_err(|err| format!("mod.json: {err}"))
             })
         };
@@ -183,7 +248,7 @@ pub fn list(index_setting: &str, cache: &Path) -> Result<Catalog, String> {
                     Some(IconRef::Item(n)) => Some(UiIcon { item: Some(*n), ..Default::default() }),
                     Some(IconRef::Species(n)) => Some(UiIcon { species: Some(*n), ..Default::default() }),
                     // a mod's own picture comes beside its mod.json
-                    Some(IconRef::File(_)) => get_kept(&agent, cache, &release_url(e, ICON_FILE), MAX_ICON)
+                    Some(IconRef::File(_)) => get_kept(&agent, cache, &release_url(e, ICON_FILE), MAX_ICON, pinned)
                         .ok()
                         .filter(|b| eidos_mod::manifest::check_icon_png(b).is_ok())
                         .map(|b| UiIcon { png: Some(b), ..Default::default() }),
@@ -194,7 +259,7 @@ pub fn list(index_setting: &str, cache: &Path) -> Result<Catalog, String> {
                 version: j.version,
                 author: j.author,
                 description: j.description,
-                official: j.official,
+                official: marks[i].badge(e.repo.is_some() && e.official.is_none(), j.official),
                 multiplayer: j.multiplayer.is_some(),
                 has_code: j.has_code,
                 games: j.games,
@@ -224,7 +289,7 @@ pub fn installed(dir: &Path) -> Option<Installed> {
 /// Returns the mod's folder.
 pub fn install(profile_dir: &Path, index_setting: &str, index: usize) -> Result<String, String> {
     let agent = agent();
-    let idx = read_index(&agent, index_url(index_setting))?;
+    let (idx, _) = read_index(&agent, index_url(index_setting))?;
     let e = idx.mods.get(index).ok_or("That mod is no longer in the index.")?;
     let j: ModJson = serde_json::from_slice(&get(&agent, &release_url(e, "mod.json"), MAX_JSON)?)
         .map_err(|err| format!("mod.json: {err}"))?;
@@ -264,6 +329,47 @@ mod tests {
     fn default_index() {
         assert_eq!(index_url(""), DEFAULT_INDEX);
         assert_eq!(index_url("  https://x/i.json "), "https://x/i.json");
+    }
+
+    /// The Official badge: an index mod unless marked unofficial, another
+    /// repository's mod only when marked official.
+    #[test]
+    fn badge_marks() {
+        let m: Marks = serde_json::from_str(
+            r#"{"format":1,"mods":[
+                {"mod":"a","version":"1.0.0"},
+                {"mod":"b","version":"1.0.0","unofficial":true},
+                {"repo":"x/y"},
+                {"repo":"x/z","official":true},
+                {"mod":"c","version":"1.0.0","official":true,"unofficial":true}]}"#,
+        )
+        .unwrap();
+        assert!(m.mods[0].badge(false, true));
+        assert!(!m.mods[1].badge(false, true));
+        assert!(!m.mods[2].badge(true, false));
+        assert!(m.mods[3].badge(true, false));
+        assert!(!m.mods[4].badge(false, true));
+        // an index mod whose mod.json is not the index's own has no badge
+        assert!(!m.mods[0].badge(false, false));
+    }
+
+    /// A kept copy is the file for a pinned address; for the newest
+    /// release it is only what shows when the server does not answer.
+    #[test]
+    fn kept_copies() {
+        let t = tempfile::tempdir().unwrap();
+        let agent = ureq::AgentBuilder::new().timeout(Duration::from_millis(300)).build();
+        // (nothing listens on this port: every request fails at once)
+        let url = "http://127.0.0.1:9/owner/mod/releases/latest/download/mod.json";
+        assert!(get_kept(&agent, t.path(), url, 100, true).is_err());
+        assert!(get_kept(&agent, t.path(), url, 100, false).is_err());
+        keep(t.path(), &kept_path(t.path(), url), b"kept");
+        // pinned: the copy, with no request; not pinned: the copy, after the request failed
+        assert_eq!(get_kept(&agent, t.path(), url, 100, true).unwrap(), b"kept");
+        assert_eq!(get_kept(&agent, t.path(), url, 100, false).unwrap(), b"kept");
+        // a copy past the limit is not the file
+        assert!(get_kept(&agent, t.path(), url, 3, true).is_err());
+        assert!(get_kept(&agent, t.path(), url, 3, false).is_err());
     }
 
     #[test]

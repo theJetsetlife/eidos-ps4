@@ -59,6 +59,7 @@
 #include "kit.h"
 #include "theme.h"
 #include "padglyph.h"
+#include "type_icons.h"
 
 /* ------------------------------------------------------------------ */
 /* Themes                                                              */
@@ -491,6 +492,26 @@ void ui_blit_screen(EidosUiCtx *c, int x, int y, const u8 *screen,
                     put(c, x + xx * k + dx, y + yy * k + dy, rgb, 255);
                 }
             }
+        }
+    }
+}
+
+void ui_blit_screen_half(EidosUiCtx *c, int x, int y, const u8 *screen,
+                         int sx, int sy, int w, int h)
+{
+    int xx, yy;
+
+    if (screen == NULL || w < 2 || h < 2 || sx < 0 || sy < 0 || sx + w > 256 || sy + h > 192) {
+        return;
+    }
+    for (yy = 0; yy + 1 < h; yy += 2) {
+        for (xx = 0; xx + 1 < w; xx += 2) {
+            const u8 *p = screen + ((size_t)(sy + yy) * 256 + (size_t)(sx + xx)) * 4;
+            u32 r = (u32)p[0] + p[4] + p[1024] + p[1028];
+            u32 g = (u32)p[1] + p[5] + p[1025] + p[1029];
+            u32 b = (u32)p[2] + p[6] + p[1026] + p[1030];
+
+            put(c, x + xx / 2, y + yy / 2, (((r + 2) / 4) << 16) | (((g + 2) / 4) << 8) | ((b + 2) / 4), 255);
         }
     }
 }
@@ -1058,7 +1079,7 @@ int ui_def_hints(EidosUiCtx *c, int y, int w, const char *const *pairs, int n,
             ui_fill(c, x - 2, top + 1, r.w, bh - 2, UI_EDGE, 255);
         }
         if ((state & EIDOS_UI_CLICK) && keys != NULL && keys[i] != 0) {
-            eidos_ui_press(keys[i], 2);
+            eidos_ui_hint_press(keys[i]);
         }
         ui_keycap(c, x, y + 2, key);
         x += kw + 4;
@@ -1097,7 +1118,7 @@ void ui_def_bar(EidosUiCtx *c, int x, int y, int w, int h, int num, int den)
 }
 
 /* Black and White's own type numbers (17 types, Fire = 9), then the
- * unknown mark at UI_TYPE_UNKNOWN. */
+ * unknown mark (UI_TYPE_UNKNOWN). */
 static const char *const k_type_name[18] = {
     "NORMAL", "FIGHTING", "FLYING", "POISON", "GROUND", "ROCK", "BUG", "GHOST",
     "STEEL", "FIRE", "WATER", "GRASS", "ELECTRIC", "PSYCHIC", "ICE",
@@ -1173,14 +1194,40 @@ const char *ui_move_name_modern(int id, const char *game_name)
     return NULL;
 }
 
+/* (weak: the interface's tests link this file without the dex recipe) */
+extern int ui_type_game_name(int type, char *out, int cap) __attribute__((weak));
+
 const char *ui_type_name(int type)
 {
-    return (type >= 0 && type < 18) ? k_type_name[type] : "???";
+    /* a type a mod adds (17 to 30): its name in the game's text, in
+     * capitals as the game's own are here */
+    static char added[14][24];
+    int i;
+
+    if (type >= 0 && type < 17) {
+        return k_type_name[type];
+    }
+    if (type >= 17 && type <= 30 && ui_type_game_name != NULL &&
+        ui_type_game_name(type, added[type - 17], (int)sizeof added[0]) > 0) {
+        for (i = 0; added[type - 17][i] != '\0'; i++) {
+            added[type - 17][i] = (char)toupper((unsigned char)added[type - 17][i]);
+        }
+        return added[type - 17];
+    }
+    return "???";
 }
 
 u32 ui_type_color(int type)
 {
-    return (type >= 0 && type < 18) ? k_type_color[type] : UI_EDGE2;
+    u32 rgb;
+
+    if (type >= 0 && type < 17) {
+        return k_type_color[type];
+    }
+    if (type == UI_TYPE_UNKNOWN) {
+        return k_type_color[17];
+    }
+    return type >= 17 && bw_type_ui_color((u32)type, &rgb) ? rgb : UI_EDGE2;
 }
 
 void ui_def_type_tag(EidosUiCtx *c, int x, int y, int w, int type)
@@ -1327,6 +1374,37 @@ void ui_def_toast(EidosUiCtx *c, int x, int y, const char *utf8, const UiImage *
     }
     ui_text(c, x + tx, y + ui_text_y(h, UI_FONT_LARGE), utf8, UI_WHITE, UI_EDGE,
             UI_FONT_LARGE, 1);
+}
+
+/* The pop-up's box: the two lines' widths and the sides (a style whose
+ * box leans adds its lean: popup_w), one row per line that has text. */
+int ui_def_popup_w(const char *title, const char *text)
+{
+    int a = title != NULL && title[0] != '\0' ? ui_text_w(title, UI_FONT_LARGE) : 0;
+    int b = text != NULL && text[0] != '\0' ? ui_text_w(text, UI_FONT_LARGE) : 0;
+
+    return (a > b ? a : b) + 28;
+}
+
+int ui_popup_h(const char *title, const char *text)
+{
+    int rows = (title != NULL && title[0] != '\0') + (text != NULL && text[0] != '\0');
+
+    return 8 + 15 * (rows > 0 ? rows : 1);
+}
+
+void ui_def_popup(EidosUiCtx *c, int x, int y, int w, const char *title, const char *text)
+{
+    int h = ui_popup_h(title, text), ty = y + 4;
+
+    ui_panel(c, x, y, w, h, UI_CUT_TL, 5, UI_BODY, UI_CYAN, 240);
+    if (title != NULL && title[0] != '\0') {
+        ui_text(c, x + 12, ty, title, UI_CYAN, UI_EDGE, UI_FONT_LARGE, 1);
+        ty += 15;
+    }
+    if (text != NULL && text[0] != '\0') {
+        ui_text(c, x + 12, ty, text, UI_WHITE, UI_EDGE, UI_FONT_LARGE, 1);
+    }
 }
 
 void ui_def_cursor_corners(EidosUiCtx *c, int x, int y, int w, int h, u32 color)

@@ -108,6 +108,22 @@ int  bw_mp_start(void);
 /* Why the host cannot start now ("" when it can). */
 const char *bw_mp_start_blocker(void);
 
+/* The same as a kind, for a screen that marks its own checks: nobody has
+ * joined; a player of the game has not come back; a player's game has not
+ * answered yet; another eidos version; a save of the other game (Black,
+ * White); other multiplayer mods. */
+enum {
+    BW_MP_BLOCK_NONE = 0,
+    BW_MP_BLOCK_NOBODY,
+    BW_MP_BLOCK_WAITING,
+    BW_MP_BLOCK_NO_ANSWER,
+    BW_MP_BLOCK_VERSION,
+    BW_MP_BLOCK_SAVE_GAME,
+    BW_MP_BLOCK_MODS,
+    BW_MP_BLOCK_NOT_HOST            /* only the host starts, from the lobby or a pause */
+};
+int bw_mp_start_blocker_kind(void);
+
 BwMpState bw_mp_state(void);
 int  bw_mp_is_host(void);
 
@@ -210,9 +226,11 @@ int  bw_mp_dir(char *out, u32 size);
 /* The host's games: each one a folder of <save>/multiplayer/games with
  * its own saves.  The list is newest first; select chooses the game the
  * next host plays, create makes a new one from a name (made a folder name,
- * numbered when taken) and chooses it.  0 or a count on success. */
+ * numbered when taken) and chooses it.  0 or a count on success.  There
+ * is no limit on the games: count says how many there are, and list fills
+ * up to `max` names. */
 #define BW_MP_GAME_NAME_MAX 24
-#define BW_MP_GAMES_MAX     32
+int  bw_mp_game_count(void);
 int  bw_mp_game_list(char names[][BW_MP_GAME_NAME_MAX], int max);
 int  bw_mp_game_select(const char *name);
 int  bw_mp_game_create(const char *name, char *out, u32 size);

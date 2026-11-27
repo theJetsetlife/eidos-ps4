@@ -23,6 +23,9 @@
     getSettings,
     catalogList,
     catalogInstall,
+    newerThan,
+    LATEST,
+    LOCAL,
     type Catalog,
     type CatalogMod,
     type ModInfo,
@@ -35,6 +38,23 @@
 
   // The game species icons are drawn from: the profile's.
   const game = $derived(ov.profiles.find((p) => p.name === selected)?.game || "black");
+
+  // The eidos version the profile runs ("latest": the newest installed); null
+  // for the local build or none, which loads every mod.
+  const engine = $derived.by(() => {
+    const v = ov.profiles.find((p) => p.name === selected)?.version;
+    const r = v === LATEST ? ov.installed[0] : v;
+    return r && r !== LOCAL ? r : null;
+  });
+
+  // A mod made for the other game or for a newer eidos: eidos does not load
+  // it in this profile. "" when it fits; else what the hover says.
+  function needs(games: string[], eidos = ""): string {
+    if (eidos !== "" && engine !== null && newerThan(eidos, engine)) return `Requires eidos ${eidos} or later`;
+    if (games.includes(game)) return "";
+    if (games.length === 0) return "Requires another game";
+    return `Requires Pokémon ${games[0] === "white" ? "White" : "Black"}`;
+  }
 
   let mods = $state<ModInfo[]>(untrack(() => cachedMods.get(selected)) ?? []);
   let indexUrl = $state("");
@@ -120,7 +140,7 @@
   }
 
   async function pickPackage() {
-    const path = await open({ multiple: false, title: "Add a mod", filters: [{ name: "Mod package", extensions: ["bw"] }] });
+    const path = await open({ multiple: false, title: "Add mod", filters: [{ name: "Mod package", extensions: ["bw"] }] });
     if (typeof path !== "string") return;
     try {
       const info = await modsInspect(path);
@@ -132,7 +152,7 @@
   }
 
   async function pickFolder() {
-    const path = await open({ directory: true, multiple: false, title: "Add a mod folder" });
+    const path = await open({ directory: true, multiple: false, title: "Add mod folder" });
     if (typeof path === "string") run(() => modsAdd(selected, path), "Mod added.");
   }
 
@@ -179,12 +199,13 @@
     <h2 class="section-label">{mods.length} {mods.length === 1 ? "mod" : "mods"} · {enabled} on</h2>
     <ul class="rows window">
       {#each mods as m (m.folder)}
-        <li class:off={!m.enabled}>
-          <label class="switch" title={m.enabled ? "On" : "Off"}>
+        {@const need = needs(m.games, m.eidos)}
+        <li class:off={!m.enabled || need !== ""}>
+          <label class="switch" title={need !== "" ? need : m.enabled ? "On" : "Off"}>
             <input
               type="checkbox"
-              checked={m.enabled}
-              disabled={running}
+              checked={m.enabled && need === ""}
+              disabled={running || need !== ""}
               onchange={(e) => run(() => modsSetEnabled(selected, m.folder, e.currentTarget.checked))} />
             <span class="track" aria-hidden="true"></span>
           </label>
@@ -194,6 +215,7 @@
             {#if m.name !== m.folder}<span class="sub">{m.folder}</span>{/if}
           </div>
           {#if !m.hasManifest}<span class="badge">No manifest</span>{/if}
+          {#if need !== ""}<span class="badge" title={need}>Unavailable</span>{/if}
           <div class="actions">
             <button class="quiet danger" disabled={running} title="Remove" onclick={() => askRemove(m)}><Icon name="trash" size={15} /></button>
           </div>
@@ -211,12 +233,13 @@
     </div>
     {#if indexUrl}<p class="muted">From {indexUrl}</p>{/if}
     {#if catalogError}
-      <p class="muted">Could not read the mod list: {catalogError}</p>
+      <p class="muted">Could not load mod list: {catalogError}</p>
     {/if}
     <ul class="rows window">
       {#if catalog}
         {#each catalog.mods as c (c.id)}
           {@const st = modState(c)}
+          {@const need = needs(c.games)}
           <li class="catalog">
             <ModIcon icon={c.icon} {game} />
             <div class="main">
@@ -224,7 +247,7 @@
                 {c.name}
                 {#if c.official}<span class="badge accent">Official</span>{/if}
                 {#if c.multiplayer}<span class="badge">Multiplayer</span>{/if}
-                {#if c.hasCode}<span class="badge" title="This mod runs its own code in the game">Code</span>{/if}
+                {#if c.hasCode}<span class="badge" title="Runs custom code in the game">Code</span>{/if}
               </span>
               <span class="sub">{c.author} · {c.version} · {size(c.size)}{c.games.length === 1 ? ` · ${c.games[0] === "black" ? "Black" : "White"} only` : ""}</span>
               <span class="desc">{c.description}</span>
@@ -232,6 +255,8 @@
             <div class="actions">
               {#if st === "installed"}
                 <span class="badge"><Icon name="check" size={13} />Installed</span>
+              {:else if need !== ""}
+                <span class="unavailable" title={need}><button disabled>Unavailable</button></span>
               {:else}
                 <button class={st === "update" ? "primary" : ""} disabled={running || installing !== null} onclick={() => install(c)}>
                   <Icon name="download" size={15} />{installing === c.id ? "Installing" : st === "update" ? "Update" : "Install"}
@@ -240,20 +265,20 @@
             </div>
           </li>
         {:else}
-          <li class="empty">No mods in the list</li>
+          <li class="empty">No mods available</li>
         {/each}
         {#each catalog.errors as e}
           <li class="empty">{e.entry}: {e.error}</li>
         {/each}
       {:else if loadingCatalog}
-        <li class="empty">Loading the mod list</li>
+        <li class="empty">Loading mod list</li>
       {/if}
     </ul>
   </div>
 </section>
 
 <dialog bind:this={addDialog} class="modal">
-  <h2>Add this mod?</h2>
+  <h2>Add mod?</h2>
   <p class="muted">{adding?.label}</p>
   <div class="buttons">
     <button class="quiet" onclick={() => addDialog?.close()}>Cancel</button>
@@ -263,7 +288,7 @@
 
 <dialog bind:this={removeDialog} class="modal">
   <h2>Remove {removing?.name}?</h2>
-  <p class="muted">The mod's folder is deleted from this profile.</p>
+  <p class="muted">Deletes the mod folder from this profile.</p>
   <div class="buttons">
     <button class="quiet" onclick={() => removeDialog?.close()}>Cancel</button>
     <button class="primary danger" onclick={confirmRemove}>Remove</button>
@@ -295,10 +320,32 @@
     gap: 0.4rem;
     flex-wrap: wrap;
   }
+  /* The hover is the wrapper's: a disabled button shows no title of its own. */
+  .unavailable {
+    display: inline-flex;
+  }
+  .unavailable button {
+    pointer-events: none;
+  }
   .desc {
     color: var(--muted);
     font-size: 0.85rem;
     line-height: 1.35;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+  }
+  /* every catalog row reads from its top: the icon, the title and the
+     button on one line, whatever the description's length */
+  li.catalog {
+    align-items: flex-start;
+  }
+  li.catalog .actions :global(button),
+  li.catalog .actions .badge {
+    min-width: 6.5rem;
+    justify-content: center;
   }
   .switch {
     position: relative;

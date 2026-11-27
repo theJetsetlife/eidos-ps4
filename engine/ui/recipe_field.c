@@ -143,6 +143,43 @@ static int field_now(FieldNow *f)
     return 1;
 }
 
+/*
+ * The C-Gear switched on for the first time (the scientist's scene in
+ * Striaton): the game opens it in its intro (C_GEAR_Open with introMode,
+ * ov029 c_gear.c), whose steps C_GEAR_StepOpen and then C_GEAR_StepIntroEnd
+ * play its start-up on the lower screen (the board lights up, the GEAR
+ * logo, the tiles) before it rests in C_GEAR_StepIdle.  On a DS the player
+ * watches that screen while the music gives way to its sound.  The
+ * one-screen field has no lower screen: the top bar comes down and its
+ * C-Gear sheet unfolds and lights up instead (cgear_intro_sheet) until the
+ * intro ends.  The intro's IntroEnd only: the same step closes a power
+ * change (C_GEAR_StepClose), which a dropped link can start in the middle
+ * of play, and that stays as it was.
+ */
+extern void ov029_C_GEAR_StepOpen(void) WEAK;
+extern void ov029_C_GEAR_StepIntroEnd(void) WEAK;
+
+static int cgear_intro(const FieldNow *f)
+{
+    static int in_intro;
+    const void *step;
+
+    if (f->mode != 0 || f->panel == NULL || ov029_C_GEAR_StepOpen == NULL || !bw_overlay_is_loaded(29)) {
+        in_intro = 0;
+        return 0;
+    }
+    step = rdp(f->panel);               /* CGearWork.stepFunc (0x000) */
+    if (step == (const void *)ov029_C_GEAR_StepOpen) {
+        in_intro = 1;
+    } else if (step != (const void *)ov029_C_GEAR_StepIntroEnd) {
+        in_intro = 0;                   /* (at rest, or another step) */
+    }
+    return in_intro;
+}
+
+/* The bar shows the start-up now (cgear_intro_sheet, further down). */
+static int intro_showing(void);
+
 /* ------------------------------------------------------------------ */
 /* The game's text                                                     */
 /* ------------------------------------------------------------------ */
@@ -192,10 +229,23 @@ static int g_msg_arc_state;
 
 static const MsgCache *msg_file(u32 member)
 {
+    static u32 gen;
     int i, free_slot = -1;
     long n;
     u8 *buf;
 
+    if (gen != eidos_ui_data_generation()) {
+        /* another game's data: its own text, from its own archive */
+        gen = eidos_ui_data_generation();
+        for (i = 0; i < MSG_FILES; i++) {
+            free(g_msgs[i].raw);
+        }
+        memset(g_msgs, 0, sizeof g_msgs);
+        if (g_msg_arc_state == 1) {
+            bw_arc_close(&g_msg_arc);
+        }
+        g_msg_arc_state = 0;
+    }
     for (i = 0; i < MSG_FILES; i++) {
         if (g_msgs[i].tried && g_msgs[i].member == member) {
             return g_msgs[i].raw != NULL ? &g_msgs[i] : NULL;
@@ -1259,8 +1309,10 @@ static int field_match(void)
         u8 *list, *win;
 
         logf_scene("field");
-        /* the game's text at the game's own size */
-        if (ui_textbox_field_active(f.fm) || choices_now(&f, &list, &win) || item_show_active()) {
+        /* the game's text at the game's own size (not while the C-Gear's
+         * start-up shows on the bar: the bar keeps its size until it goes) */
+        if (!intro_showing() && (ui_textbox_field_active(f.fm) || choices_now(&f, &list, &win)
+                                 || item_show_active())) {
             eidos_ui_want_ds_scale();
         }
         return 1;
@@ -2212,9 +2264,11 @@ static int lower_sheet(EidosUiCtx *c, const EidosUiFrame *in, int cw, int ch,
  * button taps that channel's hexagon on the game's C-Gear, so the game
  * opens the app it opens for a stylus (the Wireless app then takes the
  * window, lower-only).  IR is greyed out and takes no click: eidos has no
- * infrared link yet.  Returns 1 to close, 2 for the whole C-Gear.
+ * infrared link yet.  `on` has a bit per channel (IR, ONLINE, WIRELESS)
+ * that says On rather than Off.  Returns 1 to close, 2 for the whole C-Gear.
  */
 static int g_cgear_btn_x = -1;     /* the top bar's C-GEAR button's left edge, as last drawn */
+static int g_cgear_drop_bottom;    /* the row under the drop, as last drawn (each style's own height) */
 
 static int cgear_drop(EidosUiCtx *c, const EidosUiFrame *in, int cw, int top,
                       int wireless_lit, int online_lit, int on)
@@ -2238,6 +2292,7 @@ static int cgear_drop(EidosUiCtx *c, const EidosUiFrame *in, int cw, int top,
     lit[0] = 0;
     lit[1] = online_lit;
     lit[2] = wireless_lit;
+    g_cgear_drop_bottom = 0;
     if (ui_theme_active_has_frame() && g_cgear_btn_x >= 0) {
         /* a theme's own sheet: a list of four rows from the C-GEAR button */
         int fx = g_cgear_btn_x, fy = top, fw = 4, fh = small_button_w("C-GEAR", NULL);
@@ -2255,6 +2310,9 @@ static int cgear_drop(EidosUiCtx *c, const EidosUiFrame *in, int cw, int top,
                 r.y = ry;
                 r.w = rw;
                 r.h = rh;
+                if (ry + rh + 2 > g_cgear_drop_bottom) {
+                    g_cgear_drop_bottom = ry + rh + 2;
+                }
                 int own_mark;
 
                 st = ir ? 0 : eidos_ui_hit(r);
@@ -2270,7 +2328,7 @@ static int cgear_drop(EidosUiCtx *c, const EidosUiFrame *in, int cw, int top,
                 }
                 if (i < 3) {
                     u32 col = ch[i].colour;
-                    const char *status = ir ? "Not available" : on ? "On" : "Off";
+                    const char *status = ir ? "Not available" : ((on >> i) & 1) ? "On" : "Off";
 
                     for (k = 2; !own_mark && k < rh - 6; k++) {      /* the channel's colour, along the row's slant */
                         ui_fill(c, tx - 7 + k * slant / 16, ty + k, 3, 1, UI_RAW(col), ir ? 90 : lit[i] ? 255 : 150);
@@ -2315,6 +2373,12 @@ static int cgear_drop(EidosUiCtx *c, const EidosUiFrame *in, int cw, int top,
         fw = w;
         fh = h;
         themed = ui_app_window(c, "sheet", &fx, &fy, &fw, &fh);
+        if (themed && fy + fh + 2 > g_cgear_drop_bottom) {
+            g_cgear_drop_bottom = fy + fh + 2;
+        }
+    }
+    if (y0 + h + 2 > g_cgear_drop_bottom) {
+        g_cgear_drop_bottom = y0 + h + 2;
     }
     if (x0 < 2) {
         x0 = 2;
@@ -2329,7 +2393,7 @@ static int cgear_drop(EidosUiCtx *c, const EidosUiFrame *in, int cw, int top,
         /* IR is greyed out: eidos has no infrared link yet */
         int ir = i == 0, st = ir ? 0 : eidos_ui_hit(r);
         u32 col = ch[i].colour;
-        const char *status = ir ? "Not available" : on ? "On" : "Off";
+        const char *status = ir ? "Not available" : ((on >> i) & 1) ? "On" : "Off";
 
         if (themed) {
             /* the theme's tile; the channel's own colour as a strip at its
@@ -2377,6 +2441,80 @@ static int cgear_drop(EidosUiCtx *c, const EidosUiFrame *in, int cw, int top,
         }
     }
     return res;
+}
+
+/*
+ * The C-Gear's first start-up (cgear_intro) in the one-screen field: the
+ * bar's C-Gear sheet unfolds from the bar, then the channels light one
+ * after the other (ONLINE, then WIRELESS; IR stays unavailable) with a
+ * flash along the bar's edge; it stays a moment and folds back into the
+ * bar, and the bar goes as in any scene, while the game's own start-up
+ * runs on.  A text box coming up folds it at once: the interface keeps its
+ * size while the sheet shows (field_match), and the game's text takes the
+ * game's size only when the bar is gone.  It takes no clicks.
+ */
+#define INTRO_UNFOLD 12             /* frames to unfold, and to fold back */
+#define INTRO_ONLINE 18             /* the frame ONLINE lights            */
+#define INTRO_WIRELESS 28           /* and WIRELESS                       */
+#define INTRO_HOLD 90               /* frames it stays after WIRELESS lit */
+
+static int g_intro_t = -1;          /* frames into the start-up, -1: none */
+static int g_intro_shown;           /* frames the sheet has shown (it starts
+                                     * once the bar is down)              */
+static int g_intro_fold;            /* frames of folding left             */
+static int g_intro_done;            /* it has folded: not again this start-up */
+
+static int intro_showing(void)
+{
+    return (g_intro_t >= 0 && !g_intro_done) || g_intro_fold > 0;
+}
+
+static void cgear_intro_sheet(EidosUiCtx *c, const EidosUiFrame *in, int cw, int bh)
+{
+    EidosUiRect saved;
+    int t, open, glow = 0, k, online, wireless;
+
+    if (g_intro_fold == 0 && (g_intro_shown >= INTRO_WIRELESS + INTRO_HOLD || g_text_up)) {
+        g_intro_fold = INTRO_UNFOLD;        /* its moment is over: it folds */
+        g_intro_done = 1;
+    }
+    t = g_intro_fold > 0 ? INTRO_WIRELESS + INTRO_HOLD : g_intro_shown++;
+    online = t >= INTRO_ONLINE;
+    wireless = t >= INTRO_WIRELESS;
+
+    {
+        /* the style's own sheet's height (as drawn on the frame before;
+         * the whole screen on the first) */
+        int reach = g_cgear_drop_bottom > bh ? g_cgear_drop_bottom - bh : c->canvas->h - bh;
+
+        open = g_intro_fold > 0 ? g_intro_fold * reach / INTRO_UNFOLD
+               : t < INTRO_UNFOLD ? (t + 1) * reach / INTRO_UNFOLD : c->canvas->h - bh;
+    }
+    ui_push(c, 0, 0, &saved);
+    ui_clip(c, 0, bh, cw, open);
+    (void)cgear_drop(c, in, cw, bh, wireless, online, (online << 1) | (wireless << 2));
+    ui_pop(c, 0, 0, &saved);
+    /* the glow along the bar's edge: a flash as each channel lights, then a
+     * slow breath (about two seconds) while the C-Gear starts */
+    for (k = 0; k < 2; k++) {
+        int at = k == 0 ? INTRO_ONLINE : INTRO_WIRELESS;
+
+        if (t >= at && t < at + 12) {
+            int a = 255 - (t - at) * 16;
+
+            glow = a > glow ? a : glow;
+        }
+    }
+    if (wireless && g_intro_fold == 0) {
+        int ph = (t - INTRO_WIRELESS) % 120;
+        int tri = ph < 60 ? ph : 120 - ph;      /* 0..60..0 */
+
+        glow = glow > 70 + tri * 2 ? glow : 70 + tri * 2;
+    }
+    if (glow > 0) {
+        ui_fill(c, 0, bh, cw, 1, UI_CYAN, glow);
+        ui_fill(c, 0, bh + 1, cw, 1, UI_CYAN, glow / 3);
+    }
 }
 
 static void battery(EidosUiCtx *c, int x, int y)
@@ -2588,6 +2726,38 @@ static void field_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
     if (g_show_cgear && f.mode != 0 && f.mode != 8) {
         g_show_cgear = 0;                   /* no C-Gear panel here         */
     }
+    /* the C-Gear's first start-up: the bar's sheet shows it */
+    if (cgear_intro(&f)) {
+        if (g_intro_t < 0) {
+            g_intro_t = 0;
+            g_intro_shown = 0;
+            g_intro_fold = 0;
+            g_intro_done = 0;
+            g_show_cgear = 0;               /* the sheet is the start-up's  */
+            g_show_tracker = 0;
+        } else {
+            g_intro_t++;
+        }
+    } else if (g_intro_t >= 0) {
+        g_intro_t = -1;
+        if (!g_intro_done) {
+            g_intro_fold = INTRO_UNFOLD;    /* it folds back into the bar   */
+            g_intro_done = 1;
+        }
+    }
+    if (g_intro_t >= 0 && g_intro_done && f.panel != NULL && rdp(f.panel) == (const void *)ov029_C_GEAR_StepOpen) {
+        /* Our sheet has shown the start-up and folded; the game's own goes on
+         * some six seconds on the lower screen, which this view has not, and
+         * the scientist waits for it.  It is ended now by the game's own short
+         * way (C_GEAR_StepOpen's phase 7, the way it takes when it finds a GBA
+         * cartridge: the splash goes, the board flashes and settles, the intro
+         * ends): CGearWork.phase at 0x455, once the splash is up (phase 1). */
+        u8 phase = f.panel[0x455];
+
+        if (phase >= 1 && phase <= 5) {
+            f.panel[0x455] = 7;
+        }
+    }
 
     {
         /* EIDOS_UI_FIELD_TRACKER=<frame>: the Tracker button is clicked at
@@ -2677,6 +2847,9 @@ static void field_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
      * the bar is simply there, fading in with the menu fading out. */
     if (in->frame - g_menu_last_frame <= 90u || g_shortcut_open || shortcut_event(&f)) {
         g_bar_slide = 0;                /* the shortcut list hangs from the bar */
+    } else if (intro_showing()) {
+        /* the C-Gear's start-up comes down from the bar, scene or not */
+        g_bar_slide = g_bar_slide > 3 ? g_bar_slide - 3 : 0;
     } else if (choosing || g_text_up || (GAMESYSTEM_IsEventActive != NULL
                                                && GAMESYSTEM_IsEventActive(f.gs) != 0)) {
         /* a list or a text box (the Union Room's talks run with no
@@ -2912,10 +3085,17 @@ static void field_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
         }
         return;                             /* the bar's clicks wait        */
     }
+    if (intro_showing()) {
+        cgear_intro_sheet(c, in, cw, bh);
+        if (g_intro_fold > 0) {
+            g_intro_fold--;
+        }
+        return;                             /* no clicks while it shows     */
+    }
     if (g_show_cgear == 1) {
         static u32 prev_b;
         int b = (in->buttons & BW_KEY_B) != 0;
-        int what = cgear_drop(c, in, cw, bh, comm, comm && last_cmd == 5, comm);
+        int what = cgear_drop(c, in, cw, bh, comm, comm && last_cmd == 5, comm ? 7 : 0);
 
         if (what == 1 || right_click(in) || (b && !prev_b)) {
             g_show_cgear = 0;
@@ -2937,6 +3117,9 @@ static void field_reset(void)
 {
     g_show_cgear = 0;
     g_show_tracker = 0;
+    g_intro_t = -1;
+    g_intro_fold = 0;
+    g_intro_done = 0;
     g_bar_slide = BAR_HIDDEN;
     g_stick.on = 0;
 }
@@ -3010,6 +3193,14 @@ static void lower_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
             return;
         }
     }
+    if (f.mode == 6 && GAMESYSTEM_GetEvent != NULL && GAMESYSTEM_GetEvent(f.gs) != NULL) {
+        /* the Dowsing Machine while the game runs an event (a talk, a
+         * cutscene, a found item's message): the card steps aside until
+         * the player walks again, as the Union Room's does during a talk.
+         * On the DS it is on the other screen; here it lay over the scene
+         * (#50: a cutscene played under it) */
+        return;
+    }
     own = plain_field() ? 0 : (f.mode == 2 && union_card(c, in, &f)) || (f.mode == 3 && entralink_card(c, in))
           || (f.mode == 9 && power_card(c, &f)) || (f.mode == 6 && dowsing_card(c, in));
     if (own && f.mode == 9) {
@@ -3054,26 +3245,39 @@ static void lower_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
  */
 static int dowsing_card(EidosUiCtx *c, const EidosUiFrame *in)
 {
-    const int sx = 17, sy = 30, w = 222, h = 130, head = 16;
+    /* (sx and the sizes even: the half-size picture takes whole 2 x 2
+     * blocks, and the grid's lines, every 8 pixels, stay in step) */
+    const int sx = 16, sy = 30, w = 224, h = 130;
     const int tab_x = 108, tab_y = 155, tab_w = 40, grid_x = 20, grid_y = 35;
-    int cw = c->canvas->w, x, y, bx;
+    static u8 *pic;                 /* the rods without the frame's tip, a whole screen's size */
+    int cw = c->canvas->w, x, y, yy;
+    EidosUiRect r;
 
-    if (in->screen_rgba[1] == NULL || cw < w + 16) {
+    if (in->screen_rgba[1] == NULL || cw < w / 2 + 16) {
         return 0;
     }
-    x = cw - w - 10;
-    y = 16 + 6;
-    ui_panel(c, x - 4, y - 2, w + 8, head + h + 6, UI_CUT_TL | UI_CUT_BR, 5, UI_BODY, UI_EDGE, 240);
-    ui_text(c, x + 4, y + ui_text_y(head, UI_FONT_SMALL), "DOWSING MCHN", UI_WHITE, UI_EDGE,
-            UI_FONT_SMALL, 1);
-    bx = x + w;
-    if (small_button(c, &bx, y, "Close", head - 2, NULL) & EIDOS_UI_CLICK) {
+    if (pic == NULL && (pic = (u8 *)malloc((size_t)256 * 192 * 4)) == NULL) {
+        return 0;
+    }
+    memcpy(pic, in->screen_rgba[1], (size_t)256 * 192 * 4);
+    for (yy = tab_y; yy < sy + h; yy++) {
+        memcpy(pic + ((size_t)yy * 256 + tab_x) * 4,
+               in->screen_rgba[1] + ((size_t)(grid_y + (yy - tab_y)) * 256 + grid_x) * 4, (size_t)tab_w * 4);
+    }
+    /* small, at the top right under the bar: the rods at half size in a thin
+     * frame, no title and no button of its own (the bar's Close stays; a
+     * click on the card closes it too).  It was a 230 x 152 card with a
+     * title: 15 to 27 % of the window, and it covered the player in a
+     * narrow window (#50) */
+    x = cw - w / 2 - 6 - c->safe_r;
+    y = 16 + 28;                    /* under the fast-forward badge's place (ui.c speed_badge; its frame ends at 40) */
+    ui_fill(c, x - 2, y - 2, w / 2 + 4, h / 2 + 4, UI_EDGE, 255);
+    ui_fill(c, x - 1, y - 1, w / 2 + 2, h / 2 + 2, UI_INK, 255);
+    ui_blit_screen_half(c, x, y, pic, sx, sy, w, h);
+    r.x = x - 2; r.y = y - 2; r.w = w / 2 + 4; r.h = h / 2 + 4;
+    if (eidos_ui_hit(r) & EIDOS_UI_CLICK) {
         eidos_ui_tap(0xF0, 0xB0, 3);
     }
-    ui_fill(c, x - 1, y + head - 1, w + 2, h + 2, UI_INK, 255);
-    ui_blit_screen(c, x, y + head, in->screen_rgba[1], sx, sy, w, h, 1, 0);
-    ui_blit_screen(c, x + tab_x - sx, y + head + tab_y - sy, in->screen_rgba[1], grid_x, grid_y, tab_w,
-                   sy + h - tab_y, 1, 0);
     return 1;
 }
 

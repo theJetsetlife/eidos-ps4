@@ -263,10 +263,23 @@ static int g_msg_n;
 
 static const MsgCache *msg_bank(int bank)
 {
+    static u32 gen;
     int i;
     long n;
     u8 *buf;
 
+    if (gen != eidos_ui_data_generation()) {
+        /* another game's data: its own text, from its own archive */
+        gen = eidos_ui_data_generation();
+        for (i = 0; i < g_msg_n; i++) {
+            free(g_msg[i].data);
+        }
+        g_msg_n = 0;
+        if (g_msg_arc_state == 1) {
+            bw_arc_close(&g_msg_arc);
+        }
+        g_msg_arc_state = 0;
+    }
     for (i = 0; i < g_msg_n; i++) {
         if (g_msg[i].bank == bank) {
             return g_msg[i].data != NULL ? &g_msg[i] : NULL;
@@ -640,18 +653,33 @@ static int party_match(void)
     /* The plain list, the use-an-item list and the give-an-item list; the
      * list that teaches a move, the battle order list and the like keep
      * the DS screens. */
-    if (v.mode != 0 && v.mode != 1 && v.mode != 5 && v.mode != 6 && v.mode != 8 && v.mode != 9 && v.mode != 16
-        && v.mode != 21 && v.mode != 22 && v.mode != 23 && rds32(v.work, PL_RESTORE18) == 0) {
+    if (v.mode != 0 && v.mode != 1 && v.mode != 5 && v.mode != 6 && v.mode != 7 && v.mode != 8 && v.mode != 9
+        && v.mode != 16
+        && v.mode != 21 && v.mode != 22 && v.mode != 23 && v.mode != 25 && rds32(v.work, PL_RESTORE18) == 0) {
+        /* a mode with no screen here (POKELIST_StartMode has 3, 10 to 12,
+         * 14 and 18 besides; giving an item from the party's menu and
+         * from the Bag was tried and showed none of them): named in the log
+         * once, the two screens show */
+        static u32 told;
+
+        if (v.mode >= 0 && v.mode < 32 && (told & (1u << v.mode)) == 0) {
+            told |= 1u << v.mode;
+            fprintf(stderr, "eidos: one screen: the party list's mode %d has no screen: the two screens show\n", v.mode);
+        }
         return 0;
     }
-    /* mode 8: the list back from the summary's "forget a move" after an
-     * item taught one (a Rare Candy's level), with the game's message
+    /* modes 7 and 8: the list back from the summary's "forget a move"
+     * after a TM (7; #50: it was not taken, so the list's messages after
+     * the move screen showed on the two screens) or another item (8: a
+     * Rare Candy's level) taught one, with the game's message
      * ("... did not learn ...", "... forgot ..."); PL_RESTORE18 the same
      * on the way through mode 3; modes 22 and 23: the Pokemon a battle
      * facility enters (the Battle Subway), with CONFIRM and CANCEL;
      * mode 1: the Pokemon a link battle enters (the Union Room's
      * Colosseum), with CONFIRM alone;
      * mode 21: the Egg the Spin Trade takes (no back button);
+     * mode 25: the Pokemon a script takes with CONFIRM, SUMMARY and QUIT
+     * (the Musical's dress-up; #50's log line named it);
      * mode 9: the Pokemon the Bag gives an item to (pokelist.c: the
      * prompt is message 0xC, "Give to which Pokemon?");
      * mode 6: the Pokemon a TM or a tutor teaches (message 0xE), each with
@@ -709,7 +737,7 @@ static void party_prompt(const PartyView *v, void *sel_mon, char *out, int cap)
         if (v->mode == 21) {
             idx = 0xA2;                 /* What will you do with the Egg? */
         } else if (first == 0 || first == 3 || first == 6 || (first >= 16 && first <= 19)
-            || v->mode == 1 || v->mode == 22 || v->mode == 23) {
+            || v->mode == 1 || v->mode == 22 || v->mode == 23 || v->mode == 25) {
             idx = 18;
         } else {
             idx = 19;
@@ -1183,10 +1211,18 @@ static void party_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
                 eidos_ui_press(BW_KEY_A, 3);
             }
         }
-        if (stream_msg && bh >= 40) {
+        if (stream_msg && bh >= 30) {
+            /* the game's two lines need the 40 rows up from the place's
+             * foot.  A style's own message place may be lower (Plasma's
+             * band 38, Harmonia's box 32): the message's box then rises
+             * over its top, into the band's own margin and the gap under
+             * the plates (#50: at 40 rows and up only, so those two styles
+             * showed no message at all: an item's effect, a move's question
+             * had no words) */
+            int mh3 = 40;
             EidosUiRect rr;
 
-            rr.x = msx; rr.y = msb - 40; rr.w = msgw; rr.h = 40;
+            rr.x = msx; rr.y = msb - mh3; rr.w = msgw; rr.h = mh3;
             if (game_message(c, 0xFFFFFFFFu, rr.x, rr.y, rr.w, rr.h) && msg_open
                 && (eidos_ui_hit(rr) & EIDOS_UI_CLICK)) {
                 eidos_ui_press(BW_KEY_A, 3);
@@ -2053,8 +2089,20 @@ static void draw_ribbon_page(EidosUiCtx *c, const SummaryView *s, int x, int y, 
  * move is picked, B gives the new move up, as on the DS. */
 #define SK_PICKING     0x18
 #define SK_CONFIRMED   0x20
+/* The game would not let a move go (P_STA_SKILL_ShowCantForgetMsg: the move
+ * under the cursor is an HM move) and put its text 156 of the summary's
+ * bank, "HM moves can't be forgotten now.", in the place of the move's
+ * description; it prints the description again when the cursor moves.  The
+ * game's function tells the port each time it runs
+ * (stubs/ov/patch_ov131_p_sta_skill.c, sdk/ui_text.c): its own sign,
+ * PStaSkillWork.msgPrintPending, is gone a frame or two later, before this
+ * page is sure to have drawn. */
+#define MSG_CANT_FORGET 156
+extern u32 bw_ui_forget_refusal(u32 *serial) BW_WEAK;
 
 static int g_forget_next = -1;  /* a move to pick once the picked one is put back */
+static int g_forget_refused = -1;   /* the slot whose refusal shows in the description's place; -1 none */
+static u32 g_forget_refusal_seen;   /* the refusals counted so far */
 static int g_forget_steps;      /* cursor steps still to press: + down, - up */
 static u32 g_forget_step_frame;
 
@@ -2091,6 +2139,21 @@ static void forget_view(EidosUiCtx *c, const SummaryView *s, int mx, int my, int
 
     if (held > 3) {
         picking = 0;
+    }
+    /* the game refused the move under its cursor: its sentence shows where
+     * the description is, until another move is looked at */
+    if (bw_ui_forget_refusal != NULL) {
+        u32 serial = 0;
+        u32 result = bw_ui_forget_refusal(&serial);
+
+        if (serial != g_forget_refusal_seen) {
+            g_forget_refusal_seen = serial;
+            /* (the game prints its text for result 1 only) */
+            g_forget_refused = result == 1 && s->cursor < 4 ? s->cursor : -1;
+        }
+    }
+    if (picking || busy) {
+        g_forget_refused = -1;
     }
     if (!picking && !busy) {
         u32 keys;
@@ -2187,6 +2250,9 @@ static void forget_view(EidosUiCtx *c, const SummaryView *s, int mx, int my, int
     /* the details: the move under the pointer, else the picked one, else
      * the one under the game's cursor */
     shown = hov >= 0 ? hov : picking ? held : (s->cursor < 5 ? s->cursor : 4);
+    if (shown != g_forget_refused) {
+        g_forget_refused = -1;
+    }
     {
         u32 mv = shown < 4 ? pv(s->mon, P_MOVE1 + (u32)shown) : newmove;
         int dy = iy + 34 + 3 * 26, dh = nav_y - 4 - 4 - dy;
@@ -2213,9 +2279,15 @@ static void forget_view(EidosUiCtx *c, const SummaryView *s, int mx, int my, int
             }
             ui_text(c, ix + iw - 14 - ui_text_w(info, UI_FONT_SMALL), dy + 3 + ui_text_y(11, UI_FONT_SMALL),
                     info, UI_WHITE, UI_EDGE, UI_FONT_SMALL, 1);
-            (void)msg_text(BANK_MOVE_DESC, mv, d, (int)sizeof d, 0);
-            draw_wrapped(c, ix + 13, dy + 16, iw - 26, 10, (dh - 17) / 10, d, UI_FONT_SMALL, UI_LIGHT,
-                         UI_EDGE);
+            if (g_forget_refused == shown && msg_text(BANK_SUMMARY, MSG_CANT_FORGET, d, (int)sizeof d, 0) != NULL
+                && d[0] != '\0') {
+                draw_wrapped(c, ix + 13, dy + 16, iw - 26, 10, (dh - 17) / 10, d, UI_FONT_SMALL, UI_WHITE,
+                             UI_EDGE);
+            } else {
+                (void)msg_text(BANK_MOVE_DESC, mv, d, (int)sizeof d, 0);
+                draw_wrapped(c, ix + 13, dy + 16, iw - 26, 10, (dh - 17) / 10, d, UI_FONT_SMALL, UI_LIGHT,
+                             UI_EDGE);
+            }
         }
     }
     /* FORGET while a move is picked; BACK puts it back, or GIVE UP gives
@@ -2449,6 +2521,10 @@ static void summary_reset(void)
     g_move_hover = -1;
     g_forget_next = -1;
     g_forget_steps = 0;
+    g_forget_refused = -1;
+    if (bw_ui_forget_refusal != NULL) {
+        (void)bw_ui_forget_refusal(&g_forget_refusal_seen);     /* a refusal of an earlier visit is not this one's */
+    }
 }
 
 static const EidosUiRecipe recipe_summary = {

@@ -156,22 +156,31 @@ static void test_host(void)
     BW_CHECK_EQ("nobody to start with", bw_mp_start(), -1);
     BW_CHECK_EQ("and it says so",
                 strcmp(bw_mp_start_blocker(), "nobody has joined"), 0);
+    BW_CHECK_EQ("and its kind", bw_mp_start_blocker_kind(), BW_MP_BLOCK_NOBODY);
 
     sent_reset();
     bw_mp_on_net(2, (int)BW_SESSION_JOIN, NULL, 0);
     BW_CHECK_EQ("a join sends the roster", sent_has("roster lobby"), 1);
     BW_CHECK_EQ("the lobby has two players", (long)bw_mp_player_count(), 2);
     BW_CHECK_EQ("no start before the player's game answers", bw_mp_start(), -1);
+    BW_CHECK_EQ("the reason: no answer yet", bw_mp_start_blocker_kind(), BW_MP_BLOCK_NO_ANSWER);
     hello(2, "W soul=1");
     BW_CHECK_EQ("another multiplayer version blocks the start",
                 bw_mp_start(), -1);
     BW_CHECK_EQ("and the lobby names it",
                 strstr(bw_mp_start_blocker(), "soul") != NULL, 1);
+    BW_CHECK_EQ("the reason: the mods", bw_mp_start_blocker_kind(), BW_MP_BLOCK_MODS);
     hello_as(2, "W soul=2", NULL, 0, "9.9.9");
     BW_CHECK_EQ("another eidos version blocks the start", bw_mp_start(), -1);
     BW_CHECK_EQ("and the lobby names it",
                 strstr(bw_mp_start_blocker(), "eidos 9.9.9") != NULL, 1);
+    BW_CHECK_EQ("the reason: the version", bw_mp_start_blocker_kind(), BW_MP_BLOCK_VERSION);
     hello(2, "W soul=2");
+    /* a ready lobby: the reason is an empty text (never NULL), which is what a screen
+     * lights its Start button by */
+    BW_CHECK_EQ("ready: a reason is still a text", bw_mp_start_blocker() != NULL, 1);
+    BW_CHECK_EQ("ready: the reason is empty", (long)strlen(bw_mp_start_blocker()), 0);
+    BW_CHECK_EQ("ready: no kind", bw_mp_start_blocker_kind(), BW_MP_BLOCK_NONE);
     sent_reset();
     BW_CHECK_EQ("the host starts", bw_mp_start(), 0);
     BW_CHECK_EQ("the game runs", (long)bw_mp_state(), (long)BW_MP_PLAYING);
@@ -501,7 +510,7 @@ static void test_saves(void)
  * a taken name gets a number. */
 static void test_games(void)
 {
-    char names[BW_MP_GAMES_MAX][BW_MP_GAME_NAME_MAX];
+    char names[32][BW_MP_GAME_NAME_MAX];
     char made[BW_MP_GAME_NAME_MAX];
     int n, i, a = 0, b = 0;
 
@@ -527,7 +536,7 @@ static void test_games(void)
     BW_CHECK_EQ("chosen", strcmp(bw_mp_game(), made), 0);
     BW_CHECK_EQ("the same name again", bw_mp_game_create("Tour1", made, sizeof made), 0);
     BW_CHECK_EQ("gets a number", strncmp(made, "Tour1 ", 6), 0);
-    n = bw_mp_game_list(names, BW_MP_GAMES_MAX);
+    n = bw_mp_game_list(names, 32);
     for (i = 0; i < n; i++) {
         a |= strcmp(names[i], "Tour1") == 0;
         b |= strcmp(names[i], made) == 0;

@@ -598,8 +598,9 @@ yaml arkh.dex dexsanity 0|25|50
 option nuz.lives    int    "Lives"   0 10 3                        @lobby
 ```
 
-- `text`: a short text, `<longest> "<default>"` (the game's keyboard takes
-  at most 10 characters). It holds no `"`. The mod reads it with
+- `text`: a short text, `<longest> "<default>"` (the one-screen
+  interface's keyboard takes up to 64 characters, the classic layout's,
+  the game's own, at most 10). It holds no `"`. The mod reads it with
   `setting_text(key, out, size)` (its length, or -1).
 - `mode <id> "<title>" "<line>" [off] [joins] [in=<mode>] [export "<game>"]`:
   a way to play the mod offers. The Multiplayer screen shows it as a card
@@ -868,7 +869,7 @@ int (*game_code)(char *out, u32 size);
   loaded. The script's own works (0x8000 to 0x80FF) only while a field
   script runs a command, so from a `flag.set` handler (the flag is set by a
   command of the script) or a script command handler; else -1. Rules read
-  and write them as `state.work[id]`.
+  and write them as `work[id]`.
 - `badge_set` gives a badge (0 to 7) through the game's own call, so
   `badge.get` fires as for a badge won in a gym.
 - `game_code` copies the cartridge's 4-letter game code (`IRBO` English
@@ -1012,6 +1013,215 @@ int (*townmap_marker_clear)(u32 id);
 - The Town Map markers are kept by the port (32, by id) for the drawing
   sides to read (`bw_mod_townmap_marker_at`). Drawing them on the game's
   Town Map (ov072) and on the one-screen Town Map is still to be built.
+
+## Version 7: the National Pokedex and Wonder Cards
+
+Three calls at the end of the state table. Nothing moved, so version 3 to
+6 mods load as before. Both are for content mods that give the player
+something the cartridge gave by an event or late in the story.
+
+```c
+s32 (*national_dex)(void);
+int (*national_dex_set)(void);
+s32 (*mystery_card_add)(const void *pgf, u32 size);
+```
+
+- `national_dex` answers 1 when the Pokedex has its National mode, 0 when
+  not, and a negative number with no game loaded.
+- `national_dex_set` turns the mode on through the game's own call
+  (`ZUKAN_SAVE_EnableNationalDex`, all that the game's script command
+  does). The game has no call that turns it off, so the port has none. 0,
+  or -1 with no game loaded. Rules read and write `national_dex`; a rule
+  can write 1 only.
+- `mystery_card_add` puts a Wonder Card in the Mystery Gift album. `pgf` is
+  the card as the game stores it, the 204 bytes of a `.pgf` file. The port
+  does what the game's Mystery Gift screen does when it receives a card:
+  it dates the card today, puts it in the first free album slot
+  (`MYSTERY_DATA_AddCard`) and sets the save's flag of the card's id
+  (`MYSTERY_DATA_SetEventFlag`). The delivery man in a Pokemon Centre then
+  hands the gift over, as for any card. The card's "gift handed over" bit
+  is cleared first, so a card file taken out of a save works.
+- The call is once per save, so a mod can make it each time a game loads
+  (`save.load`, `game.new`). It answers:
+
+  | Answer | Meaning |
+  |---|---|
+  | 0 to 11 | the album slot the card went to |
+  | -1 | not a card (the size is not 204, the gift type is not 1 to 3, the card id is past 2047), or no game is loaded |
+  | -2 | the save received a card of this id before (its flag is set), or the album holds one; nothing changes |
+  | -3 | the album is full (12 cards) |
+
+- The game itself refuses a second card only when the card says "once".
+  The port's call is stricter on purpose: a card the player deleted from
+  the album after its gift does not come back at the next load.
+- The save is not written by the call. The card is in the save the next
+  time the player saves.
+- Rule mods use the `gift` action (`docs/mod-rules-language.md`): it names
+  a card file of the mod.
+
+Code: `sdk/mod_v7.c`.
+
+## Version 7: the web, the clock, the game's hash and the pop-up
+
+Six calls at the end of the services table and one event, for online mods
+(the RetroAchievements mod is the first). Nothing moved, so version 3 to 6
+mods load as before.
+
+```c
+int  (*web_request)(const char *url, const void *body, u32 body_size,
+                    const char *content_type, u32 *ticket);
+int  (*web_read)(void *out, u32 size);
+s64  (*time_utc)(void);
+u64  (*ticks_ms)(void);
+int  (*game_hash)(u32 kind, char *out, u32 size);
+int  (*popup)(const char *title, const char *text, u32 icon);
+```
+
+### Web requests
+
+- `web_request` takes an `https://` address only, with no space or line
+  break, up to 2048 characters. It is a POST when there is a body or a
+  type: `body_size` bytes of `body` with that `Content-Type` (none given:
+  `application/x-www-form-urlencoded`), up to 64 KiB. With `body_size` 0
+  and the type `""` or NULL it is a GET. A wasm mod's null pointer reaches
+  the port as the start of its memory, so the size and the type decide,
+  not the pointer.
+- It answers 0 and sets `*ticket`, or -1 when it refuses: a bad address,
+  a type with a line break, a body too large, or four requests already
+  waiting (all mods together).
+- The request runs beside the game on the HTTPS client the mod manager
+  uses (`sdk/net_https.c`): TLS 1.2 or newer, the server's certificate
+  checked against Mozilla's root list (the roots a browser trusts,
+  `sdk/tls_mozilla_roots.c`) and the port's own, redirects followed (a 301, 302 or 303
+  goes on as a GET, a 307 or 308 sends the body again). The answer is
+  kept up to 4 MiB.
+- The answer comes on a later frame as the event `web` (`BwWeb`):
+  `ticket`, `status` (the HTTP status, or `BW_WEB_FAILED` (-1) when no
+  answer came) and `size`. A server's error answers come with their body
+  like any other.
+- `web_read` works inside the `web` handler of the mod that made the
+  request: it copies up to `size` bytes (the body, or for a failed request
+  a short reason) and answers the whole size. Every other mod's handler
+  sees the event but `web_read` answers -1 there, so an answer (a sign-in
+  token) stays with the mod that asked. After the handlers the bytes are
+  freed.
+
+### The clock
+
+`time_utc` is the seconds since 1970 in UTC; `ticks_ms` a millisecond
+count that only goes up, for timing (it is not a date).
+
+### The game's hash
+
+`game_hash(BW_GAME_HASH_RA, out, size)` writes the RetroAchievements hash
+of the game in force, 32 lower-case hex characters and a 0 (`size` at
+least 33), and answers 32; -1 for an unknown kind or when the game's files
+do not read. It is rcheevos' `rc_hash_nintendo_ds`: an MD5 of the
+header's first 0x160 bytes, the ARM9 and ARM7 code at the sizes the header
+gives and 0xA00 bytes of icon and titles. The port keeps no ROM, but the
+extraction folder keeps those files (`header.bin`, `arm9.bin`, `arm7.bin`,
+`banner.bin`), which give the same hash as the ROM. The hash is made again
+when the run goes to the other version of the game.
+
+### The pop-up
+
+`popup` puts a pop-up in a queue of eight (-1 when eight wait, or when
+both texts are empty). The interface shows the first at the top right
+over every one-screen scene, the title and the text as the style's own
+toast on two lines; it slides in, stays four seconds and slides out, then
+the next comes. Texts are UTF-8, cut at 63 and 159 bytes on a whole
+character. `icon` is `BW_POPUP_NONE`, `_TROPHY`, `_INFO` or `_WARNING`
+(kept for the pictures; none is drawn yet). The two-screen layout shows
+no pop-ups.
+
+### Reading the game's memory
+
+`eidos_read` and the rd/wr calls of the wasm core reach the DS's main RAM
+from 0x02000000. Its first 16 KiB are the DS's extra heap: the game makes
+GFL heap 9 there (and heap 5 inside it while the game system runs), and the
+port now puts that heap where a DS has it (`sdk/os_alloc.c`), so 0x02000034
+(heap 9's child count) reads as on a DS. The data TCM is at 0x02FE0000.
+
+Code: `sdk/mod_web.c`, `sdk/mod_popup.c`, `engine/ui/popup.c`,
+`sdk/mod_v7.c` (the clock and the hash), `sdk/md5.c`. Tests:
+`tests/test_mod_v7_host.c`, `tests/test_https.c`.
+
+## Version 7: a mod's own Settings tabs, passwords and buttons
+
+A mod's settings file (section "Mod settings") takes four more lines, so a
+mod can have whole tabs of its own on the Settings screen, ask for a
+password and offer buttons:
+
+```
+tab "RetroAchievements"
+heading "Sign in"
+option ra.user     text   "User name" 20 "" word   ?ra.who=
+option ra.pass     secret "Password"  64           ?ra.who=
+button ra.signin          "Sign in"                ?ra.who=
+show   ra.who             "Signed in as"
+button ra.signout         "Sign out"               ?ra.who!=
+option ra.hardcore bool   "Hardcore mode" on
+help ra.user "Your RetroAchievements user name."
+```
+
+- `tab "<title>"`: the lines after it, up to the next `tab` line, are a
+  tab of their own on the Settings screen, after the port's own tabs, in
+  the mods' order. The title holds at most 31 characters; a mod has at
+  most 8 tabs. Lines before any `tab` stay under the mod's row in the
+  Mods section, as before. A tab shows while its mod is running.
+- `option <key> secret "<label>" <longest>`: a password. The row shows a
+  dot for each letter. It is kept in memory only: never written to a
+  file, and forgotten when the Settings screen closes. It may hold any
+  printable character, `"` too. It cannot be `@lobby`. The mod reads it
+  with `setting_text`.
+- `button <key> "<label>"`: a row with no value. Choosing it sends the
+  event `setting.button` (`BwSettingButton`: `key`, the button's key).
+  Every mod with a handler sees it, so a mod acts on its own keys only.
+  Rules see the event fire but cannot read the key.
+- `show <key> "<label>"`: a row whose value the mod sets with
+  `setting_show`. It is hidden while its text is "".
+- `text` takes a last word `word`: one word, and the keyboard has no
+  SPACE key.
+- `?key!=value`: a condition that holds while the named option, or show
+  row, does not have that value. `?key=` (nothing after `=`) holds while
+  it is empty, `?key!=` while it is not. `button` and `show` lines take
+  `?` and `@` words as option lines do.
+
+On a mod's tab, the help box shows the option's `help` line. A text or a
+password opens the port's own keyboard in the one-screen interface: the
+game keyboard's look, with up to 64 letters, the UPPER, lower, Symbols and
+qwerty pages, a caret that L and R move, the password as dots until SHOW
+(or Y), and BACK. The header names the option's `heading` (or the tab)
+and the label; the question over the field is its `help` line. In the
+classic two-screen layout the game's own keyboard stays, and it takes at
+most 10 letters.
+
+Three calls at the end of the services table:
+
+```c
+int  (*setting_show)(const char *key, const char *text);
+int  (*setting_set_text)(const char *key, const char *text);
+int  (*hardcore_allowed)(char *why, u32 size);
+```
+
+- `setting_show` sets a `show` row's text: at most 63 bytes, no line
+  break; "" hides the row. 0, or -1 when the calling mod declares no such
+  row.
+- `setting_set_text` sets one of the calling mod's text or secret options.
+  A mod clears a password as soon as it has read it:
+  `setting_set_text("ra.pass", "")`.
+- `hardcore_allowed` answers 1 when nothing in force changes the game but
+  the calling mod. It answers 0, with the reason in `why` (cut to `size`),
+  while another mod is running or a test switch that changes the game is
+  set (`sdk/mod_v7.c` lists them: debug battles, warps, the party, items,
+  moves, the clock, scripted keys, a mod named on the command line). The
+  RetroAchievements mod asks when the game loads; hardcore takes effect
+  at the next game start.
+
+Code: `sdk/mod_menu.c` (the lines, the calls), `engine/platform/settings_ui.c`
+(the tabs and rows), `engine/platform/port_keyboard.c` and
+`engine/ui/recipe_keyboard.c` (the keyboard), `engine/ui/assets.c` (the
+straight quotes and the dot the game's fonts lack).
 
 ## Related documents
 

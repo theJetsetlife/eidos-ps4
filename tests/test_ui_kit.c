@@ -53,6 +53,17 @@ void eidos_ui_press(u32 keys, u32 frames)
     g_pressed |= keys;
 }
 
+void eidos_ui_hint_press(u32 keys)
+{
+    eidos_ui_press(keys, 2);
+}
+
+/* the game data is one game's for the whole test */
+u32 eidos_ui_data_generation(void)
+{
+    return 0;
+}
+
 /* ------------------------------------------------------------------ */
 /* A font built in memory                                              */
 /* ------------------------------------------------------------------ */

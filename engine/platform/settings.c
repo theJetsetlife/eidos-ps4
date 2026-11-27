@@ -30,6 +30,9 @@
 #include "setup.h"
 #include "settings.h"
 #include "ui_lang.h"
+#if defined(__wasm__)
+#include "wasm_host.h"          /* the clipboard's text (bw_host_clipboard_get) */
+#endif
 
 #define NBTN 12
 #define PATH_MAX_LEN BW_SETUP_PATH_MAX
@@ -69,7 +72,7 @@ static const EidosOption k_options[EIDOS_OPT_COUNT] = {
       EIDOS_LAYOUT_VERTICAL, k_arrangements, "", 0, NULL },
     { "Layout", "swap_screens", "Swap screens", EIDOS_OPTKIND_CHOICE, 0, 1, 1,
       0, k_offon, "", 0, NULL },
-    { "Layout", "gap", "Gap between screens", EIDOS_OPTKIND_INT, 0, 128, 1, 0,
+    { "Layout", "gap", "Screen gap", EIDOS_OPTKIND_INT, 0, 128, 1, 0,
       NULL, "px", 0, NULL },
     { "Sound", "volume", "Master volume", EIDOS_OPTKIND_INT, 0, 100, 5, 50,
       NULL, "%", 0, NULL },
@@ -199,6 +202,7 @@ static int g_ovr[EIDOS_OPT_COUNT];       /* set from the command line         */
 static int g_ovr_val[EIDOS_OPT_COUNT];
 static EidosPlatform *g_plat;
 static char g_path[PATH_MAX_LEN + 16];
+static char g_shared[PATH_MAX_LEN + 16];    /* a second file kept the same, "" none */
 static int g_have_path;
 static int g_inited;
 static int g_size_pending;   /* a window resize not yet in the file */
@@ -1335,6 +1339,30 @@ int eidos_settings_clipboard_set(const char *text)
     return SDL_SetClipboardText(text != NULL ? text : "") ? 0 : -1;
 }
 
+int eidos_settings_clipboard_get(char *out, int n)
+{
+    if (out == NULL || n <= 0) {
+        return -1;
+    }
+    out[0] = '\0';
+#if defined(__wasm__)
+    /* SDL's own answer is the host's memory: the host copies it over */
+    return bw_host_clipboard_get(out, (unsigned)n);
+#else
+    {
+        char *text = SDL_GetClipboardText();
+        int rc = -1;
+
+        if (text != NULL && text[0] != '\0') {
+            snprintf(out, (size_t)n, "%s", text);
+            rc = 0;
+        }
+        SDL_free(text);
+        return rc;
+    }
+#endif
+}
+
 /* The relay and the name the port's own settings hold. */
 static void session_give_relay(void)
 {
@@ -1821,6 +1849,14 @@ void eidos_settings_set_path(const char *path)
     if (path != NULL) {
         snprintf(g_path, sizeof(g_path), "%s", path);
         g_have_path = 1;
+    }
+}
+
+void eidos_settings_share_with(const char *path)
+{
+    g_shared[0] = '\0';
+    if (path != NULL && snprintf(g_shared, sizeof(g_shared), "%s", path) >= (int)sizeof(g_shared)) {
+        g_shared[0] = '\0';
     }
 }
 
@@ -2401,6 +2437,33 @@ int eidos_settings_load(void)
     return 0;
 }
 
+/* The second file that keeps the same settings (eidos_settings_share_with),
+ * written after the settings' own.  Its folder is never made here, and a
+ * write that fails says nothing: the settings' own file is the one that
+ * counts, and the other is brought in step at the next save. */
+static void save_shared(const Model *out)
+{
+    char tmp[sizeof(g_shared) + 8];
+    FILE *fp;
+
+    if (g_shared[0] == '\0' || snprintf(tmp, sizeof(tmp), "%s.tmp", g_shared) >= (int)sizeof(tmp)) {
+        return;
+    }
+    fp = bw_fopen_utf8(tmp, "wb");
+    if (fp == NULL) {
+        return;
+    }
+    if (write_file(fp, out) != 0 || fflush(fp) != 0) {
+        fclose(fp);
+        remove(tmp);
+        return;
+    }
+    fclose(fp);
+    if (eidos_replace_file(tmp, g_shared) != 0) {
+        remove(tmp);
+    }
+}
+
 static int save_model(const Model *out)
 {
     const char *path = eidos_settings_path();
@@ -2446,6 +2509,7 @@ static int save_model(const Model *out)
         fprintf(stderr, "eidos: cannot replace %s\n", path);
         return -1;
     }
+    save_shared(out);
     return 0;
 }
 

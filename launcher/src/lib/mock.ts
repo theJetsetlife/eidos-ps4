@@ -28,9 +28,9 @@ const remote = [
 ];
 
 const mods = [
-  { folder: "Nuzlocke", name: "Nuzlocke", order: 0, enabled: true, hasManifest: true, catalogId: "katalogos/nuzlocke", version: "0.9.0", icon: { item: 4 } },
-  { folder: "fast-bike", name: "Fast Bike", order: 1, enabled: false, hasManifest: true, catalogId: null, version: null, icon: { species: 506 } },
-  { folder: "my-test", name: "my-test", order: 2, enabled: true, hasManifest: false, catalogId: null, version: null, icon: null },
+  { folder: "Nuzlocke", name: "Nuzlocke", order: 0, enabled: true, hasManifest: true, catalogId: "katalogos/nuzlocke", version: "0.9.0", icon: { item: 4 }, games: ["black", "white"], eidos: "" },
+  { folder: "fast-bike", name: "Fast Bike", order: 1, enabled: false, hasManifest: true, catalogId: null, version: null, icon: { species: 506 }, games: ["white"], eidos: "" },
+  { folder: "my-test", name: "my-test", order: 2, enabled: true, hasManifest: false, catalogId: null, version: null, icon: null, games: ["black", "white"], eidos: "99.0.0" },
 ];
 
 const catalog = {
@@ -39,7 +39,8 @@ const catalog = {
     { id: "katalogos/soul-link", name: "Soul Link", version: "1.0.0", author: "Project Holon", description: "A Nuzlocke for two or more players in one multiplayer game. The Pokemon you catch in the same area are linked.", official: true, multiplayer: true, hasCode: true, games: ["black", "white"], tags: ["challenge", "multiplayer"], size: 9100, icon: { item: 280 }, index: 1 },
     { id: "katalogos/exp-share", name: "Exp. Share", version: "1.0.0", author: "Project Holon", description: "The whole party gains experience in every battle. Can be switched off in the settings.", official: true, multiplayer: false, hasCode: false, games: ["black", "white"], tags: ["quality of life"], size: 700, icon: { item: 216 }, index: 2 },
     { id: "katalogos/smart-trainers", name: "Smart Trainers", version: "0.2.0", author: "Project Holon", description: "Trainers battle like a thinking player.", official: true, multiplayer: false, hasCode: true, games: ["black", "white"], tags: ["difficulty"], size: 72000, icon: { item: 267 }, index: 3 },
-    { id: "someone/fairy-type", name: "Fairy type", version: "0.3.0", author: "someone", description: "Adds the Fairy type.", official: false, multiplayer: false, hasCode: false, games: ["black"], tags: ["types"], size: 512000, icon: null, index: 4 },
+    { id: "someone/fairy-type", name: "Fairy type", version: "0.3.0", author: "someone", description: "Adds the Fairy type.", official: false, multiplayer: false, hasCode: false, games: ["white"], tags: ["types"], size: 512000, icon: null, index: 4 },
+    { id: "oukilil/blaze-black-full", name: "Blaze Black (Full, unofficial)", version: "3.1.2", author: "Drayano (unofficial conversion with kenon)", description: "An unofficial conversion of Drayano's Blaze Black 3.1, this conversion is not his and he does not support it.", official: false, multiplayer: false, hasCode: false, games: ["black"], tags: ["rom hack", "unofficial"], size: 1600000, icon: { species: 646 }, index: 5 },
   ],
   errors: [],
 };
@@ -81,6 +82,8 @@ const answers: Record<string, unknown> = {
   locate_rom: roms,
   move_profile_data: "The data is now at E:\\Games\\eidos.",
   take_pending_join: null,
+  old_saves_pending: false,
+  tidy_saves: [],
 };
 
 let next = 1;

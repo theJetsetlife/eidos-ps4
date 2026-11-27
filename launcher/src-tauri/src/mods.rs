@@ -26,6 +26,67 @@ pub struct ModInfo {
     pub catalog_id: Option<String>,
     pub version: Option<String>,
     pub icon: Option<crate::catalog::UiIcon>,
+    /// The games the mod works on: `black`, `white` or both. Empty when its
+    /// `game` line names neither. eidos does not load a mod made for the
+    /// other game.
+    pub games: Vec<String>,
+    /// The oldest eidos the mod works on (its `eidos` line, `0.2.8`), "" for
+    /// none. An older eidos (0.2.8 on) does not load it.
+    pub eidos: String,
+}
+
+/// A manifest's `eidos` line, as eidos reads it (sdk/vfs.c): three numbers
+/// `X.Y.Z`; anything else, or no line, is "" (no minimum). The last line counts.
+fn eidos_of(manifest: &str) -> String {
+    let mut out = String::new();
+    for line in manifest.lines() {
+        let line = line.split('#').next().unwrap_or("");
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        if key.trim() != "eidos" {
+            continue;
+        }
+        let v = value.trim();
+        let parts: Vec<&str> = v.split('.').collect();
+        out = if parts.len() == 3 && parts.iter().all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())) {
+            v.to_string()
+        } else {
+            String::new()
+        };
+    }
+    out
+}
+
+/// The games a manifest's `game` line names, as eidos reads it (sdk/vfs.c,
+/// bw_mod_games_of): `black` or `white` in any case; a game code by its third
+/// letter alone (IRBO, IRBF: Black; IRAO: White), so a mod made with one
+/// language's cartridge works on the others; no line or an empty value:
+/// both; anything else: neither. The last `game` line counts.
+fn games_of(manifest: &str) -> Vec<String> {
+    let both = || vec!["black".to_string(), "white".to_string()];
+    let mut games = both();
+    for line in manifest.lines() {
+        let line = line.split('#').next().unwrap_or("");
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        if key.trim() != "game" {
+            continue;
+        }
+        let v = value.trim().to_ascii_lowercase();
+        let code = v.as_bytes();
+        games = if v.is_empty() {
+            both()
+        } else if v == "black" || (code.len() == 4 && v.starts_with("ir") && code[2] == b'b') {
+            vec!["black".to_string()]
+        } else if v == "white" || (code.len() == 4 && v.starts_with("ir") && code[2] == b'a') {
+            vec!["white".to_string()]
+        } else {
+            Vec::new()
+        };
+    }
+    games
 }
 
 /// What a `.bw` package holds, for the confirmation before adding it.
@@ -54,6 +115,8 @@ fn read_info(dir: &Path, enabled: bool) -> ModInfo {
         icon: m.icon.as_ref().and_then(|i| crate::catalog::UiIcon::from_manifest(i, dir)),
         catalog_id: installed.as_ref().map(|i| i.id.clone()),
         version: installed.map(|i| i.version).or_else(|| (!m.version.is_empty()).then(|| m.version.clone())),
+        games: games_of(text.as_deref().unwrap_or("")),
+        eidos: eidos_of(text.as_deref().unwrap_or("")),
     }
 }
 
@@ -251,6 +314,30 @@ mod tests {
         if let Some(n) = name {
             fs::write(d.join(MANIFEST), format!("name = {n}\norder = 5\n")).unwrap();
         }
+    }
+
+    #[test]
+    fn reads_the_eidos_a_mod_needs() {
+        assert_eq!(eidos_of("name = A\n"), "");
+        assert_eq!(eidos_of("eidos = 0.2.8\n"), "0.2.8");
+        assert_eq!(eidos_of("eidos = 0.2.10   # the TM pocket\n"), "0.2.10");
+        assert_eq!(eidos_of("eidos = 0.2\n"), "");
+        assert_eq!(eidos_of("eidos = v0.2.8\n"), "");
+        assert_eq!(eidos_of("eidos = 0.2.8\neidos = 0.2.9\n"), "0.2.9");
+    }
+
+    #[test]
+    fn reads_the_game_a_mod_is_for() {
+        let g = |t: &str| games_of(t).join(",");
+        assert_eq!(g("name = A\n"), "black,white");
+        assert_eq!(g("game = black\n"), "black");
+        assert_eq!(g("game = White   # the other one\n"), "white");
+        assert_eq!(g("game = IRBF\n"), "black");
+        assert_eq!(g("game = IRAO\n"), "white");
+        assert_eq!(g("game =\n"), "black,white");
+        assert_eq!(g("game = banana\n"), "");
+        assert_eq!(g("game = IREO\n"), "");
+        assert_eq!(g("game = black\ngame = white\n"), "white");
     }
 
     #[test]

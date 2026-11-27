@@ -28,12 +28,16 @@
 
 #include "ui.h"
 #include "kit.h"
+#include "popup.h"
+
+int eidos_ui_battle_right_free_y(void);     /* recipe_battle.c */
 #include "theme.h"
 #include "dsmem.h"
 #include "input.h"
 #include "textbox.h"
 #include "settings.h"
 #include "overlay.h"
+#include "move_anims.h"
 
 /* ------------------------------------------------------------------ */
 /* State                                                               */
@@ -52,10 +56,13 @@ static int g_mx = -1, g_my = -1, g_down, g_pressed, g_released, g_wheel;
  * to the keys' cursor, so the two never show different things. */
 static int g_mouse_live, g_last_mx = -1, g_last_my = -1;
 static int g_down_x = -1, g_down_y = -1;     /* where the button went down */
+static int g_down_wx = -1, g_down_wy = -1;   /* ... in window pixels (read_mouse) */
 static int g_right;                          /* right button this frame    */
 static int g_want_text, g_text_wanted;       /* typing asked this frame    */
 static int g_want_objs, g_objs_wanted;       /* OBJ layers asked (bits)    */
 static u32 g_keys_prev, g_keys_now, g_keys_edge, g_take;   /* the player's keys    */
+static u32 g_take_last;             /* the keys the screen took on the frame before */
+static u32 g_tap_keys;              /* tapped hints of taken keys: presses of the next frame */
 static int g_k = 2;
 
 int eidos_ui_enabled(void)
@@ -84,13 +91,22 @@ void eidos_ui_set_enabled(int on)
 
 int eidos_ui_scale(int win_w, int win_h)
 {
-    /* the layouts need about 270 canvas rows (the menu's six buttons, the
-     * battle's plates and sheets) and about 360 columns (a 4:3 window's
-     * width at that height): the largest whole scale that keeps both, so a
-     * window narrower than 4:3 (a tablet held upright) gets a smaller scale
-     * instead of panels cut off at its sides */
-    int k = win_h / 270;
+    /* The layouts are made on a canvas of 360 rows (a 1280x720 window at
+     * scale 2): the whole scale nearest to the window's height / 360, so a
+     * 1920x1080 window (scale 3) and a 2560x1440 one (scale 4) show what
+     * 1280x720 shows.  (The largest scale that kept 270 rows drew them a
+     * third and a quarter larger than 720p: scales 4 and 5.)
+     *
+     * The layouts need at least 270 canvas rows (the menu's six buttons,
+     * the battle's plates and sheets) and about 360 columns (a 4:3 window's
+     * width at that height): a scale that leaves fewer rows is one lower,
+     * and a window narrower than 4:3 (a tablet held upright) gets a smaller
+     * scale instead of panels cut off at its sides. */
+    int k = (2 * win_h + 360) / 720;
 
+    if (k > 1 && win_h / k < 270) {
+        k--;
+    }
     if (win_w / 360 < k) {
         k = win_w / 360;
     }
@@ -100,6 +116,23 @@ int eidos_ui_scale(int win_w, int win_h)
 const char *eidos_ui_scene_name(void)
 {
     return g_scene;
+}
+
+static u32 g_data_generation;
+
+u32 eidos_ui_data_generation(void)
+{
+    return g_data_generation;
+}
+
+extern void ui_assets_reset(void) __attribute__((weak));
+
+void eidos_ui_data_changed(void)
+{
+    g_data_generation++;
+    if (ui_assets_reset != NULL) {
+        ui_assets_reset();      /* the fonts, the shared archives, the icons and the figures */
+    }
 }
 
 void eidos_ui_reset(void)
@@ -118,7 +151,7 @@ void eidos_ui_reset(void)
     }
     g_last = NULL;
     g_scene = "fallback";
-    g_down_x = g_down_y = -1;
+    g_down_x = g_down_y = g_down_wx = g_down_wy = -1;
 }
 
 /* ------------------------------------------------------------------ */
@@ -187,6 +220,16 @@ void eidos_ui_press(u32 keys, u32 frames)
     (void)bw_input_inject(keys & BW_KEY_GAME, frames == 0 ? 1 : frames);
 }
 
+void eidos_ui_hint_press(u32 keys)
+{
+    u32 mine = keys & (g_take | g_take_last) & BW_KEY_GAME;
+
+    g_tap_keys |= mine;
+    if ((keys & ~mine) != 0) {
+        eidos_ui_press(keys & ~mine, 2);
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /* Hit regions                                                         */
 /* ------------------------------------------------------------------ */
@@ -212,7 +255,10 @@ static int inside(EidosUiRect r, int x, int y)
 typedef struct ScrollBarSeen {
     EidosUiRect r;                  /* the track, canvas pixels             */
     int first, shown, total;
+    int k;                          /* the canvas's scale it was drawn at   */
 } ScrollBarSeen;
+
+static int g_wx = -1, g_wy = -1;    /* the pointer in window pixels (read_mouse) */
 
 static ScrollBarSeen g_sb_seen[2][SB_MAX];     /* [0] this frame's, [1] the last frame's */
 static int g_sb_n[2];
@@ -240,18 +286,25 @@ void eidos_ui_note_scrollbar(int x, int y, int w, int h, int first, int shown, i
     b->first = first;
     b->shown = shown;
     b->total = total;
+    b->k = g_k;
 }
 
-static int bar_under(int x, int y)
+/* The bar under the pointer, each in the pixels of the canvas it was drawn
+ * on: this runs before the scene chooses its scale, so the pointer's place
+ * in this frame's first canvas is not a bar's own (a scene at the DS's
+ * scale: a press beside its bar's place at the plain scale was taken for a
+ * press on the bar, and was no click). */
+static int bar_under(void)
 {
     int i;
 
     for (i = 0; i < g_sb_n[1]; i++) {
         EidosUiRect r = g_sb_seen[1][i].r;
+        int k = g_sb_seen[1][i].k > 0 ? g_sb_seen[1][i].k : 1;
 
         r.x -= SB_GRIP;
         r.w += 2 * SB_GRIP;
-        if (inside(r, x, y)) {
+        if (g_wx >= 0 && inside(r, g_wx / k, g_wy / k)) {
             return i;
         }
     }
@@ -277,7 +330,7 @@ static void touch_scroll_update(void)
         g_drag_y = g_my;
         g_drag_acc = 0;
         g_dragged = 0;
-        g_sb_press = bar_under(g_mx, g_my);
+        g_sb_press = bar_under();
         g_sb_to = g_sb_press >= 0 ? g_sb_seen[1][g_sb_press].first : -1;
         return;
     }
@@ -562,7 +615,9 @@ static int leave_picture(EidosUiView *view)
     return 0;
 }
 static u32 g_dark_prev;
+static int g_fade_rising;        /* the game's fader is on its way to black (between two of its levels too) */
 static int g_holding;            /* an app's picture held through its fade */
+extern int FADE_IsActive(void) __attribute__((weak));
 
 static void fade_start(void);
 
@@ -639,6 +694,41 @@ static void app_state(u32 *ov, u32 *seq, u32 *child_ov, u32 *child_seq)
     }
 }
 
+/* A screen with no one-screen version (the window shows the game's two
+ * screens): named in the log once a run, by the overlay of the process on
+ * top and of its child, so a player's log says which screen it was (#50:
+ * the party list in a mode no recipe took, found only by a report). */
+#define FALLBACK_NOTE_FRAMES 180    /* three seconds of the two screens: a screen, not a load between two */
+
+static u32 g_fallback_run;          /* frames in a row the two screens have shown */
+
+static void fallback_note(void)
+{
+    static u8 seen[2][64];          /* overlays 0..511, the top process's and its child's */
+    u32 ov, seq, cov, cseq;
+
+    if (!eidos_ui_enabled() || ++g_fallback_run != FALLBACK_NOTE_FRAMES) {
+        return;
+    }
+    app_state(&ov, &seq, &cov, &cseq);
+    if (ov >= 512u || (cov != 0xFFFFFFFFu && cov >= 512u)) {
+        return;
+    }
+    if ((seen[0][ov >> 3] & (1u << (ov & 7u))) != 0
+        && (cov == 0xFFFFFFFFu || (seen[1][cov >> 3] & (1u << (cov & 7u))) != 0)) {
+        return;
+    }
+    seen[0][ov >> 3] |= (u8)(1u << (ov & 7u));
+    if (cov != 0xFFFFFFFFu) {
+        seen[1][cov >> 3] |= (u8)(1u << (cov & 7u));
+        fprintf(stderr, "eidos: one screen: no screen for overlay %u (step %u) under overlay %u: the two screens show\n",
+                (unsigned)cov, (unsigned)cseq, (unsigned)ov);
+    } else {
+        fprintf(stderr, "eidos: one screen: no screen for overlay %u (step %u): the two screens show\n",
+                (unsigned)ov, (unsigned)seq);
+    }
+}
+
 /* An app closes with the game's wipe (WIPE_SYS_Start: a fade out of about
  * 18 frames) and its process ends only after it.  B, then a wipe running
  * within a few frames, is the app closing: the interface does not wait for
@@ -710,8 +800,29 @@ static void leave_check(EidosUiView *view)
         }
     }
 
-    int fading_out = dark > g_dark_prev || dark >= 16u;
+    /* The game's fader (FADE_Start) can take several frames for one level of darkness (the nickname
+     * question's end: a level every third frame).  Between two levels the darkness stands still, yet the
+     * fade to black goes on: it counts as going out from its first rise until the fader stops or the
+     * darkness falls.  (Read by the rises alone, such a fade held the picture on each rise and let it go
+     * the frame after with a crossfade from the held one: a moving Pokemon showed as pale copies of
+     * itself for the length of the fade.) */
+    {
+        /* (the game's two faders: FADE_Start's, and the wipe system's, WIPE_SYS_Start: the Pokedex's pages) */
+        const int fading = (FADE_IsActive != NULL && FADE_IsActive()) || (WIPE_SYS_EndCheck != NULL && !WIPE_SYS_EndCheck());
 
+        if (dark > g_dark_prev) {
+            g_fade_rising = 1;
+        } else if (dark < g_dark_prev || !fading) {
+            g_fade_rising = 0;
+        }
+    }
+    int fading_out = dark > g_dark_prev || dark >= 16u || g_fade_rising;
+
+    if (getenv("EIDOS_UI_FADE_LOG") != NULL && (dark != 0u || g_dark_prev != 0u || g_holding || g_leaving || g_fade_left > 0)) {
+        fprintf(stderr, "eidos: ui fade: frame %u scene %s dark %u (before %u) holding %d leaving %d ending %d fade left %d\n",
+                (unsigned)bw_input_frame_number(), g_scene != NULL ? g_scene : "-", (unsigned)dark, (unsigned)g_dark_prev, g_holding,
+                g_leaving, app_ending(), g_fade_left);
+    }
     if (view->blur && !g_leaving && app_ending()) {
         g_leaving = 1;
         g_leave_frame = bw_input_frame_number();
@@ -813,6 +924,7 @@ extern void ZONEDATA_SetEventFlag(void *ev, int flagId) __attribute__((weak));
 extern u32 POKE_TOOL_GetExpForLevel(u16 species, u16 form, u16 level) __attribute__((weak));
 extern void POKE_TOOL_SetPartyValue(void *pp, u32 paramId, uintptr_t value) __attribute__((weak));
 extern void POKE_TOOL_CalcParam(void *pp) __attribute__((weak));
+extern void POKE_TOOL_SetMoveSlot(void *pp, u16 move, u32 slot) __attribute__((weak));
 extern void *POKE_TOOL_Create(u16 species, u16 level, u64 otId, u16 heapId) __attribute__((weak));
 extern u32 POKEPARTY_Add(void *party, const void *member) __attribute__((weak));
 extern u32 POKEPARTY_RemoveMember(void *party, s32 pos) __attribute__((weak));
@@ -822,6 +934,7 @@ extern void *BLOCK20_SAVEDATA_GetBlockFromSys(void *gd) __attribute__((weak));
 extern void CGEAR_SAVE_SetObtained(void *cgearSave, u8 value) __attribute__((weak));
 extern u32 MYITEM_SAVEDATA_AddItem(void *bag, u16 itemId, u16 quantity, u16 heapId) __attribute__((weak));
 #define DEBUG_PARAM_EXP 0x08u           /* POKE_TOOL_PARAM_EXP                  */
+#define DEBUG_PARAM_FORM 0x6Fu          /* the form                             */
 #define DEBUG_FIELD_HEAP 0x15u          /* the field's heap                     */
 
 /* How many whiteouts the run has seen (sdk/mod_event_battle.c). */
@@ -958,7 +1071,8 @@ static void debug_party(void)
     u32 n, i, id;
     u16 lv;
 
-    if (list == NULL && (getenv("EIDOS_DEBUG_ITEMS") != NULL || getenv("EIDOS_DEBUG_PARTY_COUNT") != NULL)) {
+    if (list == NULL && (getenv("EIDOS_DEBUG_ITEMS") != NULL || getenv("EIDOS_DEBUG_PARTY_COUNT") != NULL
+                         || getenv("EIDOS_DEBUG_PROPS") != NULL || getenv("EIDOS_DEBUG_DEX_NATIONAL") != NULL)) {
         list = "";                      /* items or the count alone */
     }
     if (done || list == NULL || &bw_dsref__GameSystemGlobal == NULL || GAME_DATA_GetMyParty == NULL
@@ -981,8 +1095,12 @@ static void debug_party(void)
     for (i = 0; i < 6 && *list != '\0'; i++) {
         u16 sp = (u16)strtoul(list, (char **)&list, 10), mlv = lv;
         long short_by = 0;
+        u32 form = 0;
         void *pp;
 
+        if (*list == '.') {
+            form = (u32)strtoul(list + 1, (char **)&list, 10);     /* "species.form" */
+        }
         if (*list == ':') {
             mlv = (u16)strtoul(list + 1, (char **)&list, 10);
             if (*list == ':') {
@@ -999,6 +1117,10 @@ static void debug_party(void)
             }
             pp = POKEPARTY_GetMember(party, i);
             POKE_TOOL_SetupPartyParam(pp, sp, mlv, id);
+            if (form != 0 && POKE_TOOL_SetPartyValue != NULL && POKE_TOOL_CalcParam != NULL) {
+                POKE_TOOL_SetPartyValue(pp, DEBUG_PARAM_FORM, (uintptr_t)form);
+                POKE_TOOL_CalcParam(pp);
+            }
             if (short_by > 0 && POKE_TOOL_GetExpForLevel != NULL && POKE_TOOL_SetPartyValue != NULL
                 && POKE_TOOL_CalcParam != NULL && mlv < 100) {
                 u32 next = POKE_TOOL_GetExpForLevel(sp, 0, (u16)(mlv + 1));
@@ -1024,6 +1146,26 @@ static void debug_party(void)
         }
         fprintf(stderr, "eidos: debug party: %u member(s)\n", (unsigned)POKEPARTY_GetCount(party));
     }
+    /* EIDOS_DEBUG_MOVES="move,move,move,move": the first member's moves,
+     * slot by slot (0 keeps a slot's move), each with its full PP.  (The
+     * "member:move:slot,..." form is read below.) */
+    if (getenv("EIDOS_DEBUG_MOVES") != NULL && strchr(getenv("EIDOS_DEBUG_MOVES"), ':') == NULL &&
+        POKE_TOOL_SetMoveSlot != NULL && POKEPARTY_GetCount(party) > 0) {
+        const char *m = getenv("EIDOS_DEBUG_MOVES");
+        u32 slot;
+
+        for (slot = 0; slot < 4 && *m != '\0'; slot++) {
+            u32 move = (u32)strtoul(m, (char **)&m, 10);
+
+            if (move != 0u) {
+                POKE_TOOL_SetMoveSlot(POKEPARTY_GetMember(party, 0), (u16)move, slot);
+                fprintf(stderr, "eidos: debug move slot %u = move %u\n", (unsigned)slot, (unsigned)move);
+            }
+            while (*m == ',' || *m == ' ') {
+                m++;
+            }
+        }
+    }
     /* EIDOS_DEBUG_ITEMS="item:count,...": into the bag */
     if (getenv("EIDOS_DEBUG_ITEMS") != NULL && GAME_DATA_GetMyItem != NULL && MYITEM_SAVEDATA_AddItem != NULL) {
         const char *m = getenv("EIDOS_DEBUG_ITEMS");
@@ -1037,6 +1179,36 @@ static void debug_party(void)
             m += used;
             if (*m != ',') break;
             m++;
+        }
+    }
+    /* EIDOS_DEBUG_PROPS=N: the first N Musical props owned (of 100) */
+    if (getenv("EIDOS_DEBUG_PROPS") != NULL) {
+        extern void *GAME_DATA_GetSaveControl(void *gd) __attribute__((weak));
+        extern void *MUSICAL_SAVE_GetFromSave(void *save) __attribute__((weak));
+        extern void MUSICAL_SAVE_AddProp(void *musical, u32 prop) __attribute__((weak));
+
+        if (GAME_DATA_GetSaveControl != NULL && MUSICAL_SAVE_GetFromSave != NULL && MUSICAL_SAVE_AddProp != NULL) {
+            void *ms = MUSICAL_SAVE_GetFromSave(GAME_DATA_GetSaveControl(gd));
+            int nprops = atoi(getenv("EIDOS_DEBUG_PROPS")), k;
+
+            for (k = 0; ms != NULL && k < nprops && k < 100; k++) {
+                MUSICAL_SAVE_AddProp(ms, (u32)k);
+            }
+            fprintf(stderr, "eidos: debug props: the first %d owned\n", nprops);
+        }
+    }
+    /* EIDOS_DEBUG_DEX_NATIONAL=1: the National Pokedex obtained and shown */
+    if (getenv("EIDOS_DEBUG_DEX_NATIONAL") != NULL && atoi(getenv("EIDOS_DEBUG_DEX_NATIONAL")) != 0) {
+        extern void *ZUKAN_SAVE_GetFromGameData(void *gameData) __attribute__((weak));
+        extern void *ZUKAN_SAVE_EnableNationalDex(void *pZukan) __attribute__((weak));
+        extern void ZUKAN_SAVE_SetViewMode(void *pZukan, u32 value) __attribute__((weak));
+
+        if (ZUKAN_SAVE_GetFromGameData != NULL && ZUKAN_SAVE_EnableNationalDex != NULL && ZUKAN_SAVE_SetViewMode != NULL) {
+            void *z = ZUKAN_SAVE_GetFromGameData(gd);
+
+            (void)ZUKAN_SAVE_EnableNationalDex(z);
+            ZUKAN_SAVE_SetViewMode(z, 1);
+            fprintf(stderr, "eidos: debug dex: the National Pokedex\n");
         }
     }
     /* EIDOS_DEBUG_FLAGS="hex,hex": event flags set (0x961 and 0x962 give
@@ -2458,6 +2630,43 @@ int eidos_ui_debug_battle_started(void)
     return g_debug_battle_started;
 }
 
+/* eidos --preview-move ID (sdk/move_anims.h): once the preview's battle
+ * is at its command screen, the move's animation from the first Pokemon
+ * on the second, played again each time the battle view is idle for 45
+ * frames, until the window closes.  The request is the battle view's own
+ * (ov094 BTLV_EFFECT_StartEffectWithRequest, the layout of
+ * BtlvEffScriptRequest), so no turn runs: nobody takes damage. */
+extern void ov094_BTLV_EFFECT_StartEffectWithRequest(const void *request) __attribute__((weak));
+extern int ov094_BTLV_EFFECT_IsBusy(void) __attribute__((weak));
+
+static void debug_preview(void)
+{
+    static u32 idle;
+    struct {
+        u16 scriptId;
+        u8 pad[2];
+        int attackerPos, defenderPos;
+        u8 variant, option, pad2[2];
+        int kind;
+    } req;
+    u32 move = bw_preview_move();
+
+    if (move == 0 || strcmp(g_scene, "battle_action") != 0 || ov094_BTLV_EFFECT_StartEffectWithRequest == NULL
+        || ov094_BTLV_EFFECT_IsBusy == NULL || ov094_BTLV_EFFECT_IsBusy()) {
+        idle = 0;
+        return;
+    }
+    if (++idle < 45) {
+        return;
+    }
+    idle = 0;
+    memset(&req, 0, sizeof req);
+    req.scriptId = (u16)bw_move_anim(move);
+    req.attackerPos = 0;
+    req.defenderPos = 1;
+    ov094_BTLV_EFFECT_StartEffectWithRequest(&req);
+}
+
 static void debug_battle(void)
 {
     static int done, wait, fade_back;
@@ -2824,6 +3033,7 @@ static struct {
     u32 rec_left, rec_n;
     int quit;
 } g_us;
+static char g_us_type[128];         /* a `type` step's text for the next frame */
 
 static u32 us_button(const char *s, int n)
 {
@@ -2940,6 +3150,11 @@ static void ui_script_step(void)
             if (g_us.have < g_us.need) {
                 if (g_us.waiting == 4 && g_us.have == 0u && g_us.spent % g_us.mash_every == 0u) {
                     (void)bw_input_script_press(bw_input_frame_number() + 1u, g_us.mash_keys, 2);
+                    if (getenv("EIDOS_UI_KEY_LOG") != NULL) {
+                        fprintf(stderr, "eidos: ui key: %s down at input frame %u\n",
+                                g_us.mash_keys == BW_KEY_A ? "A" : g_us.mash_keys == BW_KEY_B ? "B" : "keys",
+                                (unsigned)(bw_input_frame_number() + 1u));
+                    }
                 }
                 if (++g_us.spent > 6000u) {
                     us_fail("the wait timed out");
@@ -3011,12 +3226,46 @@ static void ui_script_step(void)
                 return;
             }
             (void)bw_input_script_press(bw_input_frame_number() + 1u, mask, a2[0] != '\0' ? (u32)atoi(a2) : 2u);
+            if (getenv("EIDOS_UI_KEY_LOG") != NULL) {
+                /* (research: when a script's key goes down, for a recording's overlay) */
+                fprintf(stderr, "eidos: ui key: %s down at input frame %u\n", a1, (unsigned)(bw_input_frame_number() + 1u));
+            }
             g_us.need = 4;
             g_us.have = 0;
             g_us.waiting = 2;           /* the press is taken before the next step */
+        } else if (strcmp(cmd, "type") == 0) {
+            /* `type TEXT` (one word), or `type $NAME`: the text of the
+             * environment variable NAME, so a test's password is never in
+             * the script's file.  Typed on the next frame, as if from the
+             * PC's keyboard. */
+            const char *t = a1[0] == '$' ? getenv(a1 + 1) : a1;
+
+            if (t == NULL) {
+                us_fail("type: no such variable");
+                return;
+            }
+            snprintf(g_us_type, sizeof g_us_type, "%s", t);
+            g_us.need = 2;
+            g_us.have = 0;
+            g_us.waiting = 2;
         } else if (strcmp(cmd, "tap") == 0) {
             (void)bw_input_script_touch(bw_input_frame_number() + 1u, atoi(a1), atoi(a2), a3[0] != '\0' ? (u32)atoi(a3) : 3u);
             g_us.need = 2;
+            g_us.have = 0;
+            g_us.waiting = 2;
+        } else if (strcmp(cmd, "drag") == 0) {
+            /* the stylus down at (X0, Y0), moved to (X1, Y1) and lifted (eidos_ui_drag: about 24 frames) */
+            char a4[16] = "";
+            const char *p = line;
+            int skip;
+
+            for (skip = 0; skip < 4 && *p != '\0'; skip++) {       /* the fourth argument */
+                while (*p != '\0' && *p != ' ') p++;
+                while (*p == ' ') p++;
+            }
+            snprintf(a4, sizeof a4, "%s", p);
+            eidos_ui_drag(atoi(a1), atoi(a2), atoi(a3), atoi(a4));
+            g_us.need = 26;
             g_us.have = 0;
             g_us.waiting = 2;
         } else if (strcmp(cmd, "cmouse") == 0 || strcmp(cmd, "cclick") == 0) {
@@ -3108,6 +3357,7 @@ void eidos_ui_game_frame(void)
         live_objects_log();
         event_log();
         debug_battle();
+        debug_preview();
         debug_script();
         debug_open();
         debug_ltrade();
@@ -3489,8 +3739,10 @@ static void read_mouse(const EidosUiFrame *in)
         m = &scripted;
     }
     if (m->x < 0 || m->y < 0) {
-        g_mx = g_my = -1;
+        g_mx = g_my = g_wx = g_wy = -1;
     } else {
+        g_wx = m->x;
+        g_wy = m->y;
         g_mx = m->x / g_k;
         g_my = m->y / g_k;
     }
@@ -3499,16 +3751,38 @@ static void read_mouse(const EidosUiFrame *in)
     g_released = m->released;
     g_wheel = m->wheel;
     g_right = m->right_pressed;
+    /* Where the button went down is kept in window pixels and given in this
+     * canvas's pixels at every read: a scene at another scale (the DS's:
+     * eidos_ui_want_ds_scale) reads the pointer again after the canvas is
+     * rebuilt, and next frame's first read is at the plain scale again.
+     * The place was kept in the pixels of the last read, so the drag check
+     * (touch_scroll_update, at the plain scale) took the change of scale
+     * for a move: a press held for a frame, as every real click is, counted
+     * as a drag and was no click in any such scene (#50's work found it:
+     * the Musical's props; the same for a click on the field's text) */
     if (g_pressed) {
-        g_down_x = g_mx;
-        g_down_y = g_my;
+        g_down_wx = m->x;
+        g_down_wy = m->y;
     }
+    g_down_x = g_down_wx < 0 ? -1 : g_down_wx / g_k;
+    g_down_y = g_down_wy < 0 ? -1 : g_down_wy / g_k;
 }
 
 static const EidosUiFrame *g_in;
 
 /* Set by a recipe's match for this frame: the canvas takes the DS scale. */
-static int g_ds_scale_req, g_ds_scale_rows = 192;
+static int g_ds_scale_req, g_ds_scale_rows = 192, g_ds_scale_cols = 256;
+
+void eidos_ui_want_ds_scale_size(int rows, int cols)
+{
+    g_ds_scale_req = 1;
+    if (rows > g_ds_scale_rows) {
+        g_ds_scale_rows = rows;
+    }
+    if (cols > g_ds_scale_cols) {
+        g_ds_scale_cols = cols;
+    }
+}
 
 void eidos_ui_want_ds_scale(void)
 {
@@ -3589,7 +3863,8 @@ void eidos_ui_frame(const EidosUiFrame *in, EidosUiView *view,
     g_want_text = 0;
     g_want_objs = 0;
     g_keys_now = bw_input_player_buttons();
-    g_keys_edge = g_keys_now & ~g_keys_prev;
+    g_keys_edge = (g_keys_now & ~g_keys_prev) | g_tap_keys;     /* (with the hints tapped last frame) */
+    g_tap_keys = 0;
     if (g_keys_edge & BW_KEY_B) {
         g_b_frame = bw_input_frame_number();
     }
@@ -3624,6 +3899,7 @@ void eidos_ui_frame(const EidosUiFrame *in, EidosUiView *view,
         }
     }
     g_keys_prev = g_keys_now;
+    g_take_last = g_take;
     g_take = 0;
 
     memset(view, 0, sizeof(*view));
@@ -3655,7 +3931,7 @@ void eidos_ui_frame(const EidosUiFrame *in, EidosUiView *view,
          * wider than the window (the DS screen's 256 columns, the 360 of
          * eidos_ui_scale) */
         int k = g_ds_scale_req ? in->win_h / g_ds_scale_rows : (in->win_h + 135) / 270;
-        int kw = g_ds_scale_req ? in->win_w / 256 : (in->win_w + 180) / 360;
+        int kw = g_ds_scale_req ? in->win_w / g_ds_scale_cols : (in->win_w + 180) / 360;
 
         if (kw < k) {
             k = kw;
@@ -3672,6 +3948,7 @@ void eidos_ui_frame(const EidosUiFrame *in, EidosUiView *view,
     }
     g_ds_scale_req = 0;
     g_ds_scale_rows = 192;
+    g_ds_scale_cols = 256;
     /* a recipe that draws the game's text windows itself leaves them out
      * of the screen again this frame (engine/ui/textbox.c) */
     if (g2d_hw_hide_main_bgs != NULL) {
@@ -3705,7 +3982,7 @@ void eidos_ui_frame(const EidosUiFrame *in, EidosUiView *view,
             g_leaving = 0;      /* a gap keeps it: the app is still closing */
         }
         /* a new scene: a press that began in the old one is not a click */
-        g_down_x = g_down_y = -1;
+        g_down_x = g_down_y = g_down_wx = g_down_wy = -1;
         g_last = r;
         g_scene_frames = 0;
         if (r != NULL || !g_leaving) {
@@ -3747,6 +4024,15 @@ void eidos_ui_frame(const EidosUiFrame *in, EidosUiView *view,
             buf[o] = '\0';
             f.text = buf;
         }
+        if (g_us_type[0] != '\0') {
+            /* a script's `type` step (the text then goes: a password is
+             * not kept) */
+            static char tbuf[sizeof g_us_type];
+
+            memcpy(tbuf, g_us_type, sizeof tbuf);
+            memset(g_us_type, 0, sizeof g_us_type);
+            f.text = tbuf;
+        }
         if (getenv("EIDOS_UI_TRACE") != NULL) {
             fprintf(stderr, "eidos: ui trace %u run %s\n", (unsigned)in->frame, r->name);
             fflush(stderr);
@@ -3755,6 +4041,23 @@ void eidos_ui_frame(const EidosUiFrame *in, EidosUiView *view,
         try_overlay(&g_ctx);
         save_failing_notice(&g_ctx);
         speed_badge(&g_ctx, r->name);
+        /* a mod's pop-up, under the speed badge (engine/ui/popup.c) */
+        /* (not over the title screens, whose cards reach the top right in
+         * some styles: the pop-ups wait for the game) */
+        if (strncmp(r->name, "title", 5) != 0 && strcmp(r->name, "boot") != 0) {
+            const int battle = strncmp(r->name, "battle", 6) == 0;
+
+            int top = g_speed > 1 ? 44 : 22;
+
+            if (battle) {
+                /* the top right, or under the foes' plates when they stand
+                 * there (Harmonia); the speed badge is at the top's middle */
+                const int under = eidos_ui_battle_right_free_y();
+
+                top = under > 0 ? under + 4 : 6;
+            }
+            eidos_ui_popup_draw(&g_ctx, in->frame, top, 0);
+        }
         if (getenv("EIDOS_UI_TRACE") != NULL) {
             fprintf(stderr, "eidos: ui trace %u done\n", (unsigned)in->frame);
             fflush(stderr);
@@ -3779,6 +4082,7 @@ void eidos_ui_frame(const EidosUiFrame *in, EidosUiView *view,
         g_last_view = *view;
         g_last_view_ok = 1;
         g_gap = 0;
+        g_fallback_run = 0;
     } else {
         g_scene = "fallback";
         /* Between two scenes the game fades and loads (a menu closing, an
@@ -3819,6 +4123,7 @@ void eidos_ui_frame(const EidosUiFrame *in, EidosUiView *view,
             }
         } else {
             g_last_view_ok = 0;
+            fallback_note();
         }
         if (getenv("EIDOS_UI_FORCE_WORLD") != NULL) {
             view->mode = EIDOS_VIEW_WORLD;
@@ -3855,15 +4160,17 @@ void eidos_ui_frame(const EidosUiFrame *in, EidosUiView *view,
         }
     }
     if (g_released) {
-        g_down_x = g_down_y = -1;
+        g_down_x = g_down_y = g_down_wx = g_down_wy = -1;
     }
     g_text_wanted = g_want_text;
     g_objs_wanted = g_want_objs;
     bw_input_set_host_mask(g_take);
     /* a phone's taller hint bar lies over the world, as on a computer: the
      * world keeps the whole window, so it does not move as bars come and
-     * go (view->bottom stays 0) */
-    view->bottom = 0;
+     * go (view->bottom stays 0, as the frame's start left it).  A recipe
+     * that shows the game's screen in its own box sets it (the Musical's
+     * dress-up, #50: it was zeroed here, so the stage's 3D was drawn at the
+     * window's size behind a stage-sized box and a click landed elsewhere) */
     try_frame(&g_ctx);
     ring_apply(&g_ctx);
     fade_apply(&g_canvas);

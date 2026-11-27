@@ -57,7 +57,26 @@ extern "C" {
  * is the seam for that: "this list, in this order".
  */
 void        bw_clear_mods(void);
-int         bw_add_mod_root(const char *path);   /* 0, or -1 (empty, no memory) */
+int         bw_add_mod_root(const char *path);   /* 0, or -1 (empty, no memory, made for the other game) */
+
+/*
+ * The game a mod is made for: the manifest's `game` line, `black` or
+ * `white`.  No line: both.  A game code (IRBO, IRAF) is read as its game by
+ * its third letter, so a mod made with an English cartridge works on a
+ * French one.  A mod made for the game that is not loaded is not added to
+ * the list (bw_add_mod_root, bw_mod_set_order, bw_set_mod_root): its files
+ * and code are the other game's.  One line of the log says so.
+ */
+#define BW_MOD_GAME_BLACK 1
+#define BW_MOD_GAME_WHITE 2
+int         bw_mod_games_of(const char *value, size_t n);  /* the bits a `game` value names; 0: neither */
+int         bw_mod_games_at(const char *root);             /* ... the mod in this folder says */
+int         bw_mod_game_loaded(void);                      /* the data root's game; 0: not known */
+/* A mod's `eidos` line, the oldest eidos it works on (X.Y.Z): a mod that asks
+ * for a newer one than this is not loaded. */
+int         bw_mod_eidos_too_old(const char *need);        /* 1: `need` is newer than this eidos */
+int         bw_mod_needs_eidos_at(const char *root, char *out, size_t size);   /* 1: the mod in `root` is, with its value */
+const char *bw_mod_eidos_version(void);                    /* this eidos's release version ("0.2.8") */
 u32         bw_mod_count(void);
 const char *bw_mod_root_at(u32 i);   /* load order: 0 loads first, wins least */
 const char *bw_mod_name_at(u32 i);

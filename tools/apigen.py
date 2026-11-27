@@ -71,7 +71,7 @@ def parse_enums(text):
     out = []
     body = strip_comments(text)
     for m in re.finditer(r'enum\s*\{(.*?)\}', body, flags=re.S):
-        for name, value in re.findall(r'(\w+)\s*=\s*([0-9xXa-fA-F]+)', m.group(1)):
+        for name, value in re.findall(r'(\w+)\s*=\s*(-?[0-9xXa-fA-F]+)', m.group(1)):
             out.append((name, int(value, 0)))
     return out
 
@@ -657,8 +657,9 @@ def generate():
     rule_docs = read_rule_field_docs()
     for f in rules['state_fields']:
         doc = rule_docs.get(f['name'], '')
-        f['since'] = 4 if doc.endswith('(version 4)') else 3
-        f['doc'] = to_wasm_names(re.sub(r'\s*\(version 4\)$', '', doc))
+        sm = re.search(r'\s*\(version (\d+)\)$', doc)
+        f['since'] = int(sm.group(1)) if sm else 3
+        f['doc'] = to_wasm_names(doc[:sm.start()] if sm else doc)
     rules_out = dict(rules)
     rules_out['events'] = [e['name'] for e in events]
 
@@ -689,13 +690,20 @@ def generate():
                         h[key] = k[key]
 
     settings = {
-        'line': 'option <key> <kind> "<label>" <value> [?key=value] [@mode,mode]',
-        'extra_lines': ['heading "<text>"', 'help <key> "<text>"', 'yaml <key> <name> [<value>|<value>|...]'],
+        'line': 'option <key> <kind> "<label>" <value> [?key=value | ?key!=value] [@mode,mode]',
+        'extra_lines': ['heading "<text>"', 'help <key> "<text>"', 'yaml <key> <name> [<value>|<value>|...]',
+                        'tab "<title>" (version 7: the lines after it are a Settings tab of their own)',
+                        'button <key> "<label>" [?key=value] [@mode,mode] (version 7: the event setting.button)',
+                        'show <key> "<label>" [?key=value] [@mode,mode] (version 7: setting_show sets its text; '
+                        'hidden while "")'],
         'kinds': [
             {'kind': 'bool', 'value': 'on | off', 'setting_get': '1 or 0'},
             {'kind': 'choice', 'value': 'name|name|...', 'setting_get': 'the chosen index; the first is the default'},
             {'kind': 'int', 'value': '<min> <max> <default>', 'setting_get': 'the number'},
-            {'kind': 'text', 'value': '<longest> "<default>"', 'setting_text': 'the text (version 6)'},
+            {'kind': 'text', 'value': '<longest> "<default>" [word]', 'setting_text': 'the text (version 6; '
+             '`word`: one word, version 7)'},
+            {'kind': 'secret', 'value': '<longest>', 'setting_text': 'the password: never written to a file, '
+             'forgotten when Settings closes, never @lobby (version 7)'},
         ],
         'mode_line': 'mode <id> "<title>" "<line>" [off] [joins] [in=<mode>] [export "<game>"]',
         'mode_get': 'the chosen mode\'s id during game.new, "" for a plain new game (version 6)',
@@ -717,7 +725,7 @@ def generate():
     def js(obj):
         # Version 4 is frozen: its surface does not change any more.  The
         # newest version is open until it is frozen in turn.
-        obj = dict({'status': 'frozen' if api <= 5 else 'open'}, **obj)
+        obj = dict({'status': 'frozen' if api <= 6 else 'open'}, **obj)
         return json.dumps(obj, indent=2) + '\n'
 
     d = 'sdk/api/v%d' % api

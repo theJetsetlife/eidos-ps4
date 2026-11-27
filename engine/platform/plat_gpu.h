@@ -40,6 +40,10 @@ typedef struct EidosGpuOps {
     void (*one_canvas)(EidosGpu *g, const unsigned char *rgba, int w, int h,
                        const SDL_Rect *rect);
     void (*one_bottom)(EidosGpu *g, int px);
+    /* the world in this rectangle of the window (window pixels, y down),
+     * not over all of it; NULL: the whole window (less one_bottom's rows).
+     * one_set's ds is then inside the box, from the box's top-left corner */
+    void (*one_box)(EidosGpu *g, const SDL_Rect *box);
     int  (*matches_3d)(const EidosGpu *g, int screen, int out_w, int out_h);
 
     /* the 2D compositor */
@@ -82,6 +86,12 @@ typedef struct EidosGpuOps {
     /* The present waits for the display's vblank (on), at most one frame
      * queued, or shows at once (off: the game's pacer alone times it). */
     void (*set_vsync)(EidosGpu *g, int on);
+
+    /* The grey level (0 black .. 255 white) around DS screen `screen` (0
+     * the upper, 1 the lower) when the one-screen layout shows that screen
+     * as a DS rectangle: black under that screen's master brightness, so a
+     * fade to white whitens the whole window and black stays black. */
+    void (*set_screen_fill)(EidosGpu *g, int screen, unsigned level);
 } EidosGpuOps;
 
 /* The head of every backend's state. */
@@ -122,6 +132,7 @@ static inline void eidos_gpu_one_canvas(EidosGpu *g, const unsigned char *rgba, 
                                         const SDL_Rect *rect)
 { g->ops->one_canvas(g, rgba, w, h, rect); }
 static inline void eidos_gpu_one_bottom(EidosGpu *g, int px) { g->ops->one_bottom(g, px); }
+static inline void eidos_gpu_one_box(EidosGpu *g, const SDL_Rect *box) { g->ops->one_box(g, box); }
 static inline int eidos_gpu_3d_matches(const EidosGpu *g, int screen, int out_w, int out_h)
 { return g->ops->matches_3d(g, screen, out_w, out_h); }
 static inline int eidos_gpu_2d_compose(EidosGpu *g, const struct G2dGpuFrame *f,
@@ -168,6 +179,8 @@ static inline void eidos_gpu_set_3d2d_shown(EidosGpu *g, int w, int h)
 { g->ops->set_3d2d_shown(g, w, h); }
 static inline void eidos_gpu_set_world_backdrop(EidosGpu *g, unsigned rgb)
 { g->ops->set_world_backdrop(g, rgb); }
+static inline void eidos_gpu_set_screen_fill(EidosGpu *g, int screen, unsigned level)
+{ g->ops->set_screen_fill(g, screen, level); }
 static inline void eidos_gpu_set_3d_zero(EidosGpu *g, const unsigned char *zero, int w, int h)
 { g->ops->set_3d_zero(g, zero, w, h); }
 static inline int eidos_gpu_read3d(EidosGpu *g, unsigned char *out, int w, int h)

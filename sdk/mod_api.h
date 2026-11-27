@@ -52,8 +52,12 @@ extern "C" {
  * input, a mod's own files, the metaxy world sessions and the Archipelago
  * link, and other players in the field; and the events script.done to
  * ap.  Nothing moved, so version 3 to 5 mods still load.
+ *
+ * Version 7 appended the state table's national_dex, national_dex_set
+ * and mystery_card_add (the Pokedex's National mode, a Wonder Card from
+ * a mod).  Nothing moved, so version 3 to 6 mods still load.
  */
-#define BW_MOD_API_VERSION 6
+#define BW_MOD_API_VERSION 7
 /* The oldest interface a mod may state: version 3 mods see the same table
  * without the entries version 4 appended. */
 #define BW_MOD_API_MIN 3
@@ -70,7 +74,7 @@ extern "C" {
  * and the hash follows it; the test carries the other width's number, so a
  * change fails on every width the port is built at.
  */
-#define BW_MOD_API_HASH 0xF8F177B7u
+#define BW_MOD_API_HASH 0x75B3AE08u
 
 /* ------------------------------------------------------------------ */
 /* The event header                                                    */
@@ -233,7 +237,9 @@ enum {
     BW_EVENT_TEXT_INPUT_DONE    = 123,
     BW_EVENT_WORLD              = 124,
     BW_EVENT_AP                 = 125,
-    BW_EVENT_MOVE_KNOWN         = 126
+    BW_EVENT_MOVE_KNOWN         = 126,
+    BW_EVENT_WEB                = 127,
+    BW_EVENT_SETTING_BUTTON     = 128
 };
 
 /* Version 6: where the game asks whether a Pokemon knows a move
@@ -1481,6 +1487,49 @@ typedef struct BwMoveKnown {
     u8  known;      /* *mod */
     u8  pad;
 } BwMoveKnown;
+
+/*
+ * web (version 7): the answer to a web request a mod made (services table,
+ * web_request).  Every mod with a handler sees it; only the mod that made
+ * the request reads its bytes (web_read, inside the handler), so another
+ * mod never sees what a server answered it.  `status` is the server's HTTP
+ * status, or BW_WEB_FAILED when no answer came (no connection, the
+ * certificate, a timeout, too large).
+ */
+typedef struct BwWeb {
+    BwEvent h;
+    u32 ticket;     /* the request it answers (web_request's *ticket) */
+    s32 status;     /* the HTTP status, or BW_WEB_FAILED */
+    u32 size;       /* the bytes web_read gives: the body, or a short reason */
+    u32 pad;
+} BwWeb;
+
+enum {
+    BW_WEB_FAILED = -1              /* web: no answer came */
+};
+
+/*
+ * setting.button (version 7): the player chose a `button` row of a mod's
+ * settings (docs/mod-services.md, "Mod settings").  Every mod with a
+ * handler sees it; `key` is the button's key, so a mod acts on its own.
+ */
+typedef struct BwSettingButton {
+    BwEvent h;
+    u8  key[64];    /* the button's key, NUL-terminated */
+} BwSettingButton;
+
+/* game_hash (version 7): the hashes the port gives of the game in force. */
+enum {
+    BW_GAME_HASH_RA = 1             /* RetroAchievements' hash of the cartridge */
+};
+
+/* popup (version 7): the small picture beside a pop-up's text. */
+enum {
+    BW_POPUP_NONE    = 0,
+    BW_POPUP_TROPHY  = 1,           /* an achievement, a goal reached */
+    BW_POPUP_INFO    = 2,
+    BW_POPUP_WARNING = 3            /* something did not work (offline, a refusal) */
+};
 
 /* ------------------------------------------------------------------ */
 /* The script commands                                                 */

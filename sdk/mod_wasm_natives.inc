@@ -497,6 +497,36 @@ static int32_t wn_game_code(wasm_exec_env_t env, void *out, int32_t size)
     return (int32_t)w->host->state->game_code((char *)out, (u32)size);
 }
 
+static int32_t wn_national_dex(wasm_exec_env_t env)
+{
+    BwWasmMod *w = wasm_mod_of(env);
+    if (w == NULL || w->host == NULL || w->host->state == NULL ||
+        w->host->state->national_dex == NULL) {
+        return -1;
+    }
+    return (int32_t)w->host->state->national_dex();
+}
+
+static int32_t wn_national_dex_set(wasm_exec_env_t env)
+{
+    BwWasmMod *w = wasm_mod_of(env);
+    if (w == NULL || w->host == NULL || w->host->state == NULL ||
+        w->host->state->national_dex_set == NULL) {
+        return -1;
+    }
+    return (int32_t)w->host->state->national_dex_set();
+}
+
+static int32_t wn_mystery_card_add(wasm_exec_env_t env, void *pgf, int32_t size)
+{
+    BwWasmMod *w = wasm_mod_of(env);
+    if (w == NULL || w->host == NULL || w->host->state == NULL ||
+        w->host->state->mystery_card_add == NULL) {
+        return -1;
+    }
+    return (int32_t)w->host->state->mystery_card_add((const void *)pgf, (u32)size);
+}
+
 static void wn_message(wasm_exec_env_t env, const char *text)
 {
     BwWasmMod *w = wasm_mod_of(env);
@@ -1208,6 +1238,97 @@ static int32_t wn_tracker_set(wasm_exec_env_t env, const char *text, int32_t siz
     return (int32_t)w->host->services->tracker_set(text, (u32)size);
 }
 
+static int32_t wn_web_request(wasm_exec_env_t env, const char *url, void *body, int32_t body_size, const char *content_type, void *ticket)
+{
+    BwWasmMod *w = wasm_mod_of(env);
+    if (w == NULL || w->host == NULL || w->host->services == NULL ||
+        w->host->services->web_request == NULL ||
+        !wasm_object_ok(env, ticket, sizeof(u32))) {
+        return -1;
+    }
+    return (int32_t)w->host->services->web_request(url, (const void *)body, (u32)body_size, content_type, (u32 *)ticket);
+}
+
+static int32_t wn_web_read(wasm_exec_env_t env, void *out, int32_t size)
+{
+    BwWasmMod *w = wasm_mod_of(env);
+    if (w == NULL || w->host == NULL || w->host->services == NULL ||
+        w->host->services->web_read == NULL) {
+        return -1;
+    }
+    return (int32_t)w->host->services->web_read((void *)out, (u32)size);
+}
+
+static int64_t wn_time_utc(wasm_exec_env_t env)
+{
+    BwWasmMod *w = wasm_mod_of(env);
+    if (w == NULL || w->host == NULL || w->host->services == NULL ||
+        w->host->services->time_utc == NULL) {
+        return -1;
+    }
+    return (int64_t)w->host->services->time_utc();
+}
+
+static int64_t wn_ticks_ms(wasm_exec_env_t env)
+{
+    BwWasmMod *w = wasm_mod_of(env);
+    if (w == NULL || w->host == NULL || w->host->services == NULL ||
+        w->host->services->ticks_ms == NULL) {
+        return -1;
+    }
+    return (int64_t)w->host->services->ticks_ms();
+}
+
+static int32_t wn_game_hash(wasm_exec_env_t env, int32_t kind, void *out, int32_t size)
+{
+    BwWasmMod *w = wasm_mod_of(env);
+    if (w == NULL || w->host == NULL || w->host->services == NULL ||
+        w->host->services->game_hash == NULL) {
+        return -1;
+    }
+    return (int32_t)w->host->services->game_hash((u32)kind, (char *)out, (u32)size);
+}
+
+static int32_t wn_popup(wasm_exec_env_t env, const char *title, const char *text, int32_t icon)
+{
+    BwWasmMod *w = wasm_mod_of(env);
+    if (w == NULL || w->host == NULL || w->host->services == NULL ||
+        w->host->services->popup == NULL) {
+        return -1;
+    }
+    return (int32_t)w->host->services->popup(title, text, (u32)icon);
+}
+
+static int32_t wn_setting_show(wasm_exec_env_t env, const char *key, const char *text)
+{
+    BwWasmMod *w = wasm_mod_of(env);
+    if (w == NULL || w->host == NULL || w->host->services == NULL ||
+        w->host->services->setting_show == NULL) {
+        return -1;
+    }
+    return (int32_t)w->host->services->setting_show(key, text);
+}
+
+static int32_t wn_setting_set_text(wasm_exec_env_t env, const char *key, const char *text)
+{
+    BwWasmMod *w = wasm_mod_of(env);
+    if (w == NULL || w->host == NULL || w->host->services == NULL ||
+        w->host->services->setting_set_text == NULL) {
+        return -1;
+    }
+    return (int32_t)w->host->services->setting_set_text(key, text);
+}
+
+static int32_t wn_hardcore_allowed(wasm_exec_env_t env, void *why, int32_t size)
+{
+    BwWasmMod *w = wasm_mod_of(env);
+    if (w == NULL || w->host == NULL || w->host->services == NULL ||
+        w->host->services->hardcore_allowed == NULL) {
+        return -1;
+    }
+    return (int32_t)w->host->services->hardcore_allowed((char *)why, (u32)size);
+}
+
 /* The state calls and the services, as imports of module "eidos". */
 static NativeSymbol k_wasm_api_natives[] = {
     { "party_count", (void *)wn_party_count, "()i", NULL },
@@ -1256,6 +1377,9 @@ static NativeSymbol k_wasm_api_natives[] = {
     { "work_set", (void *)wn_work_set, "(ii)i", NULL },
     { "badge_set", (void *)wn_badge_set, "(i)i", NULL },
     { "game_code", (void *)wn_game_code, "(*~)i", NULL },
+    { "national_dex", (void *)wn_national_dex, "()i", NULL },
+    { "national_dex_set", (void *)wn_national_dex_set, "()i", NULL },
+    { "mystery_card_add", (void *)wn_mystery_card_add, "(*~)i", NULL },
     { "message", (void *)wn_message, "($)", NULL },
     { "confirm", (void *)wn_confirm, "($)i", NULL },
     { "session_host", (void *)wn_session_host, "(*~)i", NULL },
@@ -1327,4 +1451,13 @@ static NativeSymbol k_wasm_api_natives[] = {
     { "player_name", (void *)wn_player_name, "(*~)i", NULL },
     { "mode_code", (void *)wn_mode_code, "(*~)i", NULL },
     { "tracker_set", (void *)wn_tracker_set, "($i)i", NULL },
+    { "web_request", (void *)wn_web_request, "($*~$*)i", NULL },
+    { "web_read", (void *)wn_web_read, "(*~)i", NULL },
+    { "time_utc", (void *)wn_time_utc, "()I", NULL },
+    { "ticks_ms", (void *)wn_ticks_ms, "()I", NULL },
+    { "game_hash", (void *)wn_game_hash, "(i*~)i", NULL },
+    { "popup", (void *)wn_popup, "($$i)i", NULL },
+    { "setting_show", (void *)wn_setting_show, "($$)i", NULL },
+    { "setting_set_text", (void *)wn_setting_set_text, "($$)i", NULL },
+    { "hardcore_allowed", (void *)wn_hardcore_allowed, "(*~)i", NULL },
 };

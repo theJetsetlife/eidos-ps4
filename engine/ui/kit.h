@@ -188,10 +188,19 @@ int  ui_keycap_w(const char *label);
  * (ui_mon_front_anim, ui_item_icon) or its OBJ layer (eidos_ui_want_objs). */
 void ui_blit_screen(EidosUiCtx *c, int x, int y, const u8 *screen,
                     int sx, int sy, int w, int h, int k, int key);
+/* The same rectangle at half size (w / 2 by h / 2 canvas pixels): each
+ * canvas pixel is the mean of its 2 x 2 screen pixels.  For a small
+ * picture of a whole pane (the Dowsing Machine's rods). */
+void ui_blit_screen_half(EidosUiCtx *c, int x, int y, const u8 *screen,
+                         int sx, int sy, int w, int h);
 
 /* A text of the game's banks (a/0/0/<arc>, member, entry) as UTF-8, read
  * through the file layer; "" when it cannot be read (recipe_menus.c). */
 const char *ui_game_text(int arc, int member, u32 idx);
+/* The same into `out`, with the text's word tags filled as the game's word
+ * set fills them: the tag of slot n becomes slots[n] (a name, an item's
+ * name the caller read from another bank). */
+void ui_game_text_fill(int arc, int member, u32 idx, const char *const *slots, int nslots, char *out, int max);
 
 /* The game's own images, decoded on first use; NULL when unavailable. */
 const UiImage *ui_item_icon(u16 item);
@@ -299,6 +308,11 @@ void ui_row(EidosUiCtx *c, int x, int y, int w, int h, int selected,
             int hover, const UiTheme *t);
 void ui_message(EidosUiCtx *c, int x, int y, int w, const char *utf8);
 void ui_toast(EidosUiCtx *c, int x, int y, const char *utf8, const UiImage *icon);
+/* A mod's pop-up in the style in force: its width (the style's) and height
+ * for these texts, and the box itself. */
+int  ui_popup_w(const char *title, const char *text);
+int  ui_popup_h(const char *title, const char *text);
+void ui_popup(EidosUiCtx *c, int x, int y, int w, const char *title, const char *text);
 /* Fast forward's badge (the style's), x its right edge or, `centred`, its
  * middle; factor 0: as fast as the host can.  ui_ff_glyph: the fast-forward sign, two triangles
  * pointing right, h high (odd), at x; returns its width.  ui_speed_label:
@@ -319,8 +333,9 @@ void ui_cursor_corners(EidosUiCtx *c, int x, int y, int w, int h, u32 color);
  * male, 1 female, 2 none. */
 /* Types are the game's own numbers: NORMAL 0 .. STEEL 8, FIRE 9, WATER 10,
  * GRASS 11, ELECTRIC 12, PSYCHIC 13, ICE 14, DRAGON 15, DARK 16; the
- * unknown mark (an unseen Pokemon) is UI_TYPE_UNKNOWN. */
-#define UI_TYPE_UNKNOWN 17
+ * unknown mark (an unseen Pokemon) is UI_TYPE_UNKNOWN, the game's "no
+ * type" number (17 is a type a mod can add). */
+#define UI_TYPE_UNKNOWN 31
 const char *ui_type_name(int type);
 /* The spelling later games give a move whose Black and White name was
  * squeezed into 12 letters ("Dragon Breath"), or NULL: only when
@@ -331,7 +346,16 @@ u32  ui_type_color(int type);
 /* recipe_dex.c: a species' name from the game's text (> 0 when found) and
  * its two types (the same number twice for one type). */
 int  ui_species_name(int species, char *out, int cap);
+/* recipe_dex.c: a type's name from the game's text (bank 199, > 0 when found). */
+int  ui_type_game_name(int type, char *out, int cap);
 void ui_species_types(int species, int *t1, int *t2);
+/* recipe_dex.c: the style's Pokedex screen on one species, for the registration after a catch (recipe_menus.c, the
+ * scene "catch"), outside the Pokedex app.  open: how far the Pokedex is open, as the Pokedex itself counts it (0
+ * shut, 200 slid open, 256 its screens on).  facts: the species' facts shown as known (1 category, 2 type, 4
+ * height, 8 weight, 16 entry); the others keep the look of a species that was only seen.  owned: the Pokedex's
+ * counter counts the species (0: one less, as before the catch).  next: the hint bar offers A. */
+void ui_dex_registration(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in, int species, int open, int facts,
+                         int owned, int next);
 
 /* Each returns the width it drew, where that depends on the text. */
 int  ui_keycap(EidosUiCtx *c, int x, int y, const char *label);

@@ -67,6 +67,9 @@ void eidos_gl_one_canvas(EidosGl *gl, const unsigned char *rgba, int w, int h,
 /* Window pixels at the bottom the world leaves free (EidosUiView.bottom):
  * it is drawn above them; 0 for the whole window. */
 void eidos_gl_one_bottom(EidosGl *gl, int px);
+/* The world in a rectangle of the window (EidosUiView.box_*; window pixels,
+ * y down); NULL for the whole window. */
+void eidos_gl_one_box(EidosGl *gl, const SDL_Rect *box);
 int  eidos_gl_3d_matches(const EidosGl *gl, int screen, int out_w, int out_h);
 
 /* The GPU 3D rasteriser (plat_gl3d.c).  has3d is false when the optional part
@@ -145,6 +148,7 @@ void eidos_gl_set_3d2d_shown(EidosGl *gl, int w, int h);
 /* The one-screen world's colour beyond the DS screen where no 3D is: the
  * screen's backdrop with its master brightness, 0xRRGGBB. */
 void eidos_gl_set_world_backdrop(EidosGl *gl, unsigned rgb);
+void eidos_gl_set_screen_fill(EidosGl *gl, int screen, unsigned level);
 /* The same screen composed with an opaque black 3D layer (w x h RGBA), so
  * the presenter can tell what a 2D layer adds over the 3D and how much of
  * the 3D shows through a blend; NULL for none.  Call before eidos_gl_set_3d. */

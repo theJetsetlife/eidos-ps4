@@ -196,15 +196,15 @@ so it now starts the way the game will.
      dropping the file on the window does the same. When setup opened
      because of something other than missing data, the reason comes
      first.
-   - *Checking your ROM*, then *Writing the game data*: a progress bar
+   - *Checking ROM*, then *Extracting game data*: a progress bar
      driven by the worker thread and a Cancel button (Escape).
    - *Refused*, with a headline per case and the core's message under it:
-     "This file cannot be used" (an archive, too small, too large),
-     "This is not a DS game", "This is a different game", "Not supported
-     yet" (White, another region), "This dump is damaged", "Not the
-     original game" (modified, patched or another revision; both hashes
-     shown), "Not enough free space", "The game data could not be
-     written", "Cancelled". One button: "Choose another file...".
+     "Cannot use this file" (an archive, too small, too large),
+     "Not a DS ROM", "Wrong DS game", "Wrong game version" (the other
+     game), "Unsupported ROM" (another region), "Corrupted ROM dump",
+     "Modified ROM" (modified, patched or another revision, both hashes
+     shown), "Not enough free space", "Failed to write game data",
+     "Cancelled". One button: "Choose another file...".
    - *Ready to play*: where the data is, which ROM it came from; Start.
    Every button has a key: Enter (the focused button), Escape (quit or
    cancel), Tab or the arrows (move focus), O (choose a file). The mouse
@@ -248,10 +248,45 @@ a `portable.txt` beside the executable makes the executable's folder the
 home, for a USB stick (Windows, Linux through `/proc/self/exe`, macOS
 through `_NSGetExecutablePath`).
 
-The config file is two `key=value` lines, `data_root=` and `rom=`, written
-to a temporary file and renamed into place. It is kept in the home folder
-on every platform, Linux included: it holds only machine-local paths,
-which the XDG rules put with data and state, not with configuration.
+The config file is `key=value` lines, written to a temporary file and
+renamed into place: `data_root=` and `rom=` (the extraction a start plays
+when nothing else names one, and the ROM it came from) and, for an install
+that holds both games, `played=` (the folder played last), `game.black=`
+and `game.white=` (the folder each game was last played from) and one
+`rom.<game code>=` a cartridge. Only a standalone game follows `played=`
+and only a standalone game writes it: a start with a profile folder of its
+own (the launcher's) that names no data folder reads `data_root=`, which
+playing the other game never moves. It is kept in the home
+folder on every platform, Linux included: it holds only machine-local
+paths, which the XDG rules put with data and state, not with configuration.
+
+### Both games in one install
+
+One install can hold Pokemon Black and Pokemon White (`install/setup.h`,
+"The two games"). Each cartridge's data has its own folder: English Black's
+is `<home>/extract`, as it always was, and any other cartridge's is
+`<home>/extract-<game code>` (`extract-IRAO` is English White), the names
+the launcher gives them. The game a folder holds is read from the
+`header.bin` the extractor wrote there, never from the folder's name, so a
+folder from an older eidos stays where it is whatever it holds.
+
+- `--game black` or `--game white` (also `--game=black`) starts that game.
+  Without it a standalone game plays the game played last. With its data missing, a
+  window asks for that game's ROM; with `--no-window` the start says what
+  is missing and ends with status 1.
+- `--rom PATH` (also `--rom=PATH`) makes the data of the ROM's cartridge in
+  that cartridge's own folder. A second game's ROM never replaces the first
+  game's data. `--no-window --rom PATH` makes the data and ends, status 0
+  on success, without starting the game.
+- A folder named for one run (`--data-root`, `BW_DATA_ROOT`) is used as it
+  is; `--game` with a folder of the other game is refused.
+
+While a setup step runs for a launcher that sets `RECOMPLAUNCHER`, each
+whole percent is also one line on the standard output,
+`progress <0 to 1> <text>`: the check of the ROM is the first half, the
+writing of the data the second. The last line is always
+`progress 1.00 The game data is ready`: a folder that held that ROM's data
+already has nothing written, so the lines before it stop at the half.
 
 ### Resetting and moving
 
@@ -288,6 +323,14 @@ Resolution order (`sdk/save.h`): `bw_set_save_dir` (a front end, a
 `--save-dir` option, the tests), then the `BW_SAVE_DIR` environment
 variable, then the platform default above. With none (a mobile build whose
 front end has not set it yet) the game runs on in-memory state and says so.
+
+A game started without the launcher on a computer does not play from the
+platform default any more: it plays from the launcher's two game profiles,
+`profiles/Black` and `profiles/White` beside the save folder above, each
+with its own `saves/`, `mods/` and `settings.ini`
+(docs/distribution.md, "A standalone game"). The platform default is where
+a plain start of an older eidos kept its saves, and they are copied into
+their game's profile once.
 
 The folder holds three files, each written whole to a sibling `.tmp`,
 synced and swapped in, so a crash leaves the old file or the new one:

@@ -427,12 +427,21 @@ static int g_nbank;
 
 static const Bank *bank_get(int arc, int member)
 {
+    static u32 gen;
     int i;
     char path[16];
     BwArcFile f;
     long n;
     Bank *b;
 
+    if (gen != eidos_ui_data_generation()) {
+        /* another game's data: its own text */
+        gen = eidos_ui_data_generation();
+        for (i = 0; i < g_nbank; i++) {
+            free(g_bank[i].data);
+        }
+        g_nbank = 0;
+    }
     for (i = 0; i < g_nbank; i++) {
         if (g_bank[i].arc == arc && g_bank[i].member == member) {
             return g_bank[i].data != NULL ? &g_bank[i] : NULL;
@@ -491,8 +500,20 @@ static int put_utf8(char *out, int n, int max, u32 c)
 /* One string of a bank as UTF-8.  Line breaks stay '\n'; the control codes
  * are dropped, except the player's name tag (kind 0x0100), which `name`
  * replaces.  Returns out. */
+static const char *bank_text_slots(int arc, int member, u32 idx, const char *name, const char *const *slots,
+                                   int nslots, char *out, int max);
+
 static const char *bank_text(int arc, int member, u32 idx, const char *name,
                              char *out, int max)
+{
+    return bank_text_slots(arc, member, idx, name, NULL, 0, out, max);
+}
+
+/* The same, and with `slots` a word tag (a control code of the kinds
+ * 0x01xx, whose first argument is the word set's slot, as the game's
+ * WORDSET_CopyTaggedText fills them) is replaced by slots[that slot]. */
+static const char *bank_text_slots(int arc, int member, u32 idx, const char *name, const char *const *slots,
+                                   int nslots, char *out, int max)
 {
     const Bank *b = bank_get(arc, member);
     u32 count, off, key, pos, n = 0;
@@ -538,8 +559,13 @@ static const char *bank_text(int arc, int member, u32 idx, const char *name,
                 key = rotl16(key, 3);
                 pos += 2;
             }
-            (void)a0;
-            if (kind == 0x0100u && name != NULL) {
+            if (slots != NULL && (kind & 0xFF00u) == 0x0100u && argc >= 1u && a0 < (u32)nslots && slots[a0] != NULL) {
+                const char *s;
+
+                for (s = slots[a0]; *s != '\0' && (int)n < max - 4; s++) {
+                    out[n++] = *s;
+                }
+            } else if (kind == 0x0100u && name != NULL) {
                 const char *s;
 
                 for (s = name; *s != '\0' && (int)n < max - 4; s++) {
@@ -620,6 +646,12 @@ static const char *game_text(int arc, int member, u32 idx, const char *name)
 const char *ui_game_text(int arc, int member, u32 idx)
 {
     return game_text(arc, member, idx, NULL);
+}
+
+/* A text of the game's banks with its word tags filled (kit.h). */
+void ui_game_text_fill(int arc, int member, u32 idx, const char *const *slots, int nslots, char *out, int max)
+{
+    (void)bank_text_slots(arc, member, idx, NULL, slots, nslots, out, max);
 }
 
 /* Replace the line breaks of a text by spaces (the kit wraps by itself). */
@@ -1350,6 +1382,7 @@ static void event_message(const SaveInfo *s, char *out, int max)
 
 /* The trainer's picture (the Trainer Card's, below). */
 static int g_pic_ok, g_pic_sex;
+static u32 g_pic_gen;           /* the game data the picture was read from (eidos_ui_data_generation) */
 static UiImage g_pic_im;
 static void pic_load(int sex);
 extern u32 MYSTATUS_GetSex(const void *mystatus) __attribute__((weak));
@@ -1399,7 +1432,7 @@ static void save_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
             void *me = gd != NULL && GAME_DATA_GetMyStatus != NULL ? GAME_DATA_GetMyStatus(gd) : NULL;
             int sex = me != NULL && MYSTATUS_GetSex != NULL && MYSTATUS_GetSex(me) == 1;
 
-            if (g_pic_ok < 0 || g_pic_sex != sex) {
+            if (g_pic_ok < 0 || g_pic_sex != sex || g_pic_gen != eidos_ui_data_generation()) {
                 pic_load(sex);
             }
             if (g_pic_ok == 1) {
@@ -2025,6 +2058,7 @@ static void pic_load(int sex)
 
     g_pic_ok = 0;
     g_pic_sex = sex;
+    g_pic_gen = eidos_ui_data_generation();
     if (chr != NULL && scr != NULL && pal != NULL && cb > 0x18 && sb > 0x0C && pb > 0x10) {
         u32 csize = rd32(chr, 0x10), ntiles, sw, x, y;
         const u8 *tiles = chr + 0x18;
@@ -2476,6 +2510,21 @@ static void card_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
         card_reset();
         g_card_work = ci.work;
     }
+    {
+        static u32 gen;
+
+        if (gen != eidos_ui_data_generation()) {
+            /* another game's data: the case's picture is read again */
+            int q;
+
+            gen = eidos_ui_data_generation();
+            for (q = 0; q < 8; q++) {
+                free(g_sil[q].mask);
+                g_sil[q].mask = NULL;
+            }
+            g_sil_n = -1;
+        }
+    }
     if (g_sil_n < 0) {
         sil_load();
     }
@@ -2505,6 +2554,14 @@ static void card_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
 
     compact = c->canvas->h - ui_bar_h(c) - 6 < 190;
     m = modal_rect(c, 72, 300, 380, 80, compact ? 146 : 190, 220, compact ? 146 : 190);
+    {
+        static u32 gen;
+
+        if (gen != eidos_ui_data_generation()) {
+            gen = eidos_ui_data_generation();   /* the other version's data: its own badges */
+            g_badge_ok = -1;
+        }
+    }
     if (g_badge_ok < 0) {
         badge_load();
     }
@@ -2621,7 +2678,7 @@ static void card_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
                                                                   : NULL;
             int sex = me != NULL && MYSTATUS_GetSex != NULL && MYSTATUS_GetSex(me) == 1;
 
-            if (g_pic_ok < 0 || g_pic_sex != sex) {
+            if (g_pic_ok < 0 || g_pic_sex != sex || g_pic_gen != eidos_ui_data_generation()) {
                 pic_load(sex);
             }
             if (g_pic_ok == 1) {
@@ -4205,6 +4262,9 @@ static const EidosUiRecipe recipe_townmap = {
  * 0x54 (the yes/no).
  */
 extern u32 POKE_TOOL_GetPartyValue(void *pp, u32 paramId, u32 arg) MN_WEAK;
+/* sdk/ui_catch.c: the card draws, so the registration does not fade between its two DS screens
+ * (stubs/ov/patch_ov207_zukan_toroku_graphic.c) */
+extern void bw_ui_catch_mark(void) MN_WEAK;
 
 static const u8 *catch_work(const u8 **ret)
 {
@@ -4230,6 +4290,16 @@ static int catch_match(void)
     return tw != NULL && rdp(tw, 0x24) != NULL;
 }
 
+/* Whether the game is asking: ZukanNicknameWork.pauseFlag (+0x4C, ZUKAN_NICKNAME_UpdateInfoWindow) is 2
+ * from the frame it shows its YES / NO to the frame it takes an answer, and 3 after (it then puts the
+ * buttons away, BTLV_INPUT_ChangeScreen 0).  #50: the answers were drawn for as long as the input
+ * existed, so once NO was taken they stayed over the next message with YES lit, because the game's
+ * cursor goes back to the first entry when a choice is taken. */
+static int catch_asking(const u8 *nk)
+{
+    return rd32(nk, 0x4C) == 2u && rdp(nk, 0x54) != NULL;
+}
+
 /* The question's cursor, the battle input's (BtlvInput +0x68, bits 5..8: 0 YES, 1 NO), or -1 while the game
  * hides it (BtlvInput.cursorVisible, +0x274, ZukanNicknameWork's soundEnabled: after a touch).  #45: the
  * answers showed no cursor at all. */
@@ -4247,6 +4317,128 @@ static int catch_cursor(const u8 *nk)
     return ((rd32(bi, 0x68) >> 5) & 15u) == 1u ? 1 : 0;
 }
 
+/* The answer to show lit.  The game takes A (the entry under its cursor), B (NO) or a touch, then puts
+ * its cursor back on the first entry and runs the button's own animation for about ten frames before it
+ * says it has the answer (BTLV_INPUT_ProcessTouchInput): through those frames the answer taken stays
+ * lit, not the cursor (#50: NO, taken, showed YES lit).  -1: no cursor to show. */
+static int g_catch_taken = -1;
+
+/* Whether a press does something now: the registration reads the keys in its step 1 (state 0), and under this
+ * card a press in its step 0 (the fade in) is kept for that step (stubs/ov/patch_ov207_zukan_toroku_graphic.c);
+ * the question's side (state 1) takes them as the game's message and its answers do.  In the registration's
+ * later steps (the Pokedex page that opens and goes) the game reads no key: the hint bar names none there (it
+ * said "Next" all through, and each press looked lost). */
+static int catch_takes_key(const u8 *tw)
+{
+    return rd32(tw, 0x10) != 0u || rd32(tw, 0x14) <= 1u;
+}
+
+/* The question's side (ZukanTorokuWork.state 1) shows one message after another in the game's window: the
+ * question, then, after NO, "... was transferred to BOX 1".  Between two of them the game has no window for a
+ * frame.  The box stays through that frame, empty, at its last height: it went for the frame, and the ground
+ * under it showed down to the hint bar (a blink of the whole lower part).  Returns 1 when *bh is such a kept
+ * height. */
+static int g_catch_box_h;
+
+static int catch_box_gap(const u8 *tw, int *bh)
+{
+    if (rd32(tw, 0x10) == 0u) {
+        g_catch_box_h = 0;
+        return 0;
+    }
+    if (*bh > 0) {
+        g_catch_box_h = *bh;
+        return 0;
+    }
+    if (g_catch_box_h > 0) {
+        *bh = g_catch_box_h;
+        return 1;
+    }
+    return 0;
+}
+
+static int catch_lit(const u8 *nk)
+{
+    int cur = catch_cursor(nk);
+
+    if (!catch_asking(nk)) {
+        g_catch_taken = -1;
+        return -1;
+    }
+    if (g_catch_taken < 0) {
+        u32 k = eidos_ui_keys_pressed();
+
+        if (k & BW_KEY_B) {
+            g_catch_taken = 1;
+        } else if ((k & BW_KEY_A) && cur >= 0) {
+            g_catch_taken = cur;
+        }
+    }
+    return g_catch_taken >= 0 ? g_catch_taken : cur;
+}
+
+/*
+ * The registration (ZukanTorokuWork.state 0): the style's own Pokedex screen (recipe_dex.c, ui_dex_registration).
+ * On the DS it is the Pokedex page of the caught Pokemon (ov206 zukan_info.c, the widget at ZukanTorokuWork +0x20);
+ * here the Pokedex opens as it opens from the menu, on the caught species with its facts still unknown (the
+ * screen's "seen" look), and the facts become known one after the other.  It follows the game's own steps:
+ *   - the Pokedex opens while the game fades its screen in and starts its page (ZukanTorokuWork.step 0, 23
+ *     frames, then ZukanInfo.animState 1, 15 frames): 26 frames to slide open, 10 for its screens to come on,
+ *     the Pokedex's own opening times;
+ *   - the facts appear with the game's page window (ZukanInfo.animState 2: windowBottom, +0x68, from 0x88 to 16,
+ *     120 frames): category, type, height, weight, entry, and a moment before its end the species counts as
+ *     owned on the Pokedex's counter (before the end, so a player who pressed early still sees it count);
+ *   - the Pokedex closes when the game moves the Pokemon to the question's ground (animState 4, 77 frames): its
+ *     screens go off (10 frames), it slides shut (26), and the question's ground stands for the rest.
+ * The game runs this state only for a species caught for the first time; a second one of a species goes straight
+ * to the question (state 1), so the Pokedex shows once a species.
+ */
+static u32 g_reg_from;          /* the frame the registration began (0: not begun) */
+static u32 g_reg_close;         /* the frame the Pokedex began to close (0: it has not) */
+static int g_reg_gone;          /* it has closed: the question's ground shows */
+
+/* 1 when the Pokedex drew this frame (the registration's own screen); 0: the question's ground is to be drawn. */
+static int catch_registration(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in, const u8 *tw, int species)
+{
+    const u8 *zi = (const u8 *)rdp(tw, 0x20);
+    u32 as, e;
+    int open, reveal, facts = 0;
+
+    if (rd32(tw, 0x10) != 0u || zi == NULL || species <= 0) {
+        return 0;
+    }
+    as = rd32(zi, 0x54);
+    if (g_reg_from == 0u) {
+        g_reg_from = in->frame != 0u ? in->frame : 1u;
+    }
+    e = in->frame - g_reg_from;
+    open = e < 26u ? (int)e * 200 / 26 : e < 36u ? 200 + (int)(e - 26u) * 56 / 10 : 256;
+    reveal = as <= 1u ? 0 : as == 2u ? (0x88 - (int)rd32(zi, 0x68)) * 256 / (0x88 - 16) : 256;
+    facts |= reveal >= 96 ? 1 : 0;      /* the category */
+    facts |= reveal >= 128 ? 2 : 0;     /* the type */
+    facts |= reveal >= 160 ? 4 : 0;     /* the height */
+    facts |= reveal >= 192 ? 8 : 0;     /* the weight */
+    facts |= reveal >= 224 ? 16 : 0;    /* the entry */
+    if (as >= 4u) {
+        u32 d;
+
+        if (g_reg_close == 0u) {
+            g_reg_close = in->frame != 0u ? in->frame : 1u;
+        }
+        d = in->frame - g_reg_close;
+        if (d >= 36u || as != 4u) {
+            if (!g_reg_gone) {
+                g_reg_gone = 1;
+                eidos_ui_crossfade();
+            }
+            return 0;
+        }
+        open = d < 10u ? 256 - (int)d * 56 / 10 : 200 - (int)(d - 10u) * 200 / 26;
+    }
+    ui_dex_registration(c, view, in, species, open, facts, reveal >= 240, catch_takes_key(tw));
+    return 1;
+}
+
 static void catch_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
 {
     static const char *const hints[] = { "A", "Choose", "B", "No" };
@@ -4255,7 +4447,7 @@ static void catch_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
     static const u32 keys_next[] = { BW_KEY_A };
     const u8 *rw, *tw = catch_work(&rw), *nk;
     int cw = c->canvas->w, ch = c->canvas->h, species = 0, t1 = -1, t2 = -1;
-    int px, py, pw = 280, ph = 136, bx, by, bw, bh, i;
+    int px, py, pw = 280, ph = 136, bx, by, bw, bh, i, gap;
     char name[32] = "", num[16];
     void *mon;
 
@@ -4267,9 +4459,37 @@ static void catch_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
     if (tw == NULL || (nk = (const u8 *)rdp(tw, 0x24)) == NULL) {
         return;
     }
+    /* The registration (ZukanTorokuWork.state 0, +0x10) is two screens on the DS, the Pokedex page and the
+     * question's ground, and the game goes from one to the other in the dark (ZUKAN_TOROKU_GRAPHIC_Main,
+     * steps 3 and 4; under this scene they take a frame each, stubs/ov/patch_ov207_zukan_toroku_graphic.c).
+     * The interface draws through all of the state's fades: it is not held.  Held, the picture stood still
+     * while the game waited, and during a stepped fade it was held on each step and let go the frame after,
+     * each time with a crossfade from its own held picture: the Pokemon showed as pale copies of itself.
+     * The question's own end (state 1: a fade to black, then the name screen or the field) is held as
+     * every app's is. */
+    if (rd32(tw, 0x10) == 0u) {
+        eidos_ui_no_hold();
+    }
+    if (bw_ui_catch_mark != NULL) {
+        bw_ui_catch_mark();
+    }
+    if (getenv("EIDOS_CATCH_LOG") != NULL) {
+        /* (research: the registration's state, step and fade level as they change, and each A or B pressed) */
+        static u32 last = 0xFFFFFFFFu;
+        const u32 now = (rd32(tw, 0x10) << 16) | (rd32(tw, 0x14) << 8) | (rd32(tw, 0x18) & 0xFFu), k = eidos_ui_keys_pressed();
+
+        if (now != last || (k & (BW_KEY_A | BW_KEY_B)) != 0u) {
+            fprintf(stderr, "eidos: catch: frame %u state %u step %u fade %u asking %d%s\n", (unsigned)in->frame, (unsigned)rd32(tw, 0x10),
+                    (unsigned)rd32(tw, 0x14), (unsigned)rd32(tw, 0x18), catch_asking(nk), (k & BW_KEY_A) ? " A" : (k & BW_KEY_B) ? " B" : "");
+            last = now;
+        }
+    }
     mon = rdp(rw, 0x08);
     if (mon != NULL && POKE_TOOL_GetPartyValue != NULL) {
         species = (int)POKE_TOOL_GetPartyValue(mon, 5, 0);
+    }
+    if (catch_registration(c, view, in, tw, species)) {
+        return;
     }
     {
         /* a theme's own screen (the DS's: the Pokemon in a light on the
@@ -4298,20 +4518,23 @@ static void catch_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
             }
             bw = cw - 40 < 420 ? cw - 40 : 420;
             bh = ui_textbox_h(rdp(nk, 0x24));
+            gap = catch_box_gap(tw, &bh);
             bx = (cw - bw) / 2;
             by = ch - 17 - 8 - (bh > 0 ? bh : 42);
             if (bh > 0) {
                 u32 fill = 0, edge = 0, ink = UI_RAW(0x202020u), shd = UI_RAW(0xC4C4C4u);
 
                 ui_theme_active()->textbox(c, UI_TEXTBOX_NARRATION | 16, bx, by, bw, bh, &fill, &edge, &ink, &shd);
-                ui_letters(c, ui_bmpwin_bmp(rdp(nk, 0x24)), bx + 12, by + 7, ink, shd, NULL, NULL);
+                if (!gap) {
+                    ui_letters(c, ui_bmpwin_bmp(rdp(nk, 0x24)), bx + 12, by + 7, ink, shd, NULL, NULL);
+                }
             }
             /* the answers come with the question, not before it (the game makes its yes/no
              * input when the screen starts) */
-            if (bh > 0 && rdp(nk, 0x54) != NULL && ui_theme_active()->choice_row != NULL) {
+            if (bh > 0 && catch_asking(nk) && ui_theme_active()->choice_row != NULL) {
                 static const char *const yn2[2] = { "YES", "NO" };
                 static const int tap_y2[2] = { 56, 104 };
-                int lw = 84, lx = bx + bw - lw, ly = by - 6 - (2 * 18 + 8), hov = -1;
+                int lw = 84, lx = bx + bw - lw, ly = by - 6 - (2 * 18 + 8), hov = -1, lit = catch_lit(nk);
 
                 ui_textbox_frame(c, UI_TEXTBOX_NARRATION, lx, ly, lw, 2 * 18 + 8);
                 for (i = 0; i < 2; i++) {
@@ -4324,18 +4547,19 @@ static void catch_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
                 for (i = 0; i < 2; i++) {
                     EidosUiRect r = { lx + 3, ly + 4 + i * 18, lw - 6, 18 };
 
-                    /* lit: the pointer's, else the game's cursor */
+                    /* lit: the answer taken, else the pointer's, else the game's cursor */
                     ui_theme_active()->choice_row(c, UI_CHOICE_WHITE, r.x, r.y, r.w, r.h, ui_tr(yn2[i]),
-                                                  hov >= 0 ? hov == i : catch_cursor(nk) == i);
+                                                  g_catch_taken >= 0 ? g_catch_taken == i : hov >= 0 ? hov == i : lit == i);
                     if (eidos_ui_hit(r) & EIDOS_UI_CLICK) {
+                        g_catch_taken = i;
                         eidos_ui_tap(127, tap_y2[i], 3);
                     }
                 }
             }
-            if (bh > 0) {
+            if (bh > 0 && catch_asking(nk)) {
                 ui_hints(c, ch - ui_bar_h(c), cw, hints, 2, keys);
             } else {
-                ui_hints(c, ch - ui_bar_h(c), cw, hints_next, 1, keys_next);
+                ui_hints(c, ch - ui_bar_h(c), cw, hints_next, catch_takes_key(tw) ? 1 : 0, keys_next);
             }
             return;
         }
@@ -4364,32 +4588,56 @@ static void catch_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
     /* the question in the battle's box, YES and NO */
     bw = cw - 16 < 300 ? cw - 16 : 300;
     bh = ui_textbox_h(rdp(nk, 0x24));
+    gap = catch_box_gap(tw, &bh);
     bx = (cw - bw) / 2;
     by = ch - 17 - 6 - (bh > 0 ? bh : 42);
     if (bh > 0) {
         ui_panel(c, bx, by, bw, bh, UI_CUT_TL | UI_CUT_BR, 7, UI_BODY, UI_EDGE, 235);
-        ui_letters(c, ui_bmpwin_bmp(rdp(nk, 0x24)), bx + 12, by + 7, UI_WHITE, UI_EDGE, NULL, NULL);
+        if (!gap) {
+            ui_letters(c, ui_bmpwin_bmp(rdp(nk, 0x24)), bx + 12, by + 7, UI_WHITE, UI_EDGE, NULL, NULL);
+        }
     }
-    if (bh > 0 && rdp(nk, 0x54) != NULL) {
+    if (bh > 0 && catch_asking(nk)) {
         static const char *const yn[2] = { "YES", "NO" };
         static const int tap_y[2] = { 56, 104 };
 
+        int lit = catch_lit(nk), hov = -1;
+
+        /* one answer lit at a time: the one taken, else the pointer's, else
+         * the game's cursor (the pointer on one and the cursor on the other
+         * lit both) */
         for (i = 0; i < 2; i++) {
-            if (sheet_tile_hit(c, bx + bw - 90, by - 4 - 2 * 26 + i * 26, 90, 23, yn[i], catch_cursor(nk) == i)
+            EidosUiRect r = { bx + bw - 90, by - 4 - 2 * 26 + i * 26, 90, 23 };
+
+            if (eidos_ui_hit(r) & EIDOS_UI_HOVER) {
+                hov = i;
+            }
+        }
+        if (g_catch_taken < 0 && hov >= 0) {
+            lit = -1;                   /* the tile lights itself under the pointer */
+        }
+        for (i = 0; i < 2; i++) {
+            if (sheet_tile_hit(c, bx + bw - 90, by - 4 - 2 * 26 + i * 26, 90, 23, yn[i], lit == i)
                 & EIDOS_UI_CLICK) {
+                g_catch_taken = i;
                 eidos_ui_tap(127, tap_y[i], 3);
             }
         }
     }
-    if (bh > 0) {
+    if (bh > 0 && catch_asking(nk)) {
         ui_hints(c, ch - ui_bar_h(c), cw, hints, 2, keys);
     } else {
-        ui_hints(c, ch - ui_bar_h(c), cw, hints_next, 1, keys_next);
+        ui_hints(c, ch - ui_bar_h(c), cw, hints_next, catch_takes_key(tw) ? 1 : 0, keys_next);
     }
 }
 
 static void catch_reset(void)
 {
+    g_catch_taken = -1;
+    g_reg_from = 0;
+    g_reg_close = 0;
+    g_reg_gone = 0;
+    g_catch_box_h = 0;
 }
 
 static const EidosUiRecipe recipe_catch = {
@@ -5737,6 +5985,14 @@ static void ut_grab_feelings(const EidosUiFrame *in)
     const u8 *o = in->objs_rgba[1];
     int i, x, y, n;
 
+    {
+        static u32 gen;
+
+        if (gen != eidos_ui_data_generation()) {
+            gen = eidos_ui_data_generation();   /* the other version's data: taken from its screen again */
+            memset(g_ut_feel, 0, sizeof g_ut_feel);
+        }
+    }
     eidos_ui_want_objs(1);
     if (o == NULL) {
         return;

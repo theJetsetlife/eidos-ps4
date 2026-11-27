@@ -432,6 +432,12 @@ void eidos_platform_present_nn(EidosPlatform *p, const u8 *top, int n_top,
  */
 struct G3dSnapshot;
 int  eidos_platform_gpu3d(const EidosPlatform *p);
+/* Whether the presenter shows the one-screen interface (its canvas and the
+ * world view): the GPU presenters do; SDL's own renderer, the last resort
+ * (no OpenGL 3.3, EIDOS_RENDERER=sdl), shows the game's two screens only.
+ * The interface does not run then: its screens would take the keys and draw
+ * nothing. */
+int  eidos_platform_presents_ui(const EidosPlatform *p);
 
 /*
  * The one-screen layout (EIDOS_LAYOUT_ONE; engine/ui/ui.h).  Each frame,
@@ -550,6 +556,9 @@ int  eidos_platform_set_3d2d(EidosPlatform *p, int screen, const struct G3dSnaps
 /* The one-screen world's colour beyond the DS screen where no 3D is (the
  * screen's backdrop under its master brightness), 0xRRGGBB. */
 void eidos_platform_set_world_backdrop(EidosPlatform *p, u32 rgb);
+/* The grey level around DS screen `screen` (0 upper, 1 lower) when it shows
+ * as a DS rectangle in the one-screen layout (plat_gpu.h, set_screen_fill). */
+void eidos_platform_set_screen_fill(EidosPlatform *p, int screen, u32 level);
 /* The same for the one-screen world: its own composite (the 3D at the
  * window's shape), with the screen, the screen with the 3D off and the one
  * over black made by the 2D shader at the next present instead of the CPU.

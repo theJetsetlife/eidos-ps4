@@ -8,13 +8,16 @@ game. The code is in `engine/ui/ui.c` unless noted.
 
 | Variable | What it does |
 |---|---|
-| `EIDOS_DEBUG_PARTY="species:level,..."` | Replaces the party's members with fresh Pokemon. `0` keeps a slot. Members past the party's count are added. |
+| `EIDOS_DEBUG_PARTY="species:level,..."` | Replaces the party's members with fresh Pokemon. `0` keeps a slot. Members past the party's count are added. `species.form:level` gives a form. |
 | `EIDOS_DEBUG_LEVEL=N` | The level for members that name none (default 50). |
+| `EIDOS_DEBUG_MOVES="move,move,move,move"` | The first party member's moves, slot by slot, each with its full PP. `0` keeps a slot's move. Set with `EIDOS_DEBUG_PARTY`'s party. The form `"member:move:slot,..."` (any `:`) teaches moves to any member instead. |
 | `EIDOS_DEBUG_PARTY_COUNT=N` | The party keeps its first N members. Use a one-Pokemon party for whiteout tests: A alone cannot pick the next Pokemon after a faint. |
 | `EIDOS_DEBUG_ITEMS="item:count,..."` | Puts items in the bag. |
-| `EIDOS_DEBUG_HELD="item,item,..."` | What the party's members hold, in the party's order (0 leaves a member as it is). Set once the field runs, after `EIDOS_DEBUG_PARTY`'s party. Item 137 to 148 are the Mail items. |
-| `EIDOS_DEBUG_MOVES="member:move:slot,..."` | Teaches moves. |
-| `EIDOS_DEBUG_BATTLE="trainer ID"` | Starts that trainer's battle once the field is quiet, with the trainer's own rule (single, double, triple or rotation: trainer 18 is a double, 615 a rotation). A loss whites the player out, as after a wild battle. |
+| `EIDOS_DEBUG_PROPS=N` | The first N Musical props (of 100) are owned. |
+| `EIDOS_DEBUG_DRESSUP_LOG=1` | The one-screen Musical dress-up logs the saved outfit when it opens (8 records of 6 bytes: place, unused, prop id, turn) and what is worn and where (`prop@place`) whenever it changes. It also logs where the screen's parts stand, in canvas pixels, each time that changes (`layout:` lines: the stage, the tiles, the body part's label, the line's box, DONE, the ring's places, and the body's places while one is chosen), so a scripted pointer can click them in any style (`engine/ui/recipe_musical.c`). |
+| `EIDOS_DEBUG_DRESSUP_STYLUS=N` | The first N times the dress-up opens it is left to the game (the two screens, the stylus), to compare what the stylus and the one-screen list save. |
+| `EIDOS_DEBUG_DRESSUP_DEMO=1` | The dress-up starts the game's first-visit demo once, on a save that has seen it (`sdk/ui_dressup.c`). |
+| `EIDOS_DEBUG_HELD="item,item,..."` | What the party's members hold, in the party's order (0 leaves a member as it is). Set once the field runs, after `EIDOS_DEBUG_PARTY`'s party. Item 137 to 148 are the Mail items. || `EIDOS_DEBUG_BATTLE="trainer ID"` | Starts that trainer's battle once the field is quiet, with the trainer's own rule (single, double, triple or rotation: trainer 18 is a double, 615 a rotation). A loss whites the player out, as after a wild battle. |
 | `EIDOS_DEBUG_OPEN="KIND ..."` | Opens a screen once the field is quiet: `relearn P` (the move relearner for party member P), `namein` (the game's free-text name entry, the beacon message's), `demo K` (3D demo K, 1 to 18: 1 the Royal Unova, 3 the Nimbasa Ferris wheel), `trade N M`, `clear N`, `box N`, `tvt N`, `union`, `ltrade`, `makeegg P`, `egg P`, `dowsing` (the Dowsing Machine on the lower screen, as using the item does). |
 | `EIDOS_DEBUG_BATTLE="wild SPECIES LEVEL"` | Starts a scripted wild battle. A loss has no script to end it and the game goes back to the title: use a trainer battle to test a whiteout. |
 | `EIDOS_DEBUG_BATTLE_AGAIN=N` | With `EIDOS_DEBUG_BATTLE`: the battle starts N more times, each once the field is quiet again after the one before (a second battle in one session, in the same place). |
@@ -25,6 +28,7 @@ game. The code is in `engine/ui/ui.c` unless noted.
 | `EIDOS_DEBUG_AVATAR="<look> <dx> <dz>[;...]"` | Other players' figures beside the player once the field has run 90 quiet frames, each in a look (10 hex digits, as a session sends them: body, hair, accent, trousers, skin; `0006090408` is Hilbert, blonde, blue, white, dark brown) and `dx`, `dz` cells away. Code: `sdk/mp.c`. |
 | `EIDOS_MOD_MODE=<id>` | The first new game of the run is in a mod's mode (a `mode` line of its settings file, docs/mod-services.md), as if the Multiplayer screen's Start had chosen it: `mode_get` answers the id in game.new. The mod's options are the player's saved choices. Code: `sdk/mod_menu.c`. |
 | `EIDOS_MOD_CODE=<text>` | With `EIDOS_MOD_MODE`: what the Join box hands a mode marked `joins`, answered by `mode_code` in game.new: a world's code, or `ap <host:port> <slot> <password>` (`-` for none) for an Archipelago room. Code: `sdk/mod_menu.c`. |
+| `EIDOS_DEBUG_POPUP="title\|text\|icon;..."` | Queues those mod pop-ups at the first frame, as if a mod had called `popup` (icon 0 none, 1 trophy, 2 info, 3 warning): their look without a mod. Code: `engine/ui/popup.c`. |
 | `EIDOS_DEBUG_TRACKER=<file>` | The field's Tracker shows that file's text, as if a mod had set it with `tracker_set` (docs/mod-services.md, "The Tracker"): its look without a mod. Code: `engine/ui/tracker.c`. |
 | `EIDOS_DEBUG_MOVE_KNOWN=<slot>` | That party slot knows every field move the game asks about (`move.known`, docs/mod-events.md): Cut, Strength, Surf and Waterfall work with no member that learned them, without a mod. An egg in that slot still does not. Code: `sdk/mod_event_v6.c`. |
 | `EIDOS_UI_FIELD_TRACKER=<frame>` | The top bar's Tracker button is clicked at that frame, when a mod (or `EIDOS_DEBUG_TRACKER`) gives the field a tracker. Code: `engine/ui/recipe_field.c`. |
@@ -36,10 +40,12 @@ game. The code is in `engine/ui/ui.c` unless noted.
 |---|---|
 | `EIDOS_DEBUG_MOVE="F:walk:down:N,F:face:up,F:tile:X:Z,F:a"` | Steps for the player. A direction is a word (up, down, left, right) or its letter (U, D, L, R). F is the input frame the step waits for; 0 starts it at once. The log gives each step's tile and facing, and "blocked" when the player did not get there. |
 | `EIDOS_DEBUG_BATTLE_SCENE=N` | Sets the game's own Battle Scene option before a debug battle (0: the move animations play; 1: off), whatever the save has. The value before is logged. |
+| `EIDOS_DEBUG_DEX_STATE=0\|1\|2` | The Pokedex screens draw every species as not seen (0), seen (1: its facts as question marks) or caught (2), whatever the save has. Display only (`engine/ui/recipe_dex.c`). |
+| `EIDOS_DEBUG_DEX_NATIONAL=1` | Once the field runs, the save has the National Pokedex and shows it (its view mode set to National). Changes the save. |
 | `EIDOS_DEBUG_DEX_OWN=N` | The Pokedex device of the Plasma and Harmonia styles shows N owned (the number, the gauge's ring and the ball's kind), whatever the save has. Display only. |
 | `EIDOS_DEBUG_AUTO_PLAYER=1` | The trainer AI chooses for the player's side too (moves, switches, replacements), so a battle plays itself; the screen shows it as always, and in the one-screen layout a move it chose is picked in the menus (`2`: sent without the menus, for the two-screen layout). With an AI mod loaded the mod's choices apply to the side it handles. |
 | `EIDOS_SHOT_EVERY=N` | A screenshot every N frames from frame `EIDOS_SHOT_FROM` (default 0) on, into `--screenshot-dir`: the frames of a recording. |
-| `EIDOS_UI_SCRIPT=FILE` | A test's steps, one a line, run once a game frame; they wait for screens, not for frame numbers, so a run does not depend on the machine's load. `wait SCENE [N]` (the one-screen interface's scene, a recipe's name such as `field`, `field-menu`, `pokedex`, is up for N frames in a row; `*` is any; `battle_map`: the battle's real map built, placed and shown, so a capture never shows the battle before its map; a name's spaces are written as underscores; default 20), `frames N`, `key NAMES [HOLD]` (`A`, `UP`, `L+R`, ...), `mash SCENE NAMES [EVERY]` (the keys every EVERY frames, default 40, until the scene is SCENE), `tap X Y [HOLD]`, `mouse X Y` and `click X Y` (the pointer, in window pixels), `cmouse DX Y` and `cclick DX Y` (the same in the interface's own pixels, DX from the canvas's middle, so a place holds at every window size), `cdown DX Y`, `cmove DX Y` and `cup DX Y` (a held press, a move while held and its release: a drag), `shot NAME` (the window to NAME.bmp in `--screenshot-dir`), `rec NAME N` (a picture of each of the next N frames, NAME_0000.bmp on, while the steps after it run; each is logged with its input frame), `theme ID` (the interface style), `log TEXT`, `quit`. A wait of 6000 frames ends the run with status 3 and names the line. |
+| `EIDOS_UI_SCRIPT=FILE` | A test's steps, one a line, run once a game frame; they wait for screens, not for frame numbers, so a run does not depend on the machine's load. `wait SCENE [N]` (the one-screen interface's scene, a recipe's name such as `field`, `field-menu`, `pokedex`, is up for N frames in a row; `*` is any; `battle_map`: the battle's real map built, placed and shown, so a capture never shows the battle before its map; a name's spaces are written as underscores; default 20), `frames N`, `key NAMES [HOLD]` (`A`, `UP`, `L+R`, ...), `mash SCENE NAMES [EVERY]` (the keys every EVERY frames, default 40, until the scene is SCENE), `type TEXT` (one word, typed as if from the PC's keyboard) or `type $NAME` (the text of the environment variable NAME, so a test password is never in the script file), `tap X Y [HOLD]`, `drag X0 Y0 X1 Y1` (the stylus down on the lower screen, moved there and lifted), `mouse X Y` and `click X Y` (the pointer, in window pixels), `cmouse DX Y` and `cclick DX Y` (the same in the interface's own pixels, DX from the canvas's middle, so a place holds at every window size), `cdown DX Y`, `cmove DX Y` and `cup DX Y` (a held press, a move while held and its release: a drag), `shot NAME` (the window to NAME.bmp in `--screenshot-dir`), `rec NAME N` (a picture of each of the next N frames, NAME_0000.bmp on, while the steps after it run; each is logged with its input frame), `theme ID` (the interface style), `log TEXT`, `quit`. A wait of 6000 frames ends the run with status 3 and names the line. |
 | `EIDOS_DEBUG_A_UNTIL=CONDITION` | Presses A every 20 frames until the condition opens (from frame `EIDOS_DEBUG_A_FROM`, default 0). It drives battles and texts without a fixed number of presses. |
 | `EIDOS_DEBUG_MOVE_TRACE=1` | Logs the move steps' state every 500 frames. |
 
@@ -63,6 +69,7 @@ holds the move steps (their frames then count from when it opens), and
 | `EIDOS_MOD_MESSAGE_LOG=1` | Each mod message goes to the log too (`sdk/mod_message.c`). |
 | `EIDOS_VFS_MEM_DUMP=DIR` | Each archive member a mod sets in memory (`vfs_member_set`) is also written to `DIR/<archive>/<index>`, a mod folder's member layout, so the same bytes can be run as plain member files without the mod's code (`sdk/mod_vfs.c`). |
 | `EIDOS_SAVE_TEST_AT=FRAME` | The game saves at its first quiet moment after that frame (`demo/eidos_boot.c`). |
+| `EIDOS_TIDY_STOP_AFTER=N` | The saves folder's tidy step (`sdk/save_tidy.h`) stops after N moves as a crash would, leaving its plan (`tidy.txt`) for the next start. For the test that the next start goes on and loses nothing (`tests/test_save_tidy.c`). |
 | `EIDOS_GL_DUMP=FILE.bmp:N` (or `:N-M`) | Writes the OpenGL presenter's window at the Nth present (or every present from N to M as FILE.N.bmp) (`engine/platform/plat_gl.c`). |
 | `EIDOS_GL_STATE=N` | At the Nth present, logs the presenter's GL state (viewport, scissor, framebuffer, the screens' rectangles), how far a full-window clear reaches and which columns the frame lights (`engine/platform/plat_gl.c`). |
 | `EIDOS_EVENT_LOG=1` | Logs the running game event's chain whenever it changes, as offsets from `GAMESYSTEM_GetEvent`: add the offset to that function's address in `nm` of the program to name each event. Finds which code runs a scene. |
@@ -95,6 +102,15 @@ holds the move steps (their frames then count from when it opens), and
 | `EIDOS_DEBUG_WHERE=1` | Logs the player's zone and position once the field runs, as an `EIDOS_DEBUG_WARP` value: a test can then start from that spot with any save. |
 | `EIDOS_FLASH_WATCH=1` | Turns on the flash watch (off by default since #38; made for #5): when one frame of the upper screen's picture differs strongly from the frames on both sides while those agree, the three frames' 2D state goes to `eidos_flash.log` in the saves folder and the first six events' pictures to `eidos_flash_<n>_<a,b,c>.png` beside it. Only three frames in a row count, so fast forward logs nothing. |
 | `EIDOS_FLASH_TEST=N` | Draws garbage tiles over the upper half of the first picture from frame N, to check the flash watch. |
+| `EIDOS_UI_FADE_LOG=1` | One-screen interface: while the game's screen is dark, or a picture is held or leaving, logs each frame's scene, the game's darkness (0 to 16), and whether the interface holds its picture or cross-fades (`eidos: ui fade: ...`, `engine/ui/ui.c`). A hold that comes and goes every few frames is a stepped fade read as many fades. |
+| `EIDOS_UI_KEY_LOG=1` | Logs the input frame at which each press of a UI script's `key` and `mash` steps goes down (`eidos: ui key: ...`), for a recording's overlay. |
+| `EIDOS_UI_SKIP=name,name` | One-screen interface: leaves those recipes out, so their screens show as the game's own two screens. For checking what a recipe changes. |
+| `EIDOS_CATCH_LOG=1` | One-screen interface, the Pokedex registration after a catch: logs the game's state, step and fade level as they change and each A or B (`eidos: catch: ...`, `engine/ui/recipe_menus.c`). A species the save owns starts at state 1: no registration. |
+| `EIDOS_MP_UI_LOG=1` | Logs the Play Together screens' steps (`eidos: mp ui: ...`, `engine/platform/settings_ui.c`) and when a game mode starts with a new game, is asked for by a mod, and ends (`eidos: mode: ...`, `sdk/mod_menu.c`). |
+| `BMAP_CLEAR_LOG=1` | Real-map battles: logs each frame what the camera's clearance goes by: the sprites reported, the nearest one's distance, the camera's place and the places kept (`clear: ...`, `sdk/battle_view.c`). |
+| `EIDOS_BATTLE_SPRITE_LOG=1` | Real-map battles: logs each battle sprite's place and size as the map's pass sees it (`sdk/battle_view.c`). |
+| `BMAP_LEAF_LOG=1` | Real-map battles: logs each frame how many hand-made grass leaves the leaf rule puts under a sprite (`engine/world/bmap_leaf.c`). A count that changes while nothing moves but the camera shows leaves changing sides. |
+| `RM_SETTLE_LOG=1` | Remade rooms: logs what `settle` moved down, and an `apart` line for each piece it moved away from a piece it stood on (`engine/world/remade/mesh.c`). |
 | `EIDOS_AUDIO_WAV=FILE` | With `EIDOS_NO_AUDIO=1`, writes the game's sound to a WAV (16-bit stereo, 32768 Hz). Each frame writes its own share, so the sound lines up with `--screenshot` frames at any speed: frame N starts at N x 560190 / 33513982 s. |
 
 ## Pacing
@@ -127,6 +143,42 @@ Link's starter pair) and can be copied with the saves.
 A multiplayer game does not fast forward, so a two-game test plays at the
 game's own speed. Make a long scene (the opening, the starter) once, save
 both games, and start each test from those saves.
+
+## A standalone game and its two versions
+
+| Switch | What it does |
+|---|---|
+| `EIDOS_WINDOW_HIDDEN=1` | The game's window never shows (a test run). It also keeps the setup window from opening: a run that finds no game data says what is missing and stops, as `--no-window` does. |
+| `EIDOS_USER_DIR=<folder>` | The user folder a standalone game uses: `profiles/Black`, `profiles/White` and a plain start's old `saves/` and `mods/` are looked for there, not in the player's own folder. With `EIDOS_HOME` (the game data and `config.txt`) a test touches nothing of the player's. |
+| `EIDOS_NO_BUILT_DATA=1` | A development build leaves out the data root compiled into it, as a release build has none: the install's own folders are used. |
+| `EIDOS_GAME_SWITCH_AT=<frame>[,<frame>...]` | The other version of the game at those frames (the frame count starts again at each switch). |
+| `EIDOS_GAME_ADD_ROM=<file>` | The file the title menu's add-a-version window takes, with no file dialog. |
+
+`--import-old-saves` copies a plain start's old saves into their game's
+profile and ends (the launcher's call). The test programs are
+`tests/test_profiles.c` (the rules, on made-up folders) and, outside the
+repository's tests, whole starts of the game on a test home.
+
+## The mods index
+
+The game's own mod manager (a standalone game's, `docs/distribution.md`)
+reads the mods index and installs from it (`sdk/mod_catalog.h`).
+
+| Switch | What it does |
+|---|---|
+| `EIDOS_MODCAT_TEST=list` | Reads the index at frame `EIDOS_MODCAT_TEST_AT` (default 300), with no screen, and prints the mods that fit this game: one line each, then how long it took and the longest frame meanwhile (`eidos_boot: mod catalog test: ...`). |
+| `EIDOS_MODCAT_TEST=get:ID` | The same, then installs the mod ID (`katalogos/nuzlocke`, `owner/name` in lower case), or updates it, and prints the mod menu's rows and how many code mods are loaded. |
+| `EIDOS_MODCAT_TEST=remove:ID` | Removes the installed mod ID and prints how many code mods were loaded before and after. |
+| `EIDOS_MODCAT_TEST=idle:MS` | Asks for nothing and prints the longest frame of MS milliseconds: the number to compare the others' longest frames with. |
+| `EIDOS_MOD_INDEX=URL` | The index to read in place of katalogos's (https only). |
+| `EIDOS_MOD_RELEASES=URL` | The server the release files are asked of, in place of `https://github.com`: `URL/OWNER/REPO/releases/download/TAG/FILE`. |
+| `EIDOS_TLS_CA=FILE` | One more certificate root (a PEM file), for a test server with a certificate of its own. It also counts for a TLS relay. |
+
+A test of this part needs a server that answers as GitHub does (the index, a
+redirect to each release file) and can answer wrongly on purpose: a package
+with another hash, a longer one, a connection that breaks off or goes
+silent, a 404, a 503. The tests of `sdk/net_https.c` and of the index's
+rules need no network (`test_https`, `test_mod_catalog`).
 
 ## The style chooser
 

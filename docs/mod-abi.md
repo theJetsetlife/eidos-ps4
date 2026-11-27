@@ -276,7 +276,18 @@ The version moves when the surface moves.
   `script.done`, `move.forget`, `mon.shiny`, `item.usable`,
   `season.change`, `encounter.slot`, `battle.type_effect`,
   `starter.choices`, `egg.species`, `text_input.done`, `world` and `ap`
-  (ids 114 to 125). Version 6 is open: `sdk/api/v6` is the current
+  (ids 114 to 125). Version 6 is frozen: the surface in `sdk/api/v6`
+  does not change any more.
+- **Version 7** appends and moves nothing, so version 3 to 6 mods still
+  load. The state table gains `national_dex`, `national_dex_set` and
+  `mystery_card_add` (`docs/mod-services.md`, "Version 7: the National
+  Pokedex and Wonder Cards"). The rule language gains the state field
+  `national_dex` and the action `gift` (`docs/mod-rules-language.md`).
+  For online mods the services table gains `web_request`, `web_read`,
+  `time_utc`, `ticks_ms`, `game_hash` and `popup`, with the event `web`
+  (127, payload `BwWeb`) and the enums `BW_GAME_HASH_*` and `BW_POPUP_*`
+  (`docs/mod-services.md`, "Version 7: the web, the clock, the game's hash
+  and the pop-up"). Version 7 is open: `sdk/api/v7` is the current
   description.
 
 The number cannot be forgotten. A test recomputes the hash of the surface out
@@ -310,8 +321,8 @@ width and the hash follows it: the number beside the version number is the
 
 | Pointers | Hash |
 |---|---|
-| 32-bit | 0xF8F177B7 (the number in `sdk/mod_api.h`) |
-| 64-bit | 0x16ACAD54 |
+| 32-bit | 0x75B3AE08 (the number in `sdk/mod_api.h`) |
+| 64-bit | 0x0FC83E7C |
 
 The payload structs, the ids and the enums hold no pointer and hash the
 same everywhere.

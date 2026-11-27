@@ -8,20 +8,39 @@ This file records that revision.
 
 ## The pin
 
-- Revision: `f15bb66a81bd0d234dece1e9111eefd6ba4c5954`
-- Date: 2026-11-24
-- Subject: Store sound command arguments at native pointer width
+The native port builds against `778cd9e6514bd298e66a515f68934e88a5e9f3c6`
+on the local Aletheia branch `integration/eidos-20261127`. Its upstream
+base is `ea39ea3ad618b328cb5df5230800506461759b82`, the revision required
+by Eidos `6d8a7a95`. Commit `8e38c84d55` carries the native layout changes
+and `778cd9e651` carries the pointer-width sound command arguments.
+For a build on another machine, transfer the Aletheia integration branch
+before running the pinned checkout tool.
 
-The step from `50731dd699fb0fb3f881cd028a67d8f6aa649a88`: sound command
-records are native runtime state, not serialized cartridge data. Their argument
-slots now use `uptr`, and `PushCommand_impl` accepts pointer-width arguments.
-On the Nintendo DS, `uptr` remains 32-bit and preserves the original record
-layout. On 64-bit hosts, pointers passed through the sound command queue are no
-longer truncated. Eidos's native ARM7 transport uses the same host layout.
+The step from `d4dfca3956`: the day care's TM scan (ov021 sodateya.c)
+runs to `ITEM_LAST` in place of a literal 626, so on the PC build it
+reaches a TM a mod adds under `limit.items` (sdk/machines.c,
+machine_items.txt); the ROM is byte-identical.  `674d551a0b` on the way is
+names: BTL_SERVER_FLOW_IsPokeFloating (was IsPokeGrounded, its result
+inverted in name only), the sick add and end messages, WAZA_RANGE_ALL_OTHERS
+4 and ALL_ENEMIES 5, BTL_STRTYPE_STD and BTL_STRTYPE_SET; the port names
+none of them.
 
-The previous pin's changes continue below.
+The step before, from `50731dd699`: types past the game's 17 for mods, and names; the
+ROM is byte-identical.  port_limits.h names BW_LIMIT_TYPE_LAST, and
+arm9/poke_type.h gives POKETYPE_LAST, POKETYPE_COUNT and POKETYPE_NONE.  The
+PC build reads the type chart as [attacker * POKETYPE_COUNT + defender] and
+takes 31 as "no type" at every place the DS writes or tests 17 (Roost, a
+typeless move, Conversion 2, Color Change, the last move type, the Pokedex
+info page), so the port can give the game a larger chart (sdk/type_chart.c,
+limit.types).  CMakeLists.txt turns limit.types on only for a tree that has
+BW_LIMIT_TYPE_LAST.  Renames the port meets in comments only:
+BtlPokeParam.lastTargetPos is lastMoveType, and the battle effect values
+that were called type codes are ball ids (BTLV_EFFVM_CmdSetBallSource,
+params.ballItem, BTLV_EFFECT_StartBallThrowEffect).  The six commits on the
+way (`cbe3894287` to `543c40a139`) are names from the game's data and its
+battle handler tables; the port's patches name none of them.
 
-The step from `ce8fb59a0e`: one host guard and names; the ROM is byte-identical.
+The step before, from `ce8fb59a0e`: one host guard and names; the ROM is byte-identical.
 WEATHER_DIAMOND_DUST_UpdateParticle (ov025) takes a sparkle's age modulo two
 intervals that its spawn function can make 0 (remainders of a negative random
 number plus a constant).  The DS runtime divide gives 0 for a divisor of 0;

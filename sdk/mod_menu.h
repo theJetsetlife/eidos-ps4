@@ -178,6 +178,31 @@ int bw_mod_menu_running_at(u32 index);
  * whose folder is gone is still in the list, with its switch as it was. */
 int bw_mod_menu_present_at(u32 index);
 
+/* 0 when the mod works on the game that is loaded.  Else the game it is made
+ * for (BW_MOD_GAME_BLACK or BW_MOD_GAME_WHITE, sdk/vfs.h), or -1 when its
+ * `game` line names neither: the mod stays in the list and the port does not
+ * load it, whatever its switch says. */
+int bw_mod_menu_needs_game_at(u32 index);
+
+/* The eidos version the mod needs (its `eidos` line, "0.2.9") when that is
+ * newer than this one, else NULL: the port does not load it either. */
+const char *bw_mod_menu_needs_eidos_at(u32 index);
+
+/* 1 when the port does not load the mod whatever its switch says (made for
+ * the other game, or for a newer eidos). */
+int bw_mod_menu_unavailable_at(u32 index);
+
+/* A line of the mod's manifest for a mod list: what 0 its `description`, 1
+ * its `author`, 2 its `version`.  "" when the manifest has no such line. */
+const char *bw_mod_menu_about_at(u32 index, int what);
+
+/* The game's own mod manager (the MODS button of the title menu,
+ * engine/ui/recipe_title.c) is offered: the start option --mods.  A game
+ * the desktop launcher starts does not pass it (the launcher manages the
+ * mods there); a phone or a console always does (host/main.c). */
+void bw_mod_menu_set_manager(int on);
+int  bw_mod_menu_manager(void);
+
 /* 1 when the mod ships code, so it has a library the loader opens and
  * unloads. */
 int bw_mod_menu_has_code_at(u32 index);
@@ -303,6 +328,12 @@ const char *bw_mod_menu_orphan_at(u32 index);
 #define BW_MOD_SETTING_CHOICE 1   /* one of a list of names */
 #define BW_MOD_SETTING_INT    2   /* a number between a low and a high bound */
 #define BW_MOD_SETTING_TEXT   3   /* a short text (a world's code, a room) */
+#define BW_MOD_SETTING_SECRET 4   /* a password: never written, cleared when the
+                                   * settings close (version 7)  */
+#define BW_MOD_SETTING_BUTTON 5   /* a row with no value: the mod's event
+                                   * setting.button (version 7) */
+#define BW_MOD_SETTING_SHOW   6   /* a row whose value the mod sets
+                                   * (setting_show), hidden while "" (version 7) */
 
 /* How many options the mod at `index` declares. */
 u32 bw_mod_menu_option_count(u32 index);
@@ -351,6 +382,29 @@ int bw_mod_menu_option_set_text(u32 index, u32 option, const char *text);
 
 /* Whether the option is shown in the mod's mode `mode` (its `@id` word). */
 int bw_mod_menu_option_in_mode(u32 index, u32 option, u32 mode);
+
+/*
+ * Version 7: a mod's own tabs of the settings screen (`tab "<title>"`
+ * lines; docs/mod-services.md, "Mod settings").  tab_count/tab_title: its
+ * tabs; option_tab: the tab an option is on, -1 for one under the mod's row
+ * in the Mods section.  option_shown: its `?key=value` (or `!=`) holds and,
+ * for a `show` row, the mod gave it a text.  option_word: a text of one
+ * word (its keyboard has no SPACE).  press: a `button` row was chosen (the
+ * event setting.button).  clear_secrets: every password is forgotten (the
+ * settings closed).
+ */
+u32  bw_mod_menu_tab_count(u32 index);
+const char *bw_mod_menu_tab_title(u32 index, u32 tab);
+int  bw_mod_menu_option_tab(u32 index, u32 option);
+int  bw_mod_menu_option_shown(u32 index, u32 option);
+int  bw_mod_menu_option_word(u32 index, u32 option);
+int  bw_mod_menu_press(u32 index, u32 option);
+void bw_mod_menu_clear_secrets(void);
+/* The calling mod's services (the namespace in force): a `show` row's text
+ * (at most 63 bytes, no line end; "" hides it), and a text or secret
+ * option's new value.  0, or -1. */
+int  bw_mod_menu_setting_show(const char *key, const char *text);
+int  bw_mod_menu_setting_set_text(const char *key, const char *text);
 
 /*
  * The co-op lobby's rules: options tagged `@lobby` (bool, choice or int).

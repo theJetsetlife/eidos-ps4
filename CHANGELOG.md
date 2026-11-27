@@ -3,6 +3,103 @@
 Each release's notes on GitHub start with its section here
 (tools/release_notes.py). Newest first.
 
+## 0.2.8
+
+Unlimited save slots, parameterized and combined mod handlers, RecompLauncher support, and launcher improvements.
+
+### Launcher
+- **RecompLauncher Support**: Added `recomplauncher.json` to the root of the Windows and macOS standalone archives so RecompLauncher can automatically detect and launch eidos (thanks @elripalda, #49).
+- **Official Mod Badges**: Synchronized `Official` mod badges in both the launcher and the in-game Mod Manager with the mod index (`katalogos` entries default to official unless marked otherwise, while third-party repository mods display the badge only when explicitly flagged as official).
+- **Multiplayer Save Filtering**: Fixed the Home tab listing randomizer and multiworld saves created on the Multiplayer screen as single-player saves. They now appear only under **Your Games**, matching the title menu's Continue screen.
+- **Post-Install Save Maintenance**: Legacy save import and save-slot cleanup now run immediately after a new engine version finishes installing rather than waiting for the next launcher restart, and the save list header now displays the total save count instead of `"of 8"`.
+- **Window Scaling**: Scaled the launcher UI proportionally with the window so text, cards, sprites, and spacing keep their 1280x720 proportions at 1080p, 1440p, and 4K.
+- **Layout & Scrolling**: Fixed short lists scrolling alongside long ones, kept the Settings `Save` button in view, slimmed scrollbars to fit the cards, made the sidebar appear immediately during page loads, and eliminated the white startup flash.
+
+### Modding
+- **Parameterized Move, Ability & Item Handlers**: Mods can assign existing battle effect handlers to custom or built-in moves, abilities, and held items via `eidos/tables/ability_handlers.txt`, `move_handlers.txt`, and `item_handlers.txt`, while overriding handler parameters such as target stat and stage delta, inflicted status condition, trigger chance, damage/stat multiplier, tested type, HP fraction, and weather effect (e.g., an Intimidate variant that lowers Sp. Atk by 2 stages: `165 = 22 stat=spatk stages=-2`). Supported parameter keys for every built-in handler are documented in `handler_params.json` alongside the executable.
+- **Combined Handlers**: Mods can combine up to four built-in handlers on a single move, ability, or item using `+`, each with its own parameters (e.g., Intimidate on Sp. Atk plus Drizzle: `22 = 22 stat=spatk stages=-2 + 2`). Combinations whose handlers share a state slot are rejected. `handler_params.json` lists each handler's slots under `work`.
+- **New Battle Effects**: Mods can assign five battle effects not in Black and White to moves by name in `eidos/tables/move_handlers.txt`: `misty_terrain`, `flower_shield`, `crafty_shield`, `fairy_lock`, and `geomancy` (e.g., `571 = misty_terrain`). Each displays its own battle messages, which mods can edit in text banks 14 and 15.
+- **Translated Mod Text**: Mods can ship text lines for one language in `a/0/0/2/<bank>.<lang>.msg` (`en`, `fr`, `de`, `it`, `es`), overriding `<bank>.msg` line by line so untranslated lines keep the plain file's text. A mod's manifest key `lang` (`en`, `fr`, `de`, `it`, `es`, defaulting to English) sets the language of its plain `.msg` files, so in a game of another language, sentence lines for an added move or item (a move's "<Pokemon> used <move>!" lines and name in capitals, or an item's article and plural lines) borrow the game's line for a similar entry and swap in the mod's name when the mod has no line for that language. The fallback uses the move an added move works like in `move_handlers.txt` (or Pound), TM95 for a TM, the Flame Plate for a plate, or the Douse Drive for a drive, and `eidos/tables/text_from.txt` (`move.<id> = <move>`, `item.<id> = <item>`) picks another. The five new battle effects show their battle messages in the game's language.
+- **Trainer Pokémon Overrides**: Mods can set the IVs, EVs, nature, shininess, friendship, and ability of each trainer's Pokémon via `eidos/tables/trainer_mons.txt` (e.g., `164.0 = ivs=31,31,31,31,31,31 nature=jolly shiny=1`). Mods now also receive the correct second opponent in tag and multi battles.
+- **Icon Palettes**: Mods can set each Pokémon's party and box icon palette via `eidos/tables/icon_palette.txt` (`<icon index> = <palette> [<female palette>]`). Updated the one-screen party and Bag screens to draw icons from modded tables (`icon_palette.txt`, `item_icons.txt`) instead of the base-game tables, and to display items past the original 627 when a mod raises `limit.items`.
+- **TM & HM Moves**: Mods can change the move each TM and HM teaches via `eidos/tables/machine_moves.txt` (`TM35 = 53`).
+- **Shops**: Mods can override Poké Mart clerk inventories and Battle Subway BP prize lists via `eidos/tables/shops.txt` (`mart.5 = 1 2 3 50`).
+- **Item Heal Amounts**: Mods can set how much HP an item heals past the item record's 252 HP limit via `eidos/tables/item_heal.txt`: a fixed amount up to 65535, a fraction from `1/2` to `1/16` of max HP, or `full` for Bag and party use and revives (`600 = hp=500`), and a fixed amount for held berries such as the Oran Berry (`155 = held_hp=300`). An item never heals more than the HP the Pokémon is missing.
+- **Move Animations**: Mods can map any move to another move's battle animation via `eidos/tables/move_anims.txt` (`53 = 85`). Custom moves default to the animation of the move whose handler they use instead of an unrelated effect. `eidos --preview-move <id>` loops a move's animation in a preview battle.
+- **Custom Species**: Mods can add species past 649 (IDs 715 to 2047) by raising `limit.species` in the manifest. The Pokédex lists them in the National and Unova views, sorts and searches them by name, height, and weight, and displays each species' entry page with its own height and weight lines. Mods place a species in the Unova Pokédex with `eidos/tables/regional_dex.txt` (`715 = unova`, or a number such as `715 = 156`) and set its search shape and letter group in `eidos/tables/pokedex.txt` (`715 = shape 3`). See `docs/game-tables.md`.
+- **Custom Species Forms & Cries**: Custom species now support alternate forms with dedicated stats, sprites, icons, and palettes. Mods can also assign cries for species and forms via `eidos/tables/cries.txt` (`715 = 25`). Fixed a crash when sending a custom species into battle.
+- **Custom Types**: Mods can add types past the base 17 (up to 30) by raising `limit.types`, defining names in text bank 199 and matchups in `eidos/tables/type_chart.txt`. `eidos/tables/types.txt` sets their icons, Pokédex labels, move buttons, Hall of Fame effects, and interface colors. Custom types appear in battles, the Bag, the Summary screen, the PC Box, the Pokédex, and the Move Reminder. In battle handler tables, `type=` accepts either a `name` from `types.txt` (`type=fairy`) or a type number. Plates, incenses, and other type-boosting held items accept `type=`. In `types.txt`, `plate` sets Arceus's form and type plus Judgment's type, and `drive` sets Genesect's form and Techno Blast's type.
+- **Custom TMs**: Mods can add TMs from TM96 to TM122 as new items via `eidos/tables/machine_items.txt`, assigning their moves in `eidos/tables/machine_moves.txt` and species compatibility in the machine bits of each species record. The Bag holds all 27 at once, sorts them after the base TMs, and displays their numbers. Shops list them, and the party screen teaches them. A per-mod file beside each save stores the custom TMs, so the save keeps only the base machines and stays valid with the mod off.
+- **Type Chart**: Mods can override type effectiveness via `eidos/tables/type_chart.txt` (`12 = 8` makes Electric super effective against Normal). Fixed type charts set by code mods via `type_chart_set` not applying at battle start.
+- **Mod Test Saves**: `eidos --test-saves <folder>` uses the saves and settings in `<folder>`, starting from a copy of the profile's save, without writing to the player's saves.
+- **Minimum eidos Version**: Mods can declare a minimum eidos version with `eidos = X.Y.Z` in `eidos_mod.txt`. Older eidos versions do not load the mod, and the Mods settings and launcher show it as unavailable with the required version. `features.json` next to the executable lists the first version that supports each table, key, and archive available to mods.
+- **Custom Move Scripts & Sounds**: Mods can provide a battle animation script for any move at `a/0/6/6/<move id>`, including custom moves past 560. Custom sound effects added to the sound archive now play on their sequence's player.
+
+### Saves
+- **Unlimited Save Slots**: Removed the 8-slot limit on single-player and Multiplayer-screen games as well as the 32-session limit on hosted co-op games. Starting a `New Game` always allocates a fresh slot without prompting to overwrite an existing save.
+- **Dedicated Multiplayer Save Directory**: Randomizer, multiworld, and Archipelago runs started from the Multiplayer screen are now stored in a dedicated `games/` subdirectory rather than occupying single-player save slots.
+- **Automatic Save Folder Compaction**: On startup, the engine organizes the `saves` directory by moving incomplete files from unsaved New Games into `unreadable/` (preserving them without deletion) and renumbering valid save slots sequentially without gaps or overwrites. Interrupted compactions resume cleanly on the next launch.
+- **Custom Species Pokédex Flags**: Seen and caught flags for species past 672 are stored in one file per mod alongside each save (`saves/mods/<mod folder>.dex/`), keeping the save file compatible with the base game and external tools.
+- **Per-Save Mod Data**: Mod data files are now stored per save instead of shared across all save slots, and save folder compaction moves them alongside their saves. Existing files from earlier versions migrate to their corresponding saves.
+
+### Interface Text
+- **Plainer Wording**: Rewrote the Settings help, Multiplayer screens, first-run setup, Mod Manager messages, and launcher text to be shorter and clearer, and removed help lines that only repeated their label.
+
+## 0.2.7
+
+Hotfixes, in-game Mod Manager, RecompLauncher, and RetroAchievements integration.
+
+### One-Screen Mode & UI
+- **Redesigned On-Screen Keyboard**: Text prompts across Settings and Multiplayer (names, room codes, mod options, and passwords) now open a themed on-screen keyboard supporting up to 64 characters, uppercase/lowercase, symbol and QWERTY layouts, a movable cursor, and masked password input with a `SHOW` toggle.
+- **Consistent UI Scaling**: Normalized one-screen UI scaling across all window resolutions to match the proportions at 1280×720 (using 3× scale at 1920×1080 and 4× at 2560×1440 instead of overscaling by 25–33%).
+- **In-Game Mod Manager**: Added a standalone Mod Manager accessible via the top-left `MODS` button on the title menu (enabled by default on mobile, consoles, and standalone desktop runs). Styled to match the active UI theme, it lets you toggle installed compatible mods and browse, install, update, or uninstall mods from the official index with full download verification.
+- **In-Game Version Switcher**: Added a `VERSION` button to the title menu (between `MODS` and the style chooser) to switch between Pokémon Black and Pokémon White without restarting; if the other version's data is not yet installed, you are prompted to select its ROM and extract it in place.
+- **Pokédex Registration Screen**: Catching a new species for the first time now opens the active UI style's native Pokédex view, animating the reveal of its category, type, height, weight, and Pokédex entry while incrementing the `OWN` counter in sync with the game. Previously caught species proceed directly to the nickname prompt.
+- **Pokémon Musical Dress-Up**: Added full keyboard/controller and pointer navigation across all three UI styles for the Nimbasa City Musical dress-up screen (#44).
+- **Dowsing Machine Auto-Hide**: The Dowsing Machine HUD card now slides out of view during dialogue and cutscenes and positions itself below the fast-forward badge (#50).
+- **Screen Pillarboxing**: Viewport borders beside 4:3 2D screens and after soft resets now render pure black rather than retaining the grey tint of the last screen fade.
+- **Pokémon White Title Backdrop**: The one-screen title menu now uses Pokémon White's light checkered background when playing White instead of defaulting to Black's dark backdrop.
+
+### Standalone & Launch Options
+- **Standalone Mode by Default**: Launching `eidos` directly without the desktop launcher now enables standalone mode automatically, exposing the in-game Mod Manager and version switcher (`--standalone`, replacing `--mods`, forces this mode for third-party frontends).
+- **CLI Version Selection**: Added `--game black` and `--game white` flags to boot directly into a specific version, defaulting to whichever version was played last.
+- **Side-by-Side Game Data**: Pokémon Black and Pokémon White now store their extracted game data separately, so adding a second ROM (via `--rom` or the in-game `VERSION` button) no longer overwrites the first version's data.
+- **Unified Launcher & Standalone Profiles**: Standalone runs now share the launcher's `Black` and `White` profiles—settings are shared across both versions, while each version maintains its own save slots and mod loadouts, staying in sync whether you launch directly or through the launcher. Existing saves from older standalone installs are imported automatically into available save slots (#29).
+- **Display Flags Without `--window`**: Fixed display and layout flags (such as `--fullscreen` or `--layout one`) failing to create a window unless `--window` was also passed.
+- **Standardized Release Asset Names**: Renamed launcher installers to `eidos-setup-windows.exe`, `eidos-macos.dmg`, and `eidos-linux-x86_64.AppImage`; standalone archives to `eidos-standalone-<version>-<platform>`; and console packages to `eidos-nintendo-switch.zip` and `eidos-psvita.vpk`.
+
+### Multiplayer
+- **Lobby Start Button**: Fixed the host's `Start` button remaining disabled in the one-screen lobby even after all players readied up.
+- **Clipboard Code Paste**: Added a `Paste` button to the Join box on the Play Together screen that immediately joins using a room code, server `host:port`, or invite link from your clipboard.
+
+### Modding
+- **Mod API v7**:
+  - **Custom Settings Tabs**: Mods can register dedicated tabs in the Settings menu featuring non-persisted password fields, action buttons, and dynamically updated status rows (used by the RetroAchievements mod for account sign-in).
+  - **Network, Clock, Hash & Toast Services**: Mods can perform HTTPS requests, query the system clock and active ROM's RetroAchievements hash, and display theme-styled toast notifications.
+  - **National Pokédex & Wonder Cards**: Added APIs to unlock the National Pokédex and inject one-time Wonder Cards into the player's save.
+- **DS Extended Heap Mapping**: Mapped the DS extended heap to its exact hardware memory addresses so memory-inspection mods and RetroAchievements runtime checks resolve pointers at expected offsets.
+- **TLS Root Store**: Expanded HTTPS certificate verification for mod downloads and web requests to trust the full Mozilla CA bundle rather than only GitHub endpoints.
+- **64-Bit Mod Return Values & Logging**: Fixed native engine calls from WAMR code mods always returning `0` on 64-bit builds (restoring randomizer and Archipelago mods), and fixed `--mod-log` producing empty log files on 64-bit targets.
+- **Version-Specific Mods**: Mods declaring `game = black` or `game = white` in their manifest are now prevented from loading in the opposite version and appear as `Unavailable` (with the required version noted) in both the in-game Settings and the launcher.
+- **Launcher Mod Updates**: Fixed the launcher caching initial metadata indefinitely for index mods published without an explicit version number, allowing new releases to be detected.
+
+### Real-Map Battles & Spot Editor
+- **Gym Statue Pedestals**: Grounded statue pedestals in Striaton and Nacrene Gyms so their top surfaces no longer float detached from their bases.
+- **Nuvema Bedroom Battles**: Removed the rival's floating `!` emote icon above the player's bedroom and resolved z-fighting on the ruined bedroom rug during the opening battles.
+- **Props on Rebuilt Furniture**: Props placed atop reconstructed indoor furniture now rest properly on the rebuilt surface; restored Striaton Gym's counter geometry with the cash register seated on top.
+
+### Fixes
+- **Post-Catch Nickname Transition**: Eliminated screen flickering and ghosted Pokémon afterimages following a catch, preserved button presses during fade-in, removed a two-second black-screen delay before the nickname prompt, and prevented the dialogue box from disappearing for a single frame after selecting `NO`.
+- **Kosmos Pokédex Transitions**: Fixed multi-step fade transitions repeatedly capturing and releasing frame snapshots when flipping pages in the Kosmos Pokédex.
+- **Relay Connection Errors**: Fixed failed hosting attempts from **Your Games** (when the relay is unreachable) dropping into a duplicate games list without explanation; the menu now stays on the Play Together screen and displays an error message.
+- **Plasma C-Gear Notice**: Fixed the C-Gear warning text before the Continue screen being truncated and overlapping below its confirmation prompt in the Plasma style.
+- **HM Move Deletion Warning**: Restored the `"HM moves can't be forgotten now."` prompt on the one-screen move-forget screen so attempting to overwrite an HM no longer appears unresponsive (#54).
+- **C-Gear First Boot Cutscene**: In one-screen mode, receiving and activating the C-Gear at Fennel's lab now expands the top-bar C-Gear drawer to play its channel-activation sequence and resumes dialogue immediately once it closes, replacing the previous silent pause while the animation ran on the hidden bottom screen (#13).
+- **Mod Settings Controls**: Styled boolean mod settings with standard `Off`/`On` toggle buttons, removed step arrows from text input rows, and preserved cursor focus on the edited option after closing a prompt instead of jumping back to the first row.
+- **ROM Replacement Cleanup (64-Bit)**: Fixed ROM re-extraction leaving behind a partially deleted `extract.old` directory that caused subsequent extractions to fail.
+- **ROM Verification Errors**: Fixed ROM validation error messages referencing Pokémon Black when rejecting an invalid Pokémon White ROM.
+- **Bottom-Bar Key Hints**: Fixed clicks and taps on bottom-bar key hints passing through to the underlying screen (such as clicking `Back` in the style chooser inadvertently returning the title menu to the title screen).
+
 ## 0.2.6
 
 Overhauled 3D battle scenes, expanded multiplayer and randomizer/Archipelago support, Mod API v6, and bug fixes.
@@ -111,6 +208,8 @@ Overhauled 3D battle scenes, expanded multiplayer and randomizer/Archipelago sup
 
 ## 0.2.5
 
+Three interface styles, ~50% faster frame times, launcher gamepad support, and bug fixes.
+
 ### One-Screen Mode & UI
 - **Interface Styles**: Added selectable UI themes for one-screen menus and battles under `Settings > Layout > Interface style` (`STYLE` in the in-game Options menu): **Kosmos** (the previous default), **Plasma** (a modern take on Black and White), and **Harmonia** (closest to the original DS interface), each with dedicated screen layouts.
 - **Style Chooser & Live Preview**: Prompt to select a UI style on first launch (reopenable anytime from the title menu with `SELECT`). Includes an interactive preview mode that lets you test the X menu, party, Bag, and battles across styles using a built-in in-memory save without touching your actual save file.
@@ -194,6 +293,8 @@ eidos now runs on the Switch and Vita, draws with each platform's native rendere
 
 ## 0.2.3
 
+Interface translations, mod icons, expanded mod APIs, and Pokédex/runtime fixes.
+
 ### Mods & Launcher
 - **Mod Icons**: The Mods page shows each mod's icon.
 - **Whiteout for Mods**: A code mod can white the player out as after a lost battle (`whiteout`): the blackout screen, the last Pokémon Center and the nurse.
@@ -215,6 +316,8 @@ eidos now runs on the Switch and Vita, draws with each platform's native rendere
 
 ## 0.2.2
 
+Launcher mod catalog, Black and White profiles, Mod API v5, and crash fixes.
+
 ### Mods & Launcher
 - **Get Mods**: The Mods page lists the mods of katalogos, our mod index, with Install and Update; a download is checked before it is unpacked. The official mods are Nuzlocke, Soul Link (multiplayer) and Exp. Share.
 - **Mod Icons**: A mod can show an item's or a Pokémon's picture from your own ROM, or its own image.
@@ -234,6 +337,8 @@ eidos now runs on the Switch and Vita, draws with each platform's native rendere
 
 ## 0.2.1
 
+Launcher hotfixes, giving items from the one-screen Bag, and N's Accumula Town battle camera fix.
+
 ### One-Screen Mode & UI
 - **Giving Items**: Giving an item from the Bag uses the one-screen party list ("Give to which Pokémon?", swapping held items) instead of the DS screen.
 
@@ -247,6 +352,8 @@ eidos now runs on the Switch and Vita, draws with each platform's native rendere
 PS: Honestly I'm only pushing this because the launcher is broken LOL.
 
 ## 0.2.0
+
+Android/iOS builds, online Union Room, Mystery Gift, GPU rendering, and localized one-screen UI.
 
 ### One-Screen Mode & UI
 - **Text Boxes**: Speech, narration and system messages are redrawn as one-screen boxes in the game's font; lists, YES / NO and the field's menus (Union Room talk, Battle Subway) are our own lists.
@@ -305,12 +412,16 @@ PS: Honestly I'm only pushing this because the launcher is broken LOL.
 
 ## 0.1.9
 
+Fixes for the title screen save list, naming keyboard softlock, and one-screen keyboard navigation.
+
 ### Bug Fixes
 - **Saves**: Fixed title screen failing to display existing saves after quitting an unsaved New Game; the menu now properly selects the last-played save (#10).
 - **One-Screen UI**: Fixed naming keyboard rendering behind the Multiplayer screen and softlocking input (#9).
 - **Keyboard Navigation**: Fixed one-screen keyboard D-pad/arrow controls using original DS key coordinates instead of matching the visible layout (#7).
 
 ## 0.1.8
+
+Touch controls, reworked PC storage, ROM library, controller glyphs, performance gains, and fixes.
 
 ### One-Screen Mode & UI
 - **Touch & Mouse Movement**: Added an on-screen virtual stick: drag to walk, push past the outer ring to run, and tap NPCs to interact.
@@ -352,6 +463,8 @@ PS: Honestly I'm only pushing this because the launcher is broken LOL.
 
 ## 0.1.7
 
+Smooth menu fades, animated Pokédex sprites, ~150 hand-placed battle cameras, and macOS fixes.
+
 ### One-Screen Mode & UI
 - **Menus & Apps**: Smooth fades when menus and apps open and close, with no flashes or black frames, and a quick return to the menu. Menu icons use the game's own sprites, and the interface has more room in small windows such as 1280x720.
 - **Pokédex**: Animated Pokémon sprites and a short opening animation.
@@ -372,6 +485,8 @@ PS: Honestly I'm only pushing this because the launcher is broken LOL.
 - macOS: Fixed a crash when choosing your ROM.
 
 ## 0.1.6
+
+64-bit builds, SDL3, one-screen Remaster layout, self-updating launcher, and multiplayer fixes.
 
 ### Platforms
 - **64-bit Builds**: Windows, Linux (AppImage) and macOS (Apple silicon), with multiplayer and code mods. The game keeps the DS's own memory layout and plays the same. No more 32-bit packages.
@@ -395,10 +510,14 @@ PS: Honestly I'm only pushing this because the launcher is broken LOL.
 
 ## 0.1.5
 
+DS-accurate high-resolution 3D outlines without floor gaps or edge flicker.
+
 ### Visuals & Extras
 - **3D Outlines**: At high resolution they now match the DS: no gap or thin line under objects on the floor, and no comb or flicker along edges.
 
 ## 0.1.4
+
+Instant Text option, launcher version fix, and button/hover styling.
 
 ### Visuals & Extras
 - **Instant Text**: Each page of a message appears at once, whatever the text speed (`Settings > Extras`, or `Options > EXTRAS` in the game).
@@ -407,6 +526,8 @@ PS: Honestly I'm only pushing this because the launcher is broken LOL.
 - Shows its real version, outlines the folder, copy and remove buttons, and highlights text boxes and lists on hover.
 
 ## 0.1.3
+
+In-game Display and Sound settings, hidden console window, and GitHub rate-limit handling.
 
 ### Settings
 - **In-Game Settings**: DISPLAY and SOUND pages in the game's Options screen, changed with the arrows in the bottom bar or with L and R.
@@ -419,16 +540,22 @@ PS: Honestly I'm only pushing this because the launcher is broken LOL.
 
 ## 0.1.2
 
+Pixel scale and 3D resolution settings, sharp default 3D, and auto-sized startup window.
+
 ### Visuals & Extras
 - **Display Settings**: Pixel scale (how big each DS pixel is) and 3D resolution (how detailed the 3D is), each Auto or a fixed size. The 3D is now sharp by default.
 - The window opens at a size that fits the screen.
 
 ## 0.1.1
 
+Hotfix preventing Escape from closing the game.
+
 ### Bug Fixes
 - Escape no longer closes the game. Use the window's close button.
 
 ## 0.1.0
+
+Initial release with relay multiplayer and launcher for profiles, versions, and mods.
 
 - First release. The game asks for your own ROM on the first start.
 - **Multiplayer**: Host a game through the public relay and share the code.

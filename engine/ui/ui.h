@@ -129,6 +129,12 @@ typedef struct EidosUiView {
                                (filled by eidos_ui_frame on a phone, where
                                the bar is taller than the home indicator;
                                0: the world fills the window)               */
+    int box_x, box_y;       /* WORLD in a box: the world is drawn in this   */
+    int box_w, box_h;       /* rectangle of the window (window pixels), not
+                               over the whole window; the interface draws
+                               what is round it.  box_w 0: no box.  For a
+                               scene whose picture is one part of a screen
+                               the interface lays out (the Musical's stage) */
     int cap_mix;            /* 0..16: how much of the game's screen capture
                                (the old picture a door blends out over the
                                new world) covers the world; the kept wide
@@ -200,6 +206,9 @@ void eidos_ui_want_ds_scale(void);
  * the game's lower screen as a sheet beside its text needs 216): the
  * largest whole scale that leaves them. */
 void eidos_ui_want_ds_scale_rows(int rows);
+/* The same with the columns the layout needs beside the screen: the scale
+ * is the largest whole one whose canvas is `rows` high and `cols` wide. */
+void eidos_ui_want_ds_scale_size(int rows, int cols);
 
 /* The style chooser's preview: the real game on a save kept in memory
  * (sdk/save_slots.h, bw_slots_try_begin).  State: 0 none, 1 going in, 2 in
@@ -240,6 +249,19 @@ const char *eidos_ui_scene_name(void);
 /* Forget every recipe's state (a restart, a new run). */
 void eidos_ui_reset(void);
 
+/*
+ * The game data's generation.  The interface keeps what it read from the
+ * game's files (text banks, the fonts, icons, the title's logo) and the
+ * archives it opened, for the whole run.  When the game data becomes
+ * another game's while the program runs (the other version,
+ * demo/eidos_boot.c), eidos_ui_data_changed closes the shared archives,
+ * drops the shared pictures and gives the generation its next number; a
+ * recipe's own cache keeps the number it was made at and is made again
+ * when the number is another.
+ */
+u32  eidos_ui_data_generation(void);
+void eidos_ui_data_changed(void);
+
 /* ------------------------------------------------------------------ */
 /* For recipes: actions and hit regions                                */
 /* ------------------------------------------------------------------ */
@@ -253,6 +275,11 @@ void eidos_ui_drag(int x0, int y0, int x1, int y1);
 /* A button press (BW_KEY_* mask), held `frames` frames from the next game
  * frame; the player's own buttons are not disturbed. */
 void eidos_ui_press(u32 keys, u32 frames);
+/* A key hint was tapped: the player's press of that key.  A key the screen
+ * took from the game (eidos_ui_take_keys, this frame or the last) goes to
+ * the screen, in eidos_ui_keys_pressed on the next frame, and not to the
+ * game, as the key itself would; any other key is pressed for the game. */
+void eidos_ui_hint_press(u32 keys);
 /* The input frame of the last B (the player's, a hint's or a right
  * click's). */
 u32  eidos_ui_b_frame(void);

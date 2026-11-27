@@ -151,10 +151,23 @@ static int g_msg_arc_state;
 
 static const u8 *bank_get(int member, u32 *size)
 {
+    static u32 gen;
     int i, free_slot = -1;
     long n;
     u8 *buf;
 
+    if (gen != eidos_ui_data_generation()) {
+        /* another game's data: its own text, from its own archive */
+        gen = eidos_ui_data_generation();
+        for (i = 0; i < BANK_SLOTS; i++) {
+            free(g_bank[i].data);
+        }
+        memset(g_bank, 0, sizeof g_bank);
+        if (g_msg_arc_state == 1) {
+            bw_arc_close(&g_msg_arc);
+        }
+        g_msg_arc_state = 0;
+    }
     for (i = 0; i < BANK_SLOTS; i++) {
         if (g_bank[i].member == member) {
             *size = g_bank[i].size;
@@ -704,7 +717,7 @@ static void draw_hint_strip_h(EidosUiCtx *c, int x, int w, const char *const *pa
             ui_fill(c, at - 2, y + 1, kw + 4 + aw + 4, bh - 2, UI_EDGE, 255);
         }
         if ((st & EIDOS_UI_CLICK) && keys != NULL && keys[i] != 0) {
-            eidos_ui_press(keys[i], 2);
+            eidos_ui_hint_press(keys[i]);
         }
         ui_keycap(c, at, y + (bh - 13) / 2, key);
         at += kw + 4;
@@ -822,8 +835,13 @@ extern int bw_battle_yesno_is_kept(const void *record) __attribute__((weak));
 
 static void mv_names_load(void)
 {
+    static u32 gen;
     int id, n = 0;
 
+    if (gen != eidos_ui_data_generation()) {
+        gen = eidos_ui_data_generation();       /* the other version's data: its own move names */
+        g_mv_ready = 0;
+    }
     if (g_mv_ready) {
         return;
     }
@@ -1603,6 +1621,15 @@ static void own_exp(u8 *poke, int *num, int *den)
 #define PLATE_H   32
 #define PLATE_GAP 3
 
+/* The canvas row under the foes' plates when they stand at the right of
+ * the screen (Harmonia), 0 when they stand at the left. */
+static int g_foe_right_bottom;
+
+int eidos_ui_battle_right_free_y(void)
+{
+    return g_foe_right_bottom;
+}
+
 static void shell_layout(EidosUiCtx *c, const Bt *b, Shell *s)
 {
     int w = c->canvas->w, h = c->canvas->h;
@@ -1894,6 +1921,9 @@ static void shell_draw(EidosUiCtx *c, const Bt *b, const Shell *s, const char *p
         ui_plate_status(c, l.foe_x, y, l.foe_w, m.level, gauge_badge(b, vp));
         y += l.foe_step;
     }
+    /* (a mod's pop-up goes under the foes' plates when they stand at the
+     * right: engine/ui/popup.c) */
+    g_foe_right_bottom = l.foe_x + l.foe_w > l.w * 2 / 3 && y != l.foe_y ? y - l.foe_step + PLATE_H : 0;
     /* the foe's balls come with its plate, as yours do */
     if (y != l.foe_y) {
         ballbar_draw(c, b, 1, l.foe_balls_x, l.foe_balls_y >= 0 ? l.foe_balls_y : y + 2, 0);
@@ -3789,6 +3819,13 @@ static void bag_run(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
 
             if (item == 0) {
                 ui_panel(c, px, py, colw, rowh, UI_CUT_TL | UI_CUT_BR, 4, 0x2A0814u, 0x5A1424u, 160);
+                /* the game's cursor rests on empty slots too (a page turned
+                 * from slot 4 keeps it there, B_BAG_MAIN_StateSelectItem):
+                 * shown as the DS shows it, so it is never nowhere (#50: a
+                 * last page with one item) */
+                if (hov < 0 && v.cursor == i) {
+                    ui_cursor_corners(c, px, py, colw, rowh, UI_WHITE);
+                }
                 continue;
             }
             item_name(item, name, sizeof(name));
@@ -4240,6 +4277,37 @@ static void pl_draw(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in, u8
 
     if (v.mode >= 2 && v.mode <= 7) {
         pl_summary(c, &v, ix, iy, iw, ih, sig, in);
+        /* The game's own sentence over a page, while the game shows it and
+         * waits for a key (the list's print stream, states 23 and 24, and
+         * its flag at 0x2193): "HM moves can't be forgotten now." on a
+         * forget page (B_PLIST_MAIN_EnterState1A, issue 54).  The page
+         * draws its own panels where the game's message window is, so the
+         * sentence never showed and the page seemed not to answer.  It is
+         * read from the list's string buffer, as the list's own reasons
+         * are below. */
+        if (plist[0x2193] == 1 || (rd32(plist, 0x2178) >= 23 && rd32(plist, 0x2178) <= 24)) {
+            char why[96];
+
+            if (strbuf_text(rdp(plist, 0x1EA8), why, (int)sizeof(why)) && why[0] != '\0') {
+                int bw = iw - 24, lines = ui_wrap(why, bw - 20, UI_FONT_LARGE, NULL, NULL);
+                int bh = 12 + 15 * (lines > 0 ? lines : 1);
+                int bx = ix + 12, by = iy + ih - 22 - bh - 6;
+                EidosUiRect all;
+
+                ui_fill(c, ix, iy, iw, ih, UI_INK, 110);
+                ui_panel(c, bx, by, bw, bh, UI_CUT_TL | UI_CUT_BR, 5, UI_BODY, UI_PINK, 255);
+                draw_wrapped(c, bx + 10, by + 6, bw - 20, why, UI_FONT_LARGE, 15, lines > 0 ? lines : 1,
+                             UI_WHITE, (s32)UI_EDGE);
+                /* a click anywhere is the key the game waits for */
+                all.x = 0;
+                all.y = 0;
+                all.w = m.w;
+                all.h = m.h;
+                if (eidos_ui_hit(all) & EIDOS_UI_CLICK) {
+                    eidos_ui_press(BW_KEY_A, 2);
+                }
+            }
+        }
     } else {
         int colw = (iw - 6) / 2, rowh = 30, gap = 4;
         int msg_y = iy + 3 * (rowh + gap) + 2;

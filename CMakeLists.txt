@@ -17,7 +17,7 @@
 #
 
 cmake_minimum_required(VERSION 3.16)
-project(eidos VERSION 0.2.6 LANGUAGES C)
+project(eidos VERSION 0.2.8 LANGUAGES C)
 
 if(PS4)
     enable_language(CXX)
@@ -132,6 +132,15 @@ if(EIDOS_SOURCE_TREE STREQUAL "game" AND NOT EXISTS "${ALETHEIA_ROOT}/src/game")
 endif()
 set(ENV{EIDOS_SOURCE_TREE} "${EIDOS_SOURCE_TREE}")
 set(EIDOS_TREE_ENV ${CMAKE_COMMAND} -E env EIDOS_SOURCE_TREE=${EIDOS_SOURCE_TREE})
+
+# Types past the game's 17 (limit.types, sdk/type_chart.c) need an aletheia
+# tree whose PC build reads the type chart by the type count and takes 31 as
+# "no type" (port_limits.h names BW_LIMIT_TYPE_LAST).  An older tree keeps
+# the limit at the game's 16.
+file(STRINGS "${ALETHEIA_ROOT}/src/game/port_limits.h" _bw_type_limit REGEX "BW_LIMIT_TYPE_LAST")
+if(_bw_type_limit)
+    add_compile_definitions(BW_GAME_TYPE_LIMIT=1)
+endif()
 
 # Where the player's extracted assets live.  Relative paths are taken against
 # the aletheia checkout, so -DBW_DATA_ROOT=extract/data does the obvious
@@ -435,6 +444,7 @@ else()
              ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_dataroot.c
              ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_extract.c
              ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_picker.c
+             ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_profiles.c
              ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_settings.c
              ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_wizard.c)
         if(_eidos_pack4)
@@ -616,6 +626,23 @@ set(BW_SDK_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/inflate.c       # DEFLATE, for packaged mods
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/mod_bw.c        # `.bw` mod packages, unpacked to a cache
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/bw_limits.c     # content limits mods raise (bw_limit_get)
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/battle_handlers.c  # mod moves, abilities, items that work like a built-in one
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/trainer_mons.c  # mod per-member numbers for trainers' Pokemon
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/shops.c  # mod shop lists
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/move_anims.c  # mod move animations, the move preview
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/dex_save.c  # the dex's bits of species past the save's room
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/dex_data.c  # the regional table, shapes and letters of mod species
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/form_gfx.c  # the pictures of a form a mod adds
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/snd_se.c  # the player a mod's sound effect plays on
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/cries.c  # the cry a species plays (cries.txt)
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/type_chart.c  # the chart with the types mods add (type_chart.txt)
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/machines.c  # the TMs mods add (machine_items.txt)
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/tm_pocket.c  # a TM pocket with room for them
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/type_items.c  # the added types' plates and drives
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/item_heal.c  # how much HP items heal (item_heal.txt)
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/text_from.c  # a mod's move and item lines in the game's language
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/type_icons.c  # the added types' icons and buttons (types.txt)
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/palanm_fade.c  # a fade over a screen's type rows covers the added types' row
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/mod_table.c     # a mod's own data tables (`table` lines)
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/mod_hooks.c     # on/off switch for port-side code hooks (docs/hooks.md)
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/mod_slot.c      # the mod seam's slot registry (docs/mod-interface.md)
@@ -633,6 +660,10 @@ set(BW_SDK_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/mod_vfs.c           # v6: members in memory, text entries
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/mod_file.c          # v6: a mod's own files
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/mod_v6.c            # v6: work, badges, scripts, type chart, text input
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/mod_v7.c            # v7: the National Pokedex, a Wonder Card from a mod, the clock, the game's hash
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/mod_web.c           # v7: a mod's web requests
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/mod_popup.c         # v7: a mod's pop-ups
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/md5.c               # the RetroAchievements hash
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/mod_world.c          # v6: metaxy world sessions, the Archipelago link
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/mod_tracker.c        # v6: what a mod shows on the field's Tracker
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/mod_export.c        # a Pokemon's export and import
@@ -640,8 +671,15 @@ set(BW_SDK_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/mp.c               # multiplayer: the lobby, the start and the pause
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/link.c             # Link sessions: the radio over the relay
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/tls_roots.c        # the roots a TLS relay is checked against
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/tls_mozilla_roots.c # Mozilla's roots, for downloads (tools/ca_roots.py)
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/net_https.c        # a file from an https address (the mods index, packages)
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/json_read.c        # a small JSON reader (the mods index)
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/sha256.c           # SHA-256, for a downloaded package's check
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/mod_catalog.c      # the mods index: the list, the install, the removal
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/save_slots.c       # several single-player saves
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/save_games.c       # the saves the Multiplayer screen made
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/save_tidy.c        # a saves folder put in order
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/save_species.c     # the species a save holds
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/preview_save.c     # the style chooser's preview save, packed (tools/preview_save.py)
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/mod_frame.c        # the mod layer's frame tick
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/mod_avatar.c       # the field avatars
@@ -656,6 +694,8 @@ set(BW_SDK_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/mod_wasm.c       # code mods built for wasm (WAMR, docs/mod-code-wasm.md)
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/mod_title.c     # title menu hook state (docs/hooks.md)
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/ui_text.c       # the one-screen text boxes and the talk balloons
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/ui_dressup.c    # the one-screen Musical dress-up's flag (stubs/ov/patch_ov133_dup_fitting.c)
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/ui_catch.c      # the one-screen catch card's flag (stubs/ov/patch_ov207_zukan_toroku_graphic.c)
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/battle_fixed.c  # the place's move for an effect script's fixed points
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/battle_yesno.c  # the battle's yes / no answers kept for the one-screen interface
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/field_fade.c  # the door fade-in's step (stubs/ov/patch_ov021_event_fieldmap_control.c)
@@ -1128,6 +1168,10 @@ endif()
 # rebuild the whole game at each commit.
 set_property(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/sdk/mp.c APPEND PROPERTY
     COMPILE_DEFINITIONS "EIDOS_VERSION=\"${EIDOS_VERSION_STRING}\"")
+# The release number alone (no commit) to the file that checks a mod's
+# `eidos` line (sdk/vfs.c): a test build counts as the release it will be.
+set_property(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/sdk/vfs.c APPEND PROPERTY
+    COMPILE_DEFINITIONS "EIDOS_RELEASE_VERSION=\"${PROJECT_VERSION}\"")
 # The public relay a session uses when the player has set none
 # (docs/distribution.md): `tls://name:port`.  Empty: no default.
 set(EIDOS_DEFAULT_RELAY "" CACHE STRING "The public relay (tls://name:port), empty for none")
@@ -1248,6 +1292,7 @@ if(EIDOS_SDL_FOUND)
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/font.c
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/settings.c
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/settings_ui.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/port_keyboard.c
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/mod_options_proc.c
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/mod_panel_draw.c
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/plat_replace.c
@@ -1265,6 +1310,7 @@ if(EIDOS_SDL_FOUND)
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/ui/recipe_settings.c
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/ui/recipe_multiplayer.c
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/ui/tracker.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/engine/ui/popup.c         # a mod's pop-up (mod API 7)
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/ui/recipe_title.c
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/ui/recipe_mystery.c
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/ui/recipe_battle.c
@@ -1277,6 +1323,7 @@ if(EIDOS_SDL_FOUND)
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/ui/recipe_menus.c
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/ui/recipe_pc.c
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/ui/recipe_input.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/engine/ui/recipe_keyboard.c
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/ui/recipe_field.c
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/ui/item_show.c
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/ui/choice_list.c
@@ -1748,12 +1795,14 @@ endif()
 if(PS4)
     add_library(eidos_setup STATIC
         ${CMAKE_CURRENT_SOURCE_DIR}/install/setup.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/install/profiles.c
         ${CMAKE_CURRENT_SOURCE_DIR}/install/location_ps4.c
         ${CMAKE_CURRENT_SOURCE_DIR}/install/picker_ps4.c
     )
 else()
     add_library(eidos_setup STATIC
         ${CMAKE_CURRENT_SOURCE_DIR}/install/setup.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/install/profiles.c
         ${CMAKE_CURRENT_SOURCE_DIR}/install/location.c
         ${CMAKE_CURRENT_SOURCE_DIR}/install/picker.c
     )
@@ -1836,6 +1885,10 @@ file(GLOB _eidos_port_c ${CMAKE_CURRENT_SOURCE_DIR}/sdk/*.c
      ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/*.c ${CMAKE_CURRENT_SOURCE_DIR}/demo/*.c)
 add_test(NAME check_port_names COMMAND ${Python3_EXECUTABLE}
          ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_port_names.py ${ALETHEIA_ROOT} ${_eidos_port_c})
+# sdk/features.json lists every table file and limit key the code reads
+# (kenon writes a mod's `eidos` line from it)
+add_test(NAME check_features COMMAND ${Python3_EXECUTABLE} -I
+         ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_features.py ${CMAKE_CURRENT_SOURCE_DIR})
 eidos_data_test(test_g2d bw_g2d_oracle)
 
 # The BG test reads its screen list out of the oracle's own manifest, so the
@@ -2036,11 +2089,14 @@ add_test(NAME test_native_port_tools COMMAND ${Python3_EXECUTABLE}
 # port's own handler); test_mod_avatar checks the field avatars (the pool's
 # headroom, the walk and the reset); test_mod_net checks the peer sessions
 # and the external control (the relay protocol, the session, the frame and
-# the control's endpoint).
+# the control's endpoint); test_https checks the https download with canned
+# answers and the JSON reader; test_mod_catalog checks the mods index's
+# rules, SHA-256 and the folder removal.
 foreach(t test_mod_surface test_mod_event test_mod_state test_mod_declare test_mod_messages
           test_mod_text test_mod_script test_mod_rule test_mod_timer test_mod_export
           test_mod_menu test_mod_input test_mod_handoff test_mod_restart
-          test_mod_avatar test_mod_net test_save_games)
+          test_mod_avatar test_mod_net test_save_games test_save_tidy test_save_species test_battle_handlers test_trainer_mons test_shops test_item_heal test_move_anims test_https
+          test_mod_catalog)
     add_executable(${t} ${CMAKE_CURRENT_SOURCE_DIR}/tests/${t}.c)
     target_include_directories(${t} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/sdk ${CMAKE_CURRENT_SOURCE_DIR}/tests)
@@ -2140,6 +2196,10 @@ add_executable(test_mod_wasm ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_mod_wasm.c)
 target_include_directories(test_mod_wasm PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(test_mod_wasm PRIVATE eidos)
+# (its last case loads tests/data/mod_libc/libc_test.wasm, the mod C
+# library's own checks)
+target_compile_definitions(test_mod_wasm PRIVATE
+    EIDOS_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
 # test_mp drives multiplayer's lobby, start and pause (sdk/mp.c) with a
 # network of its own, as the host's game and then as a joiner's.
 add_executable(test_mp ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_mp.c)
@@ -2224,7 +2284,15 @@ add_executable(test_mod_world ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_mod_world.c
 target_include_directories(test_mod_world PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(test_mod_world PRIVATE eidos)
 add_test(NAME test_mod_world COMMAND test_mod_world WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
-# The language-neutral API description (sdk/api/v5, tools/apigen.py): its
+# test_mod_v7_host: the version 7 services for online mods (sdk/mod_web.c,
+# sdk/mod_popup.c, sdk/md5.c and the clock and game hash in sdk/mod_v7.c),
+# web requests over a made-up server.
+add_executable(test_mod_v7_host ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_mod_v7_host.c)
+target_include_directories(test_mod_v7_host PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(test_mod_v7_host PRIVATE eidos)
+add_test(NAME test_mod_v7_host COMMAND test_mod_v7_host WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+# The language-neutral API description (sdk/api/v7, tools/apigen.py): its
 # payload offsets compile against the headers, and the committed files are
 # the generator's current output.
 add_executable(test_api_layout ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_api_layout.c)
@@ -2638,6 +2706,17 @@ add_dependencies(test_dataroot bw_synth)
 add_test(NAME test_dataroot
          COMMAND test_dataroot ${BW_SYNTH_DIR} ${CMAKE_CURRENT_BINARY_DIR}/setup_work)
 set_tests_properties(test_dataroot PROPERTIES ENVIRONMENT "BW_DATA_ROOT=;EIDOS_HOME=")
+
+# One install with both games (install/setup.c) and the two game profiles
+# of a start without the launcher, with a plain start's old saves taken
+# into them (install/profiles.c).  Its own home and user folders under the
+# work folder.
+add_executable(test_profiles ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_profiles.c)
+target_include_directories(test_profiles PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(test_profiles PRIVATE eidos_setup)
+add_test(NAME test_profiles
+         COMMAND test_profiles ${CMAKE_CURRENT_BINARY_DIR}/profiles_work)
+set_tests_properties(test_profiles PROPERTIES ENVIRONMENT "BW_DATA_ROOT=;EIDOS_HOME=")
 
 # The native file dialog opened for real and answered by a helper thread
 # (Windows).  It shows a window on the desktop, so it runs only with
@@ -3061,6 +3140,15 @@ if(EIDOS_SDL_FOUND)
     endif()
     add_test(NAME test_ui_trf COMMAND test_ui_trf)
 
+    # The port's own keyboard's model (engine/platform/port_keyboard.c).
+    add_executable(test_port_keyboard
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_port_keyboard.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/port_keyboard.c)
+    target_include_directories(test_port_keyboard PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform
+        ${CMAKE_CURRENT_SOURCE_DIR}/sdk)
+    add_test(NAME test_port_keyboard COMMAND test_port_keyboard)
+
     # The settings screen's model: tabs, rows, navigation, revert, commit.
     add_executable(test_settings_ui
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_settings_ui.c)
@@ -3151,6 +3239,13 @@ if(VITA)
     # the Vita's package: the signed program (eboot.bin) and the .vpk the
     # system (or Vita3K) installs (docs/consoles.md)
     include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
+    # vita-elf-create adds the module's SCE tables (a few KB) at the end of
+    # the code segment, and the data segment starts at the next 64 KB
+    # boundary: code that ends just short of it left no room ("Cannot
+    # allocate N bytes for SCE data at end of segment 0; segment 1
+    # overlaps").  __sce_headroom is VitaSDK's supported way to keep room
+    # there (vitasdk/vita-toolchain issue 303).
+    target_link_options(eidos_boot PRIVATE "-Wl,--defsym=__sce_headroom=0x10000")
     vita_create_self(eidos_boot.self eidos_boot UNSAFE)
     vita_create_vpk(eidos.vpk EIDS00001 eidos_boot.self VERSION 01.00 NAME "eidos")
 endif()
@@ -3434,6 +3529,7 @@ if(NOT _eidos_ovls STREQUAL "")
         list(APPEND _ovl_link ${EIDOS_BOOT_MATCHED} ${EIDOS_BOOT_PORT_SOURCES}
             ${EIDOS_BOOT_ASM_SUBST}
             ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/settings_ui.c
+            ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/port_keyboard.c
             ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/settings.c
             ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/mod_options_proc.c)
     endif()

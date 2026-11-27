@@ -4,7 +4,10 @@
   import { toast } from "morphe/menu.svelte";
   import {
     gamesOf,
+    importOldSaves,
+    tidySaves,
     message,
+    oldSavesPending,
     overview,
     play,
     romLibrary,
@@ -92,15 +95,39 @@
     }
   }
 
+  // The saves of a plain eidos from before the game profiles: imported
+  // once, by the game itself, while a window says so.  Then each profile's
+  // saves put in order (the game's tidy step).  At launch, and again when a
+  // version is installed: the game that does them may have just come.
+  let importing = $state(false);
+
+  async function saveChores() {
+    try {
+      if (await oldSavesPending()) {
+        importing = true;
+        const note = await importOldSaves();
+        importing = false;
+        if (note) toast(note);
+      }
+      for (const note of await tidySaves()) toast(note);
+      await refresh();
+    } catch (e) {
+      importing = false;
+      toast(message(e), true);
+    }
+  }
+
   onMount(() => {
     refresh();
     loadGames();
+    saveChores();
     // The launcher's own update, once per launch; a failure only reports.
     checkForUpdate().then(() => {
       if (updates.state.kind === "failed") toast(updates.state.message, true);
     });
     const stops: Promise<() => void>[] = [
       listen("running-changed", refresh),
+      listen("version-installed", saveChores),
       listen<string>("invite", async (e) => {
         await takePendingJoin();
         await refresh();
@@ -134,7 +161,9 @@
   let haveGames = $state<Game[]>([]);
   let askRom = $state<Game | null>(null);
   let askDialog = $state<HTMLDialogElement>();
-  const game = $derived<Game>(current?.game === "white" ? "white" : "black");
+  // (before the overview arrives: the remembered profile's game, so the
+  // switch does not jump when it does)
+  const game = $derived<Game>((current ? current.game === "white" : selected === "White") ? "white" : "black");
 
   $effect(() => {
     if (current) setGameTheme(THEME_OF[game]);
@@ -171,9 +200,8 @@
 
 {#if failure}
   <div class="state"><p class="bad" role="alert">{failure}</p></div>
-{:else if !ov}
-  <div class="state muted">Loading</div>
 {:else}
+  <!-- The frame shows at once; the page fills in when the overview comes. -->
   <div class="shell">
     <nav aria-label="Pages">
       <h1 class="brand">eidos</h1>
@@ -198,7 +226,7 @@
         {/each}
       </div>
       <div class="foot">
-        <span class="faint small">Launcher {ov.launcherVersion}</span>
+        <span class="faint small">Launcher {ov?.launcherVersion ?? ""}</span>
         {#if updates.state.kind === "checking"}
           <span class="faint small">Checking for updates</span>
         {:else if updates.state.kind === "current"}
@@ -206,8 +234,10 @@
         {/if}
       </div>
     </nav>
-    <main>
-      {#if page === "home"}
+    <main class:ready={ov !== null}>
+      {#if !ov}
+        <div aria-busy="true"></div>
+      {:else if page === "home"}
         <Home {ov} {selected} {current} onSelect={select} onRefresh={refresh} onGoto={(p: Page) => (page = p)} onNeedRom={needRom} />
       {:else if page === "profiles"}
         <Profiles {ov} {selected} onSelect={select} onRefresh={refresh} />
@@ -226,14 +256,24 @@
   <div class="updating" role="status">
     <div class="window box">
       {#if updates.state.kind === "downloading"}
-        <h2>Updating the launcher</h2>
+        <h2>Updating launcher</h2>
         <p class="muted">Downloading version {updates.state.version}</p>
         <div class="bar"><div class="fill" style:width="{percent ?? 30}%" class:moving={percent === null}></div></div>
       {:else if updates.state.kind === "installing"}
-        <h2>Updating the launcher</h2>
+        <h2>Updating launcher</h2>
         <p class="muted">Installing version {updates.state.version}</p>
         <div class="bar"><div class="fill moving" style:width="30%"></div></div>
       {/if}
+    </div>
+  </div>
+{/if}
+
+{#if importing}
+  <div class="updating" role="status">
+    <div class="window box">
+      <h2>Importing saves</h2>
+      <p class="muted">Copying saves from your previous eidos install into profiles</p>
+      <div class="bar"><div class="fill moving" style:width="30%"></div></div>
     </div>
   </div>
 {/if}
@@ -242,7 +282,7 @@
   <h2>Add Pokémon {askRom === "white" ? "White" : "Black"}</h2>
   <p class="muted">
     The {askRom === "white" ? "White" : "Black"} profile needs your own Pokémon {askRom === "white" ? "White" : "Black"} ROM.
-    Add it in Settings, ROMs.
+    Add it in Settings > ROMs.
   </p>
   <div class="buttons">
     <button class="quiet" onclick={() => askDialog?.close()}>Not now</button>
@@ -382,6 +422,20 @@
   main > :global(*) {
     flex: 1 1 auto;
     min-height: 0;
+  }
+  /* the page fades in once, when its data has come */
+  main.ready > :global(*) {
+    animation: page-in 0.15s ease-out;
+  }
+  @keyframes page-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    main.ready > :global(*) {
+      animation: none;
+    }
   }
   /* A phone: the pages take the whole width and the links become a bar
      along the bottom, in thumb's reach. */

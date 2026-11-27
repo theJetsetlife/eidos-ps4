@@ -131,6 +131,7 @@ extern void        bw_mod_manifest_delete(void *manifest);
 extern int         bw_mod_manifest_parse_dir(void *manifest, const char *root,
                                               const char *dir_name);
 extern const char *bw_mod_manifest_name(const void *manifest);
+extern const char *bw_mod_manifest_about(const void *manifest, int what);
 extern const char *bw_mod_manifest_code(const void *manifest);
 extern const char *bw_mod_manifest_state(const void *manifest);
 extern const char *bw_mod_manifest_settings(const void *manifest);
@@ -159,6 +160,7 @@ extern u32  bw_mod_savedata_save_check(void);
 #define BW_MOD_MENU_PATH_MAX 1024
 #define BW_MOD_MENU_ROOT_MAX 512
 #define BW_MOD_MENU_NAME_MAX 96
+#define BW_MOD_MENU_ABOUT_MAX 400
 #define BW_MOD_MENU_NS_MAX 96
 #define BW_MOD_MENU_SET_MAX 256
 #define BW_MOD_MENU_KEY_MAX 64
@@ -169,6 +171,9 @@ extern u32  bw_mod_savedata_save_check(void);
 #define BW_MOD_MENU_MODE_LINE 128
 #define BW_MOD_MENU_CODE_MAX  160  /* a world code, or "ap <host:port> <slot> <password>" */
 #define BW_MOD_MENU_MODES_MAX 8         /* the modes one mod may offer      */
+#define BW_MOD_MENU_TABS_MAX 8         /* a mod's own Settings tabs (`tab` lines) */
+#define BW_MOD_MENU_TAB_LEN 32          /* a tab's title + 1 */
+#define BW_MOD_MENU_SHOW_MAX 63         /* a `show` row's longest text */
 #define BW_MOD_MENU_LOBBY_BIT (1u << 31) /* an option's `@lobby` (modes are bits 0-7) */
 
 /* A mod declares as many options, and an option as many choices, as it
@@ -216,6 +221,10 @@ typedef struct BwModMenuOption {
                                     * mode k); 0: the Mods section alone */
     char when_key[BW_MOD_MENU_KEY_MAX];        /* `?key=value`: shown only while */
     char when_val[BW_MOD_MENU_CHOICE_LEN];     /* that option has that value     */
+    int  when_not;                             /* `?key!=value`: while it has not */
+    int  tab;                                  /* the mod's tab it is on (`tab`
+                                                * lines), -1: under the mod in Mods */
+    int  word;                                 /* _TEXT `word`: one word, no space */
     char heading[BW_MOD_MENU_LABEL_MAX];       /* a `heading` line above it      */
     char *help;                                /* its `help` line (freed with it) */
     char *yaml;                                /* its `yaml` line: "<key> <values>" */
@@ -245,6 +254,9 @@ typedef struct BwModMenuMode {
 typedef struct BwModMenuMod {
     char root[BW_MOD_MENU_ROOT_MAX];    /* the mod's own folder          */
     char name[BW_MOD_MENU_NAME_MAX];    /* the name the manifest gives   */
+    char about[BW_MOD_MENU_ABOUT_MAX];  /* its `description` line, "" for none */
+    char author[64];                    /* its `author` line             */
+    char version[24];                   /* its `version` line            */
     char ns[BW_MOD_MENU_NS_MAX];        /* the state namespace           */
     char settings[BW_MOD_MENU_SET_MAX]; /* the settings declaration      */
     int  order;                         /* the manifest's order key      */
@@ -253,6 +265,14 @@ typedef struct BwModMenuMod {
     int  enabled;                       /* the player's switch           */
     int  running;                       /* the root is in the port's list */
     int  present;                       /* the mod's folder is there     */
+    int  needs_game;                    /* 0, or the game it is made for when
+                                         * that is not the one loaded
+                                         * (BW_MOD_GAME_*, sdk/vfs.h; -1: its
+                                         * `game` line names none): the port
+                                         * does not load it */
+    char needs_eidos[16];               /* its `eidos` line when that asks
+                                         * for a newer eidos than this one,
+                                         * else "": the port does not load it */
     int  has_code;                      /* the mod ships code            */
     u32  option_count;
     u32  option_cap;
@@ -261,7 +281,17 @@ typedef struct BwModMenuMod {
     BwModMenuMode *modes;               /* BW_MOD_MENU_MODES_MAX, on the heap
                                          * (the 32-bit image has little room) */
     char heading_next[BW_MOD_MENU_LABEL_MAX];  /* a `heading` waiting for its option */
+    char (*tabs)[BW_MOD_MENU_TAB_LEN];  /* its `tab` titles, on the heap; NULL for none */
+    u32  tab_count;
+    int  tab_cur;                       /* the tab the next lines go on, -1 none */
 } BwModMenuMod;
+
+/* A mod the port does not load whatever its switch says: made for the
+ * other game, or for a newer eidos. */
+static int unavailable(const BwModMenuMod *m)
+{
+    return m->needs_game != 0 || m->needs_eidos[0] != '\0';
+}
 
 /* One row of the port's own record: a mod's root, its switch and the
  * player's place in the list. */
@@ -624,6 +654,16 @@ static void read_manifest(BwModMenuMod *m)
         return;
     }
     copy_str(m->name, sizeof m->name, bw_mod_manifest_name(record));
+    {
+        const char *t;
+
+        t = bw_mod_manifest_about(record, 0);
+        copy_str(m->about, sizeof m->about, t != NULL ? t : "");
+        t = bw_mod_manifest_about(record, 1);
+        copy_str(m->author, sizeof m->author, t != NULL ? t : "");
+        t = bw_mod_manifest_about(record, 2);
+        copy_str(m->version, sizeof m->version, t != NULL ? t : "");
+    }
     ns = bw_mod_manifest_state(record);
     if (ns != NULL && ns[0] != '\0' && bw_mod_manifest_namespace_valid(ns)) {
         copy_str(m->ns, sizeof m->ns, ns);
@@ -964,7 +1004,7 @@ static void cut_when(char *value, char *out, size_t n)
     for (s = value; *s != '\0'; s++) {
         if (*s == '"') {
             quoted = !quoted;
-        } else if (*s == '?' && !quoted && s > value && is_space(s[-1])) {
+        } else if (*s == '?' && !quoted && (s == value || is_space(s[-1]))) {
             q = s;
         }
     }
@@ -1057,6 +1097,43 @@ static int parse_extra(BwModMenuMod *m, const char *what, char *p)
     return rc;
 }
 
+/*
+ * `tab "<title>"`: the lines after it, up to the next `tab` line, are a tab
+ * of the settings screen of their own (after the port's tabs).  Lines
+ * before any tab stay under the mod's row in the Mods section.
+ */
+static int parse_tab(BwModMenuMod *m, char *p)
+{
+    char *title = next_token(&p);
+    char *more = next_token(&p);
+
+    if (title == NULL || title[0] == '\0' || more != NULL || strlen(title) >= BW_MOD_MENU_TAB_LEN) {
+        report(m->name, "a tab line needs one quoted title of at most %d characters; it is ignored",
+               BW_MOD_MENU_TAB_LEN - 1);
+        free(title);
+        free(more);
+        return -1;
+    }
+    if (m->tab_count >= BW_MOD_MENU_TABS_MAX) {
+        report(m->name, "more than %d tabs; '%s' and what follows go on the last one",
+               BW_MOD_MENU_TABS_MAX, title);
+        free(title);
+        return -1;
+    }
+    if (m->tabs == NULL) {
+        m->tabs = (char (*)[BW_MOD_MENU_TAB_LEN])calloc(BW_MOD_MENU_TABS_MAX, BW_MOD_MENU_TAB_LEN);
+        if (m->tabs == NULL) {
+            free(title);
+            return -1;
+        }
+    }
+    copy_str(m->tabs[m->tab_count], BW_MOD_MENU_TAB_LEN, title);
+    m->tab_cur = (int)m->tab_count++;
+    m->heading_next[0] = '\0';
+    free(title);
+    return 0;
+}
+
 static int parse_option(BwModMenuMod *m, char *line)
 {
     char when[BW_MOD_MENU_KEY_MAX + BW_MOD_MENU_CHOICE_LEN + 2];
@@ -1081,6 +1158,26 @@ static int parse_option(BwModMenuMod *m, char *line)
 
         free(key);
         return rc;
+    }
+    if (strcmp(key, "tab") == 0) {
+        free(key);
+        return parse_tab(m, p);
+    }
+    if (strcmp(key, "button") == 0 || strcmp(key, "show") == 0) {
+        /* `button <key> "<label>"` and `show <key> "<label>"`: an option
+         * line with its kind first and no value */
+        char *k2 = next_token(&p);
+        char row[4096];
+
+        if (k2 == NULL) {
+            report(m->name, "a %s line with no key; it is ignored", key);
+            free(key);
+            return -1;
+        }
+        snprintf(row, sizeof row, "option %s %s %s", k2, key, p);
+        free(k2);
+        free(key);
+        return parse_option(m, row);
     }
     if (strcmp(key, "option") != 0) {
         free(key);
@@ -1171,9 +1268,14 @@ static int parse_option(BwModMenuMod *m, char *line)
     /* the group it is in: the last heading above it (the screen draws the
      * heading where the group changes, whichever of its options a mode shows) */
     copy_str(o->heading, sizeof o->heading, m->heading_next);
+    o->tab = m->tab_cur;
     if (when[0] != '\0') {
         char *eq = strchr(when, '=');
 
+        if (eq > when && eq[-1] == '!') {
+            o->when_not = 1;            /* `?key!=value` */
+            eq[-1] = '\0';
+        }
         *eq = '\0';
         copy_str(o->when_key, sizeof o->when_key, when);
         copy_str(o->when_val, sizeof o->when_val, eq + 1);
@@ -1252,33 +1354,54 @@ static int parse_option(BwModMenuMod *m, char *line)
         o->max = (int)hi;
         o->def = (int)def;
         o->value = o->def;
-    } else if (strcmp(kind, "text") == 0) {
-        /* `<longest> "<default>"`: the default may be left out (empty).
-         * A text holds no '"' (the choices file quotes it). */
+    } else if (strcmp(kind, "text") == 0 || strcmp(kind, "secret") == 0) {
+        /* text: `<longest> "<default>" [word]`, the default may be left out
+         * (empty); a text holds no '"' (the choices file quotes it); `word`:
+         * one word (the keyboard has no SPACE).  secret: `<longest>` alone,
+         * a password: never written to a file, cleared when the settings
+         * close, and any printable letter */
+        int secret = kind[0] == 's';
         char *end;
         long len = strtol(value, &end, 10);
         char *q = end;
-        char *def = next_token(&q);
+        char *def = secret ? NULL : next_token(&q);
+        char *flag = next_token(&q);
+        int word = flag != NULL && strcmp(flag, "word") == 0;
 
         while (*q != '\0' && is_space(*q)) {
             q++;
         }
         if (end == value || len < 1 || len >= BW_MOD_MENU_TEXT_MAX || *q != '\0' ||
-            (def != NULL && (long)strlen(def) > len)) {
-            report(m->name, "the text option '%s' needs '<longest> \"<default>\"' with "
-                   "1 <= longest <= %d; it is ignored", key, BW_MOD_MENU_TEXT_MAX - 1);
+            (flag != NULL && (!word || secret)) || (def != NULL && (long)strlen(def) > len)) {
+            report(m->name, secret ? "the secret option '%s' needs '<longest>' with 1 <= longest <= %d; "
+                                     "it is ignored"
+                                   : "the text option '%s' needs '<longest> \"<default>\" [word]' with "
+                                     "1 <= longest <= %d; it is ignored", key, BW_MOD_MENU_TEXT_MAX - 1);
             free(def);
+            free(flag);
             free(key);
             free(kind);
             free(label);
             free(value);
             return -1;
         }
-        o->kind = BW_MOD_SETTING_TEXT;
+        o->kind = secret ? BW_MOD_SETTING_SECRET : BW_MOD_SETTING_TEXT;
         o->max = (int)len;
+        o->word = word;
         copy_str(o->text_def, sizeof o->text_def, def != NULL ? def : "");
         copy_str(o->text, sizeof o->text, o->text_def);
         free(def);
+        free(flag);
+        if (secret && (modes & BW_MOD_MENU_LOBBY_BIT)) {
+            report(m->name, "the secret option '%s' cannot be a lobby rule; @lobby is ignored", key);
+            modes &= ~BW_MOD_MENU_LOBBY_BIT;
+        }
+    } else if ((strcmp(kind, "button") == 0 || strcmp(kind, "show") == 0) && value[0] == '\0') {
+        o->kind = kind[0] == 'b' ? BW_MOD_SETTING_BUTTON : BW_MOD_SETTING_SHOW;
+        if (modes & BW_MOD_MENU_LOBBY_BIT) {
+            report(m->name, "the %s '%s' cannot be a lobby rule; @lobby is ignored", kind, key);
+            modes &= ~BW_MOD_MENU_LOBBY_BIT;
+        }
     } else {
         report(m->name, "the option '%s' has the unknown kind '%s'; it is "
                "ignored", key, kind);
@@ -1343,6 +1466,7 @@ static void read_declaration(BwModMenuMod *m)
     if (text == NULL) {
         return;                 /* no declaration: the mod has no settings */
     }
+    m->tab_cur = -1;
     p = text;
     while (*p != '\0') {
         char *e = strchr(p, '\n');
@@ -1437,6 +1561,10 @@ static void read_choices(BwModMenuMod *m)
                         memcmp(o->key, ks, (size_t)(ke - ks)) != 0) {
                         continue;
                     }
+                    if (o->kind == BW_MOD_SETTING_SECRET || o->kind == BW_MOD_SETTING_BUTTON ||
+                        o->kind == BW_MOD_SETTING_SHOW) {
+                        break;                  /* never kept in the file */
+                    }
                     if (o->kind == BW_MOD_SETTING_TEXT) {
                         /* key = "text" */
                         if (ve - vs >= 2 && vs[0] == '"' && ve[-1] == '"' &&
@@ -1500,7 +1628,14 @@ static int write_choices(BwModMenuMod *m)
     for (i = 0; i < m->option_count; i++) {
         BwModMenuOption *o = &m->options[i];
         char line[256];
-        int n = o->kind == BW_MOD_SETTING_TEXT
+        int n;
+
+        if (o->kind == BW_MOD_SETTING_SECRET || o->kind == BW_MOD_SETTING_BUTTON ||
+            o->kind == BW_MOD_SETTING_SHOW) {
+            continue;                   /* a password is never written; a button
+                                         * and a mod's row hold no choice */
+        }
+        n = o->kind == BW_MOD_SETTING_TEXT
                 ? snprintf(line, sizeof line, "%s = \"%s\"\n", o->key, o->text)
                 : snprintf(line, sizeof line, "%s = %d\n", o->key, o->value);
 
@@ -1542,6 +1677,9 @@ static void model_free(void)
         free(g_mods[i].modes);
         g_mods[i].modes = NULL;
         g_mods[i].mode_count = 0;
+        free(g_mods[i].tabs);
+        g_mods[i].tabs = NULL;
+        g_mods[i].tab_count = 0;
     }
     g_count = 0;
     g_built = 0;
@@ -1862,11 +2000,26 @@ static void model_build(void)
             g_mods[i].present =
                 (bw_plat_path_kind(g_mods[i].root) == BW_PATH_DIR);
         }
+        {
+            /* (made for the other game: it stays in the list, named so,
+             * and is not handed to the port, which would refuse it) */
+            const int games = g_mods[i].present ? bw_mod_games_at(g_mods[i].root) : BW_MOD_GAME_BLACK | BW_MOD_GAME_WHITE;
+            const int have = bw_mod_game_loaded();
+
+            g_mods[i].needs_game = games == 0 ? -1 : have != 0 && (games & have) == 0 ? games : 0;
+        }
+        /* (made for a newer eidos: the same, named so) */
+        g_mods[i].needs_eidos[0] = '\0';
+        if (g_mods[i].present) {
+            (void)bw_mod_needs_eidos_at(g_mods[i].root, g_mods[i].needs_eidos, sizeof g_mods[i].needs_eidos);
+        }
     }
     model_sort();
     for (i = 0; i < g_count; i++) {
         g_mods[i].base_pos = i;
-        read_settings(&g_mods[i]);
+        if (!unavailable(&g_mods[i])) {
+            read_settings(&g_mods[i]);      /* (a mod for the other game offers no options and no modes) */
+        }
     }
     g_player_order_base = g_player_order;
     g_built = 1;
@@ -1915,7 +2068,7 @@ static int model_list_matches(void)
     for (i = 0; i < g_count; i++) {
         const char *root;
 
-        if (!g_mods[i].enabled || !g_mods[i].present) {
+        if (!g_mods[i].enabled || !g_mods[i].present || unavailable(&g_mods[i])) {
             continue;
         }
         if (n >= count) {
@@ -1947,15 +2100,15 @@ static int model_rebuild_roots(void)
     u32 i;
 
     for (i = 0; i < g_count; i++) {
-        if (!g_mods[i].enabled || !g_mods[i].present) {
-            continue;   /* off, or its folder is gone */
+        if (!g_mods[i].enabled || !g_mods[i].present || unavailable(&g_mods[i])) {
+            continue;   /* off, its folder is gone, or it is made for the other game */
         }
         roots[n++] = g_mods[i].root;
     }
     if (!g_player_order) {
         bw_clear_mods();
         for (i = 0; i < g_count; i++) {
-            if (!g_mods[i].enabled || !g_mods[i].present) {
+            if (!g_mods[i].enabled || !g_mods[i].present || unavailable(&g_mods[i])) {
                 continue;
             }
             if (bw_add_mod_root(g_mods[i].root) != 0) {
@@ -2051,7 +2204,7 @@ void bw_mod_menu_start(void)
         (void)model_rebuild_roots();
     }
     for (i = 0; i < g_count; i++) {
-        g_mods[i].running = g_mods[i].enabled;
+        g_mods[i].running = g_mods[i].enabled && !unavailable(&g_mods[i]);
     }
 }
 
@@ -2107,6 +2260,45 @@ int bw_mod_menu_running_at(u32 index)
     return index < g_count ? g_mods[index].running : 0;
 }
 
+int bw_mod_menu_needs_game_at(u32 index)
+{
+    model_ready();
+    return index < g_count ? g_mods[index].needs_game : 0;
+}
+
+const char *bw_mod_menu_needs_eidos_at(u32 index)
+{
+    model_ready();
+    return index < g_count && g_mods[index].needs_eidos[0] != '\0' ? g_mods[index].needs_eidos : NULL;
+}
+
+int bw_mod_menu_unavailable_at(u32 index)
+{
+    model_ready();
+    return index < g_count && unavailable(&g_mods[index]);
+}
+
+const char *bw_mod_menu_about_at(u32 index, int what)
+{
+    model_ready();
+    if (index >= g_count) {
+        return "";
+    }
+    return what == 0 ? g_mods[index].about : what == 1 ? g_mods[index].author : what == 2 ? g_mods[index].version : "";
+}
+
+static int g_manager;
+
+void bw_mod_menu_set_manager(int on)
+{
+    g_manager = on != 0;
+}
+
+int bw_mod_menu_manager(void)
+{
+    return g_manager;
+}
+
 int bw_mod_menu_present_at(u32 index)
 {
     model_ready();
@@ -2139,7 +2331,7 @@ int bw_mod_menu_dirty(void)
 
     model_ready();
     for (i = 0; i < g_count; i++) {
-        if (g_mods[i].enabled != g_mods[i].running) {
+        if ((g_mods[i].enabled && !unavailable(&g_mods[i])) != g_mods[i].running) {
             return 1;
         }
         if (g_mods[i].base_pos != i) {
@@ -2212,7 +2404,9 @@ void bw_mod_menu_revert(void)
 
     model_ready();
     for (i = 0; i < g_count; i++) {
-        g_mods[i].enabled = g_mods[i].running;
+        if (!unavailable(&g_mods[i])) {    /* (a mod for the other game keeps the switch the player gave it) */
+            g_mods[i].enabled = g_mods[i].running;
+        }
     }
     /* The order goes back to the one the list had when the menu was
      * opened: every row to the place it was built at. */
@@ -2289,7 +2483,7 @@ int bw_mod_menu_apply(void)
     (void)write_record();
 
     for (i = 0; i < g_count; i++) {
-        g_mods[i].running = g_mods[i].enabled;
+        g_mods[i].running = g_mods[i].enabled && !unavailable(&g_mods[i]);
         /* The list is the port's list now, so the order the player chose
          * is the order the list holds: there is nothing left to apply. */
         g_mods[i].base_pos = i;
@@ -2535,8 +2729,10 @@ const char *bw_mod_menu_option_text(u32 index, u32 option, char *buf,
         return buf;
     }
     o = &g_mods[index].options[option];
-    if (o->kind == BW_MOD_SETTING_TEXT) {
+    if (o->kind == BW_MOD_SETTING_TEXT || o->kind == BW_MOD_SETTING_SECRET || o->kind == BW_MOD_SETTING_SHOW) {
         snprintf(buf, size, "%s", o->text);
+    } else if (o->kind == BW_MOD_SETTING_BUTTON) {
+        buf[0] = '\0';
     } else if (o->kind == BW_MOD_SETTING_BOOL) {
         snprintf(buf, size, "%s", bw_mod_menu_rule_value(index, option) ? "on" : "off");
     } else if (o->kind == BW_MOD_SETTING_INT) {
@@ -2562,16 +2758,18 @@ int bw_mod_menu_option_set_text(u32 index, u32 option, const char *text)
         return -1;
     }
     o = &g_mods[index].options[option];
-    if (o->kind != BW_MOD_SETTING_TEXT || (int)strlen(text) > o->max) {
+    if ((o->kind != BW_MOD_SETTING_TEXT && o->kind != BW_MOD_SETTING_SECRET) || (int)strlen(text) > o->max) {
         return -1;
     }
     for (s = text; *s != '\0'; s++) {
-        if (*s == '"' || *s == '\n' || *s == '\r') {
+        if ((*s == '"' && o->kind == BW_MOD_SETTING_TEXT) || *s == '\n' || *s == '\r') {
             return -1;
         }
     }
     copy_str(o->text, sizeof o->text, text);
-    (void)write_choices(&g_mods[index]);
+    if (o->kind == BW_MOD_SETTING_TEXT) {
+        (void)write_choices(&g_mods[index]);
+    }
     return 0;
 }
 
@@ -2605,7 +2803,7 @@ static int option_shown(const BwModMenuMod *m, const BwModMenuOption *o, u32 mod
             break;
         }
     }
-    if (c == NULL || ((c->modes >> mode) & 1u) == 0) {
+    if (c == NULL || (mode < 32u && ((c->modes >> mode) & 1u) == 0)) {
         return 1;
     }
     switch (c->kind) {
@@ -2617,13 +2815,18 @@ static int option_shown(const BwModMenuMod *m, const BwModMenuOption *o, u32 mod
                                   ? c->choices[c->value] : "");
         break;
     case BW_MOD_SETTING_TEXT:
+    case BW_MOD_SETTING_SECRET:
+    case BW_MOD_SETTING_SHOW:
         copy_str(now, sizeof now, c->text);
+        break;
+    case BW_MOD_SETTING_BUTTON:
+        now[0] = '\0';
         break;
     default:
         snprintf(now, sizeof now, "%d", c->value);
         break;
     }
-    return same_word(now, o->when_val);
+    return same_word(now, o->when_val) != o->when_not;
 }
 
 int bw_mod_menu_option_in_mode(u32 index, u32 option, u32 mode)
@@ -2761,6 +2964,9 @@ int bw_mod_menu_mode_joins(u32 index, u32 mode)
 
 void bw_mod_menu_mode_end(void)
 {
+    if (getenv("EIDOS_MP_UI_LOG") != NULL && g_mode_id[0] != '\0') {
+        fprintf(stderr, "eidos: mode: '%s' of '%s' ends\n", g_mode_id, g_mode_ns);
+    }
     g_mode_ns[0] = '\0';
     g_mode_id[0] = '\0';
     g_mode_code[0] = '\0';
@@ -2772,6 +2978,10 @@ void bw_mod_menu_mode_end(void)
 
 void bw_mod_menu_mode_new_game(void)
 {
+    if (getenv("EIDOS_MP_UI_LOG") != NULL) {
+        fprintf(stderr, "eidos: mode: a new game; the mode is '%s' of '%s', %s\n", g_mode_id, g_mode_ns,
+                g_mode_used ? "used by the game before: ended" : "this game's");
+    }
     if (g_mode_used) {
         bw_mod_menu_mode_end();     /* the mode was the game before this one's */
     } else if (g_mode_id[0] != '\0') {
@@ -2811,7 +3021,7 @@ static int lobby_value(const BwModMenuMod *m, const BwModMenuOption *o, int *out
     char k[BW_MOD_MENU_KEY_MAX + 8];
     s32 v;
 
-    if (!(o->modes & BW_MOD_MENU_LOBBY_BIT) || o->kind == BW_MOD_SETTING_TEXT ||
+    if (!(o->modes & BW_MOD_MENU_LOBBY_BIT) || o->kind >= BW_MOD_SETTING_TEXT ||
         bw_mp_shared_get == NULL || m->ns[0] == '\0' || rule_key(k, sizeof k, o->key) != 0) {
         return 0;
     }
@@ -2829,7 +3039,95 @@ int bw_mod_menu_option_in_lobby(u32 index, u32 option)
         return 0;
     }
     return (g_mods[index].options[option].modes & BW_MOD_MENU_LOBBY_BIT) != 0 &&
-           g_mods[index].options[option].kind != BW_MOD_SETTING_TEXT;
+           g_mods[index].options[option].kind < BW_MOD_SETTING_TEXT;
+}
+
+/* ------------------------------------------------------------------ */
+/* The mods' own Settings tabs and rows (version 7)                     */
+/* ------------------------------------------------------------------ */
+
+u32 bw_mod_menu_tab_count(u32 index)
+{
+    model_ready();
+    return index < g_count && g_mods[index].tabs != NULL ? g_mods[index].tab_count : 0u;
+}
+
+const char *bw_mod_menu_tab_title(u32 index, u32 tab)
+{
+    model_ready();
+    if (index >= g_count || g_mods[index].tabs == NULL || tab >= g_mods[index].tab_count) {
+        return "";
+    }
+    return g_mods[index].tabs[tab];
+}
+
+int bw_mod_menu_option_tab(u32 index, u32 option)
+{
+    model_ready();
+    if (index >= g_count || option >= g_mods[index].option_count) {
+        return -1;
+    }
+    return g_mods[index].options[option].tab;
+}
+
+int bw_mod_menu_option_word(u32 index, u32 option)
+{
+    model_ready();
+    if (index >= g_count || option >= g_mods[index].option_count) {
+        return 0;
+    }
+    return g_mods[index].options[option].word;
+}
+
+int bw_mod_menu_option_shown(u32 index, u32 option)
+{
+    const BwModMenuOption *o;
+
+    model_ready();
+    if (index >= g_count || option >= g_mods[index].option_count) {
+        return 0;
+    }
+    o = &g_mods[index].options[option];
+    if (o->kind == BW_MOD_SETTING_SHOW && o->text[0] == '\0') {
+        return 0;                       /* a mod's row with nothing to say */
+    }
+    return option_shown(&g_mods[index], o, 32u);
+}
+
+/* (weak: a build without the event layer, the menu's own test, still
+ * links; there the press reaches no mod) */
+#pragma weak bw_mod_event_fire
+
+int bw_mod_menu_press(u32 index, u32 option)
+{
+    BwSettingButton p;
+
+    model_ready();
+    if (index >= g_count || option >= g_mods[index].option_count ||
+        g_mods[index].options[option].kind != BW_MOD_SETTING_BUTTON) {
+        return -1;
+    }
+    memset(&p, 0, sizeof p);
+    copy_str((char *)p.key, sizeof p.key, g_mods[index].options[option].key);
+    if (bw_mod_event_fire != NULL) {
+        (void)bw_mod_event_fire(BW_EVENT_SETTING_BUTTON, (BwEventPayload *)&p);
+    }
+    return 0;
+}
+
+void bw_mod_menu_clear_secrets(void)
+{
+    u32 i, o;
+
+    for (i = 0; i < g_count; i++) {
+        for (o = 0; o < g_mods[i].option_count; o++) {
+            BwModMenuOption *op = &g_mods[i].options[o];
+
+            if (op->kind == BW_MOD_SETTING_SECRET) {
+                memset(op->text, 0, sizeof op->text);
+            }
+        }
+    }
 }
 
 int bw_mod_menu_rule_value(u32 index, u32 option)
@@ -2908,6 +3206,10 @@ int bw_mod_menu_mode_get(char *out, u32 size)
     const char *ns = calling_ns();
     const char *id = (ns[0] != '\0' && strcmp(ns, g_mode_ns) == 0) ? g_mode_id : "";
 
+    if (getenv("EIDOS_MP_UI_LOG") != NULL) {
+        fprintf(stderr, "eidos: mode: mode_get by '%s': the mode is '%s' of '%s', answer '%s' (out %p, size %u)\n", ns, g_mode_id,
+                g_mode_ns, id, (void *)out, (unsigned)size);
+    }
     if (out == NULL || size == 0) {
         return -1;
     }
@@ -3160,12 +3462,65 @@ int bw_mod_menu_setting_text(const char *key, char *out, u32 size)
         return -1;
     }
     for (i = 0; i < m->option_count; i++) {
-        if (m->options[i].kind == BW_MOD_SETTING_TEXT && strcmp(m->options[i].key, key) == 0) {
+        if ((m->options[i].kind == BW_MOD_SETTING_TEXT || m->options[i].kind == BW_MOD_SETTING_SECRET) &&
+            strcmp(m->options[i].key, key) == 0) {
             copy_str(out, size, m->options[i].text);
             return (int)strlen(m->options[i].text);
         }
     }
     return -1;
+}
+
+/* The calling mod's option `key` of kind `kind`, or NULL. */
+static BwModMenuOption *own_option(const char *key, int kind, u32 *index)
+{
+    const char *ns = calling_ns();
+    BwModMenuMod *m;
+    u32 i;
+
+    if (key == NULL || ns[0] == '\0') {
+        return NULL;
+    }
+    model_ready();
+    m = model_find_ns(ns);
+    for (i = 0; m != NULL && i < m->option_count; i++) {
+        if (strcmp(m->options[i].key, key) == 0 &&
+            (m->options[i].kind == kind || (kind == BW_MOD_SETTING_TEXT && m->options[i].kind == BW_MOD_SETTING_SECRET))) {
+            if (index != NULL) {
+                *index = (u32)(m - g_mods);
+            }
+            return &m->options[i];
+        }
+    }
+    return NULL;
+}
+
+int bw_mod_menu_setting_show(const char *key, const char *text)
+{
+    BwModMenuOption *o = own_option(key, BW_MOD_SETTING_SHOW, NULL);
+    const char *s;
+
+    if (o == NULL || text == NULL || strlen(text) > BW_MOD_MENU_SHOW_MAX) {
+        return -1;
+    }
+    for (s = text; *s != '\0'; s++) {
+        if (*s == '\n' || *s == '\r') {
+            return -1;
+        }
+    }
+    copy_str(o->text, sizeof o->text, text);
+    return 0;
+}
+
+int bw_mod_menu_setting_set_text(const char *key, const char *text)
+{
+    u32 index = 0;
+    BwModMenuOption *o = own_option(key, BW_MOD_SETTING_TEXT, &index);
+
+    if (o == NULL) {
+        return -1;
+    }
+    return bw_mod_menu_option_set_text(index, (u32)(o - g_mods[index].options), text);
 }
 
 /* ------------------------------------------------------------------ */

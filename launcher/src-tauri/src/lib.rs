@@ -13,6 +13,7 @@ mod ghdownload;
 mod launch;
 mod layout;
 mod mods;
+mod oldsaves;
 #[cfg(desktop)]
 mod pad;
 mod profile;
@@ -298,6 +299,7 @@ fn install_blocking(
 async fn install_version(app: State<'_, App>, handle: tauri::AppHandle, tag: String) -> R<()> {
     let layout = app.layout.clone();
     let s = app.settings();
+    let done = handle.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let t = tag.clone();
         let emit = move |stage: &str| {
@@ -306,7 +308,11 @@ async fn install_version(app: State<'_, App>, handle: tauri::AppHandle, tag: Str
         install_blocking(&layout, &s, &tag, &emit)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+    // a game that can import old saves or put saves in order may be here
+    // now: the page does both again (App.svelte, saveChores)
+    let _ = done.emit("version-installed", ());
+    Ok(())
 }
 
 #[tauri::command]
@@ -401,6 +407,61 @@ fn play(
 fn profile_dir(app: &App, name: &str) -> R<PathBuf> {
     profile::get(&app.layout, name)?;
     Ok(app.layout.profile(name))
+}
+
+/// The newest game the launcher can start that knows the import, if the
+/// user folder holds old saves that wait for it.
+fn old_saves_importer(app: &App) -> Option<versions::Resolved> {
+    if !oldsaves::pending(&app.layout.root) {
+        return None;
+    }
+    let s = app.settings();
+    let v = versions::resolve(&app.layout, s.local_build.as_deref(), profile::LATEST).ok()?;
+    oldsaves::can_import(&v.id).then_some(v)
+}
+
+/// Whether the saves a plain eidos kept before the game profiles wait to be
+/// imported, and a game that can import them is installed.
+#[tauri::command]
+fn old_saves_pending(app: State<App>) -> bool {
+    old_saves_importer(&app).is_some()
+}
+
+/// Imports them (the game's own rules, `eidos --import-old-saves`) and
+/// returns the game's line about it.  Off the main thread: the window stays
+/// alive and shows that it is at work.
+#[tauri::command(async)]
+fn import_old_saves(app: State<App>) -> R<String> {
+    match old_saves_importer(&app) {
+        Some(v) => oldsaves::import(&v.exe),
+        None => Ok(String::new()),
+    }
+}
+
+/// Puts each profile's saves folder in order (the game's own rules,
+/// `eidos --tidy-saves`), with the newest game that knows how; a profile
+/// whose game is running is left for later.  Returns the game's line for
+/// each folder it changed.  Off the main thread.
+#[tauri::command(async)]
+fn tidy_saves(app: State<App>) -> R<Vec<String>> {
+    let s = app.settings();
+    let Ok(v) = versions::resolve(&app.layout, s.local_build.as_deref(), profile::LATEST) else {
+        return Ok(Vec::new());
+    };
+    if !oldsaves::can_tidy(&v.id) {
+        return Ok(Vec::new());
+    }
+    let mut notes = Vec::new();
+    for p in profile::list(&app.layout).map_err(|e| e.to_string())? {
+        if app.is_running(&p.name) {
+            continue;
+        }
+        let note = oldsaves::tidy(&v.exe, &app.layout.profile(&p.name).join("saves"))?;
+        if !note.is_empty() {
+            notes.push(note);
+        }
+    }
+    Ok(notes)
 }
 
 #[tauri::command]
@@ -602,7 +663,7 @@ async fn saves(app: State<'_, App>, profile: String) -> R<Vec<saves::SaveView>> 
 /// Makes a save the one the game opens on (slot.txt, as eidos's title menu
 /// writes it).
 #[tauri::command]
-fn set_current_save(app: State<App>, profile: String, slot: u8) -> R<()> {
+fn set_current_save(app: State<App>, profile: String, slot: u32) -> R<()> {
     app.refuse_if_running(&profile)?;
     saves::set_current(&profile_dir(&app, &profile)?.join("saves"), slot)
 }
@@ -1027,6 +1088,9 @@ pub fn run() {
             get_settings,
             save_settings,
             take_pending_join,
+            old_saves_pending,
+            import_old_saves,
+            tidy_saves,
         ])
         .run(tauri::generate_context!())
         .expect("the launcher could not start");
@@ -1080,7 +1144,7 @@ mod tests {
             return;
         };
         let rom = nds::rom::Rom::open(Path::new(&rom)).unwrap();
-        for item in [4u16, 216, 267, 280] {
+        for item in [4u16, 216, 267, 280, 590, 428] {
             let img = nds::item::item_icon(&rom, item).unwrap();
             std::fs::write(
                 PathBuf::from(&out).join(format!("item_{item}.png")),

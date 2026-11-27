@@ -666,6 +666,12 @@ static void camera_clearance(G3dBackdrop *out)
         g_nclr = 0;                     /* (a cut: a new shot) */
     }
     memcpy(g_clr_eye, out->eye, sizeof g_clr_eye);
+    if (getenv("BMAP_CLEAR_LOG") != NULL) {
+        /* (research: what the clearance has to go by each frame) */
+        fprintf(stderr, "clear: frame %u sprites %u nearest %.2f eye %.2f %.2f %.2f places %u\n", (unsigned)bw_input_frame_number(),
+                (unsigned)out->n_poke, nearest > 1e29f ? -1.0 : (double)nearest, (double)out->eye[0], (double)out->eye[1],
+                (double)out->eye[2], g_nclr);
+    }
     if (nearest > 1e29f) {
         out->n_clear = 0;
         return;
@@ -1901,6 +1907,12 @@ static void capture(uintptr_t eff, int warp)
             }
             for (k = 0; k < 3; k++) {
                 g_frame.poke[g_frame.n_poke][k] = rdfx(mc, MCSSW_POS + 4u * k);
+            }
+            if (getenv("EIDOS_BATTLE_SPRITE_LOG") != NULL && pos <= 7u) {
+                /* (research: a Pokemon's sprite each frame: its place, its scale and its offset) */
+                fprintf(stderr, "battle_view: sprite %u at %.3f %.3f %.3f scale %.3f %.3f ofs %.3f %.3f %.3f\n", (unsigned)pos,
+                        (double)rdfx(mc, 0xE0u), (double)rdfx(mc, 0xE4u), (double)rdfx(mc, 0xE8u), (double)rdfx(mc, 0xECu),
+                        (double)rdfx(mc, 0xF0u), (double)rdfx(mc, 0x11Cu), (double)rdfx(mc, 0x120u), (double)rdfx(mc, 0x124u));
             }
             /* how far around a sprite the map in front of it is drawn again:
              * only over the game's own pixels (plat_gl3d.c's stencil), so the

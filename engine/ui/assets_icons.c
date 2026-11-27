@@ -31,7 +31,10 @@
  * form (first + form - 1) * 2 + 1311, with first the u16 at +0x1E of the
  * species' personal record (a/0/1/6) and the form count the byte at +0x20
  * (a form past the count is form 0; bit 7 of the byte at +0x21 says the
- * forms are not drawn separately).  The second member of a pair is the
+ * forms are not drawn separately).  A species a mod adds (715 up to the
+ * species limit) has its icon at id * 2 + 7 like the game's, and a mod's
+ * form, whose first value is 715 or more, the icon of the slot first + form
+ * - 1 (sdk/form_gfx.c).  The second member of a pair is the
  * female graphic and is empty for most species; the kit asks for the male
  * (or only) one.  The character member is 0x400 bytes of data from +0x30:
  * two animation frames of 512 bytes, each 4x4 tiles in row-major order, a
@@ -39,7 +42,8 @@
  *
  * The palette bank of an icon is a nibble of a table in the ARM9 image
  * (0x0209E474, one byte per icon index: low nibble male, high nibble
- * female); the index is the species, or for a form first + form + 651.
+ * female); the index is the species, or for a form first + form + 651
+ * (a mod's: its slot).
  * (Both tables are at the Pokemon Black addresses.)
  *
  * (tools/assets/icons.py in the decomp's tooling reads a different archive,
@@ -56,21 +60,25 @@
 #include "kit.h"
 #include "port.h"
 #include "g2d.h"
+#include "bw_limits.h"
 
 #define ITEM_MAX        627
 #define ITEM_TABLE_ADDR 0x0209EB6Cu
 #define ICON_PAL_ADDR   0x0209E474u
 #define ICON_PAL_BYTES  0x300u
-#define ICON_MEMBERS    1431
 
 typedef struct UiOwned {
     UiImage im;             /* im.rgba points at the block we own          */
 } UiOwned;
 
-static UiOwned *g_item[ITEM_MAX];
+/* one per item id up to the current item limit (bw_limit_get), grown as
+ * the limit is raised */
+static UiOwned **g_item;
+static u32 g_item_n;
 static UiOwned *g_app[UI_APP_ICON_COUNT];
 static u8       g_app_tried[UI_APP_ICON_COUNT];
-static UiOwned *g_mon[ICON_MEMBERS * 2];
+static UiOwned **g_mon;              /* two frames a member, grown to the members asked for */
+static u32      g_mon_n;
 static u8      *g_mon_pal;          /* member 0 of a/0/0/7                  */
 static u32      g_mon_pal_size;
 static int      g_mon_pal_tried;
@@ -113,11 +121,17 @@ static void free_images(UiOwned **list, int n)
 
 void ui_icons_reset(void)
 {
-    free_images(g_item, ITEM_MAX);
+    free_images(g_item, (int)g_item_n);
+    free(g_item);
+    g_item = NULL;
+    g_item_n = 0;
     free_images(g_app, UI_APP_ICON_COUNT);
     memset(g_app_tried, 0, sizeof(g_app_tried));
     held_drop();
-    free_images(g_mon, ICON_MEMBERS * 2);
+    free_images(g_mon, (int)g_mon_n);
+    free(g_mon);
+    g_mon = NULL;
+    g_mon_n = 0;
     free(g_mon_pal);
     g_mon_pal = NULL;
     g_mon_pal_size = 0;
@@ -151,13 +165,30 @@ const UiImage *ui_item_icon(u16 item)
     u16 p16[16];
     UiOwned *o;
 
-    if (item == 0 || item >= ITEM_MAX) {
+    u32 count = bw_limit_get(BW_PORT_LIMIT_ITEM_LAST) + 1u;
+
+    if (item == 0 || item >= count) {
         return NULL;
+    }
+    if (count > g_item_n) {
+        UiOwned **grown = (UiOwned **)realloc(g_item, count * sizeof *grown);
+
+        if (grown == NULL) {
+            return NULL;
+        }
+        memset(grown + g_item_n, 0, (count - g_item_n) * sizeof *grown);
+        g_item = grown;
+        g_item_n = count;
     }
     if (g_item[item] != NULL) {
         return &g_item[item]->im;
     }
-    tab = (const u8 *)bw_arm9_rodata(ITEM_TABLE_ADDR, ITEM_MAX * 4);
+    /* the table the game reads now: a mod's rows (eidos/tables/item_icons.txt)
+     * and the items past the game's own */
+    tab = (const u8 *)bw_item_icon_table();
+    if (tab == NULL && item < ITEM_MAX) {
+        tab = (const u8 *)bw_arm9_rodata(ITEM_TABLE_ADDR, ITEM_MAX * 4);
+    }
     if (tab == NULL) {
         return NULL;
     }
@@ -325,8 +356,10 @@ const UiImage *ui_mon_icon(u16 species, u8 form, int frame)
     UiOwned *o;
     int slot;
 
-    /* 650 and 651: the Egg and Manaphy's Egg (members 1307, 1309) */
-    if (species == 0 || species > 651 || frame < 0 || frame > 1) {
+    /* 650 and 651: the Egg and Manaphy's Egg (members 1307, 1309); from
+     * 715 to the species limit a mod's species */
+    if (species == 0 || frame < 0 || frame > 1
+        || (species > 651 && (species < 715 || species > bw_limit_get(BW_PORT_LIMIT_SPECIES_LAST)))) {
         return NULL;
     }
     member = (u32)species * 2 + 7;
@@ -335,13 +368,24 @@ const UiImage *ui_mon_icon(u16 species, u8 form, int frame)
         if (form >= count) {
             form = 0;
         }
-        if (!shared && form != 0) {
+        if (!shared && form != 0 && first >= 715u) {
+            member = (first + form - 1u) * 2 + 7;      /* (a mod's form: its slot's icon) */
+            pal_index = first + form - 1u;
+        } else if (!shared && form != 0) {
             member = (first + form - 1u) * 2 + 1311;
             pal_index = first + form + 651u;
         }
     }
-    if (member >= ICON_MEMBERS) {
-        return NULL;
+    if (member * 2u + 2u > g_mon_n) {
+        u32 n = member * 2u + 64u;
+        UiOwned **grown = (UiOwned **)realloc(g_mon, n * sizeof *grown);
+
+        if (grown == NULL) {
+            return NULL;
+        }
+        memset(grown + g_mon_n, 0, (n - g_mon_n) * sizeof *grown);
+        g_mon = grown;
+        g_mon_n = n;
     }
     slot = (int)member * 2 + frame;
     if (g_mon[slot] != NULL) {
@@ -354,8 +398,17 @@ const UiImage *ui_mon_icon(u16 species, u8 form, int frame)
     if (g_mon_pal == NULL) {
         return NULL;
     }
-    ptab = (const u8 *)bw_arm9_rodata(ICON_PAL_ADDR, ICON_PAL_BYTES);
-    bank = (ptab != NULL && pal_index < ICON_PAL_BYTES) ? (u32)(ptab[pal_index] & 15) : 0;
+    /* the palette table the game reads now (a mod's eidos/tables/icon_palette.txt) */
+    {
+        u32 rows = 0;
+
+        ptab = bw_icon_palette_table(&rows);
+        if (ptab == NULL) {
+            ptab = (const u8 *)bw_arm9_rodata(ICON_PAL_ADDR, ICON_PAL_BYTES);
+            rows = ICON_PAL_BYTES;
+        }
+        bank = (ptab != NULL && pal_index < rows) ? (u32)(ptab[pal_index] & 15) : 0;
+    }
     if (read_pal16(g_mon_pal, g_mon_pal_size, bank < 3 ? bank : 0, p16) != 0) {
         return NULL;
     }
@@ -436,6 +489,18 @@ static int rig_use(u16 species, int shiny)
     rig_drop();
     g_rig_species = species;
     g_rig_shiny = shiny;
+    {
+        static u32 gen;
+
+        if (gen != eidos_ui_data_generation()) {
+            /* another game's data: its own archive */
+            gen = eidos_ui_data_generation();
+            if (g_rig_arc_state == 1) {
+                bw_arc_close(&g_rig_arc);
+            }
+            g_rig_arc_state = 0;
+        }
+    }
     if (g_rig_arc_state == 0) {
         g_rig_arc_state = bw_arc_open(&g_rig_arc, RIG_ARCHIVE) == 0 ? 1 : -1;
     }

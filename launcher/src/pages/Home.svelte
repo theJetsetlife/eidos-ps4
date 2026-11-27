@@ -310,7 +310,7 @@
       <Icon name="download" size={20} />
       <div class="what">
         <span class="headline">eidos {update.id ?? update.tag} is available</span>
-        <span class="sub">{updating ? stage || "Installing" : `You have ${version ? versionLabel(version) : "no version"}.`}</span>
+        <span class="sub">{updating ? stage || "Installing" : `Installed: ${version ? versionLabel(version) : "none"}`}</span>
       </div>
       <button class="primary" disabled={updating || running} onclick={() => installUpdate(update)}>
         {updating ? "Installing" : "Update"}
@@ -327,7 +327,7 @@
       {:else}
         No version installed.
       {/if}
-      <button class="quiet outlined" onclick={() => onGoto("versions")}><Icon name="download" size={16} />Install one</button>
+      <button class="quiet outlined" onclick={() => onGoto("versions")}><Icon name="download" size={16} />Install version</button>
     </p>
   {/if}
   {#if error}<p class="note bad" role="alert">{error}</p>{/if}
@@ -354,7 +354,7 @@
         <!-- escaped text with simple markup (lib/notes.ts) -->
         <div class="notes">{@html notes}</div>
       {:else}
-        <p class="muted small">This release has no notes.</p>
+        <p class="muted small">No release notes.</p>
       {/if}
     </section>
   {/if}
@@ -364,7 +364,7 @@
   <aside class="saves window" aria-label="Saves">
     <header>
       <span class="section-label">Saves in {selected}</span>
-      <span class="faint small">{saveList.length} of 8{#if hidden > 0} · {hidden} {game === "black" ? "White" : "Black"} hidden{/if}</span>
+      <span class="faint small">{saveList.length} {saveList.length === 1 ? "save" : "saves"}{#if hidden > 0} · {hidden} {game === "black" ? "White" : "Black"} hidden{/if}</span>
     </header>
       <div class="list">
         {#if shown.length === 0}
@@ -376,7 +376,7 @@
             class:current={s.current}
             disabled={running}
             onclick={() => chooseSave(s)}
-            title={s.current ? "The game opens on this save" : "Open this save next time"}
+            title={s.current ? "Loads on next launch" : "Load this save on next launch"}
           >
             <span class="avatar" aria-hidden="true">
               {#if player(s)}<img src={player(s)} alt="" />{/if}
@@ -384,7 +384,7 @@
             <span class="body">
             <span class="top">
               <span class="who" class:female={s.female}>{s.trainer}</span>
-              {#if s.current}<span class="badge accent">Continues here</span>{:else}<span class="faint small">Save {s.slot}</span>{/if}
+              {#if s.current}<span class="badge accent">Active</span>{:else}<span class="faint small">Save {s.slot}</span>{/if}
             </span>
             <span class="party">
               {#each s.party as m, i (i)}
@@ -409,13 +409,13 @@
                 {#each Array(8) as _, i}<i class:on={((s.badgeBits >> i) & 1) === 1}></i>{/each}
               </span>
             {/if}
-            <span class="where faint small">{s.place || "Unknown place"} · {ago(s.saved)}</span>
+            <span class="where faint small">{s.place || "Unknown location"} · {ago(s.saved)}</span>
             </span>
           </button>
         {/each}
       </div>
     <footer>
-      <span class="faint small hint">New Game in the title menu takes a free slot.</span>
+      <span class="faint small hint">New Game on the title screen uses an empty slot.</span>
       {#if !MOBILE}<button class="quiet outlined" onclick={() => openFolder("saves", selected)}><Icon name="folder" size={15} />Open saves folder</button>{/if}
     </footer>
   </aside>
@@ -456,7 +456,8 @@
       display: flex;
       flex-direction: column;
       gap: 0.6rem;
-      padding: 1rem 1.2rem;
+      --pad-x: 1.2rem;
+      padding: 1rem var(--pad-x);
     }
   }
   .news header {
@@ -494,6 +495,31 @@
     min-height: 0;
     overflow-y: auto;
     line-height: 1.5;
+    margin-right: calc(-1 * var(--pad-x));
+    padding-right: var(--pad-x);
+    scrollbar-gutter: stable;
+  }
+  /* the notes fade out at the foot while there is more below, and not at
+     the end (where the webview can tell how far the notes are scrolled) */
+  @property --notes-fade {
+    syntax: "<length>";
+    inherits: false;
+    initial-value: 2rem;
+  }
+  @supports (animation-timeline: scroll()) {
+    .notes {
+      mask-image: linear-gradient(to bottom, #000 calc(100% - var(--notes-fade)), transparent);
+      animation: notes-end linear both;
+      animation-timeline: scroll(self);
+    }
+    @keyframes notes-end {
+      90% {
+        --notes-fade: 2rem;
+      }
+      to {
+        --notes-fade: 0rem;
+      }
+    }
   }
   .notes :global(h4) {
     margin: 0.4rem 0 0.3rem;
@@ -537,7 +563,8 @@
       padding-top: 0.5rem;
     }
     .saves {
-      padding: 0.75rem 1rem;
+      --pad-x: 1rem;
+      padding: 0.75rem var(--pad-x);
       gap: 0.5rem;
     }
   }
@@ -575,7 +602,8 @@
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
-    padding: 1rem 1.1rem;
+    --pad-x: 1.1rem;
+    padding: 1rem var(--pad-x);
     min-width: 0;
     min-height: 0;
   }
@@ -588,6 +616,10 @@
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
     align-content: start;
     gap: 0.6rem;
+    /* the scroll bar at the card's edge, the save cards where they were */
+    margin-right: calc(-1 * var(--pad-x));
+    padding-right: var(--pad-x);
+    scrollbar-gutter: stable;
   }
   .saves footer {
     display: flex;

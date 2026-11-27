@@ -33,6 +33,7 @@ enum {
     BW_PORT_LIMIT_BTLV_EFFECT_MOVE_END = 2,
     BW_PORT_LIMIT_FLDMMDL_OBJCODE_TABLE_COUNT = 3,
     BW_PORT_LIMIT_SPECIES_LAST = 4,
+    BW_PORT_LIMIT_TYPE_LAST = 5,
     BW_PORT_LIMIT_COUNT
 };
 
@@ -52,7 +53,24 @@ int bw_limits_apply(void);
 /* The manifest key a limit is declared with ("limit.items"), or NULL. */
 const char *bw_limit_key(int id);
 
+/*
+ * The table the game reads now, for code outside the game that draws from
+ * the same data (the one-screen interface's icons): the mods' copy when
+ * one is in place, else the game's own.  NULL before the game's data is
+ * bound.  The item icon rows (two u16 per item, ids 0..ITEM_LAST) and the
+ * Pokemon icon palettes (one byte per icon index; *rows of them).
+ */
+const u16 *bw_item_icon_table(void);
+const u8  *bw_icon_palette_table(u32 *rows);
+
 #ifdef __cplusplus
 }
 #endif
+/* The machine move table in force (128 rows with mods' TMs, else the
+ * game's 101), the added TM an item is (its bit, TM96 = 101) or -1, and
+ * the item of an added TM's bit or 0 (sdk/bw_limits.c). */
+const u16 *bw_machine_moves(void);
+int bw_machine_bit_of_item(u32 item);
+u32 bw_machine_item_of_bit(u32 bit);
+
 #endif /* BW_PORT_LIMITS_H */

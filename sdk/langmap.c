@@ -85,6 +85,7 @@ int g_pm_language = LANG_ENGLISH;
 int g_pm_version = 1;
 
 static const BwLangMap *g_map;
+static int g_read;              /* bw_lang_init has run */
 
 /* The cartridge's own images, as they were read: the ARM9's and each
  * overlay's (bw_lang_target_ptr). */
@@ -95,6 +96,7 @@ static u8 g_whole_known[OVL_KEEP], g_whole_ok[OVL_KEEP];
 static u32 g_whole_eng[OVL_KEEP], g_whole_tgt[OVL_KEEP], g_whole_size[OVL_KEEP];
 static u8 *g_tgt_ovl[OVL_KEEP];
 static u32 g_tgt_ovl_base[OVL_KEEP], g_tgt_ovl_size[OVL_KEEP];
+static u32 g_npending;          /* (the words that wait for an overlay, below) */
 
 static u8 *keep_copy(const u8 *src, u32 size)
 {
@@ -190,12 +192,25 @@ void bw_lang_init(void)
     char code[4];
     u32 i;
 
+    g_read = 1;
     g_map = NULL;
     free(g_rows);
     g_rows = NULL;
     g_nrows = 0;
     memset(g_whole_known, 0, sizeof(g_whole_known));
     memset(g_whole_ok, 0, sizeof(g_whole_ok));
+    /* the images kept from a cartridge read before (the data root can
+     * change while the program runs: the other version of the game) */
+    free(g_tgt_arm9);
+    g_tgt_arm9 = NULL;
+    g_tgt_arm9_size = 0;
+    for (i = 0; i < OVL_KEEP; i++) {
+        free(g_tgt_ovl[i]);
+        g_tgt_ovl[i] = NULL;
+        g_tgt_ovl_base[i] = 0;
+        g_tgt_ovl_size[i] = 0;
+    }
+    g_npending = 0;
     g_pm_language = LANG_ENGLISH;
     g_pm_version = 1;
     memcpy(g_code, "IRBO", 5);
@@ -223,8 +238,13 @@ void bw_lang_init(void)
     }
 }
 
+/* (read here when asked before the game's first archive: the mods' text at
+ * boot, sdk/text_from.c) */
 int bw_lang_language(void)
 {
+    if (!g_read) {
+        bw_lang_init();
+    }
     return g_pm_language;
 }
 

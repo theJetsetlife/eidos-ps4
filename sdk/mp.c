@@ -515,10 +515,36 @@ static long game_time(const char *dir, const char *name)
 
 typedef struct GameList {
     char (*names)[BW_MP_GAME_NAME_MAX];
-    long times[BW_MP_GAMES_MAX];
+    long *times;                    /* one a name, `max` of them */
     int  n, max;
     const char *dir;
 } GameList;
+
+static int game_count_one(void *ctx, const char *name)
+{
+    GameList *l = (GameList *)ctx;
+    char path[520];
+
+    snprintf(path, sizeof(path), "%s/%s", l->dir, name);
+    if (bw_plat_path_kind(path) == BW_PATH_DIR && strlen(name) < BW_MP_GAME_NAME_MAX) {
+        l->n++;
+    }
+    return 0;
+}
+
+int bw_mp_game_count(void)
+{
+    char dir[440];
+    GameList l;
+
+    if (games_dir(dir, sizeof(dir)) != 0) {
+        return 0;
+    }
+    memset(&l, 0, sizeof(l));
+    l.dir = dir;
+    (void)bw_plat_list_dir(dir, game_count_one, &l);
+    return l.n;
+}
 
 static int game_list_one(void *ctx, const char *name)
 {
@@ -553,10 +579,14 @@ int bw_mp_game_list(char names[][BW_MP_GAME_NAME_MAX], int max)
         return 0;
     }
     memset(&l, 0, sizeof(l));
+    if (max <= 0 || (l.times = (long *)malloc((size_t)max * sizeof *l.times)) == NULL) {
+        return 0;
+    }
     l.names = names;
-    l.max = max < BW_MP_GAMES_MAX ? max : BW_MP_GAMES_MAX;
+    l.max = max;
     l.dir = dir;
     (void)bw_plat_list_dir(dir, game_list_one, &l);
+    free(l.times);
     return l.n;
 }
 
@@ -1376,6 +1406,8 @@ static void host_send_word(const char *word)
 
 /* Whether every player the start needs is there and ready; the reason goes
  * to g_mp.blocker when not. */
+static int g_blocker_kind;           /* BW_MP_BLOCK_*: g_mp.blocker's reason */
+
 static int host_ready(void)
 {
     u32 i;
@@ -1383,6 +1415,7 @@ static int host_ready(void)
     int someone = 0;
 
     g_mp.blocker[0] = '\0';
+    g_blocker_kind = BW_MP_BLOCK_NONE;
     for (i = 1; i < BW_MP_PLAYERS_MAX; i++) {
         BwMpPlayer *p = &g_mp.players[i];
         char why[96];
@@ -1397,6 +1430,7 @@ static int host_ready(void)
             if (g_mp.roster_set) {
                 snprintf(g_mp.blocker, sizeof(g_mp.blocker),
                          TRF("waiting for %s"), p->name);
+                g_blocker_kind = BW_MP_BLOCK_WAITING;
                 return 0;
             }
             continue;
@@ -1405,12 +1439,14 @@ static int host_ready(void)
         if (p->game == 0) {
             snprintf(g_mp.blocker, sizeof(g_mp.blocker),
                      TRF("no answer from %s"), p->name);
+            g_blocker_kind = BW_MP_BLOCK_NO_ANSWER;
             return 0;
         }
         if (strcmp(p->version, EIDOS_VERSION) != 0) {
             /* every player runs the same eidos (docs/distribution.md) */
             snprintf(g_mp.blocker, sizeof(g_mp.blocker),
                      TRF("%s: eidos %s (you %s)"), p->name, p->version, EIDOS_VERSION);
+            g_blocker_kind = BW_MP_BLOCK_VERSION;
             return 0;
         }
         if (p->fp[0] != '\0') {
@@ -1429,16 +1465,19 @@ static int host_ready(void)
                 snprintf(g_mp.blocker, sizeof(g_mp.blocker),
                          TRF("%s's save is %s"), p->name,
                          c == 'W' ? TRF("White") : TRF("Black"));
+                g_blocker_kind = BW_MP_BLOCK_SAVE_GAME;
                 return 0;
             }
         }
         if (!mods_match(mine, p->mods, why, sizeof(why))) {
             snprintf(g_mp.blocker, sizeof(g_mp.blocker), "%s: %s", p->name, why);
+            g_blocker_kind = BW_MP_BLOCK_MODS;
             return 0;
         }
     }
     if (!someone) {
         snprintf(g_mp.blocker, sizeof(g_mp.blocker), "%s", TRF("nobody has joined"));
+        g_blocker_kind = BW_MP_BLOCK_NOBODY;
         return 0;
     }
     return 1;
@@ -2914,6 +2953,7 @@ int bw_mp_start(void)
     if (!g_mp.host || (g_mp.state != BW_MP_LOBBY && g_mp.state != BW_MP_PAUSED)) {
         snprintf(g_mp.blocker, sizeof(g_mp.blocker), "%s",
                  TRF("only the host starts, from the lobby or a pause"));
+        g_blocker_kind = BW_MP_BLOCK_NOT_HOST;
         return -1;
     }
     if (!host_ready()) {
@@ -2951,6 +2991,12 @@ const char *bw_mp_start_blocker(void)
         (void)host_ready();
     }
     return g_mp.blocker;
+}
+
+int bw_mp_start_blocker_kind(void)
+{
+    (void)bw_mp_start_blocker();        /* (the reason as it stands now) */
+    return g_mp.blocker[0] != '\0' ? g_blocker_kind : BW_MP_BLOCK_NONE;
 }
 
 BwMpState bw_mp_state(void)

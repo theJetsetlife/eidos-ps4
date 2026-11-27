@@ -12,14 +12,14 @@ same steps; docs/release.md says how.
 
 What each platform makes (names are fixed; the launcher downloads by them):
 
-  windows  eidos-<version>-windows.zip
+  windows  eidos-standalone-<version>-windows.zip
            eidos.exe (the build's eidos_boot.exe), SDL3.dll, LICENSE,
            LEGAL.md, README.txt.  The files sit at the top of the zip.
-  macos    eidos-<version>-macos.zip
+  macos    eidos-standalone-<version>-macos.zip
            eidos (the build's eidos_boot), libSDL3 beside it with the load
            path rewritten to @executable_path, LICENSE, LEGAL.md,
            README.txt.  Unsigned.
-  linux    eidos-<version>-linux-x86_64.AppImage
+  linux    eidos-standalone-<version>-linux-x86_64.AppImage
            An AppDir (eidos, desktop file, icon, AppRun) turned into an
            AppImage by linuxdeploy (--linuxdeploy PATH), which also bundles
            the shared libraries.  Without --linuxdeploy the AppDir is left in
@@ -42,6 +42,7 @@ read.  Standard library only.
 
 import argparse
 import hashlib
+import json
 import os
 import shutil
 import stat
@@ -180,9 +181,31 @@ def find_lib(build, patterns, extra_dirs):
     return None
 
 
+def handler_params(version):
+    """sdk/handler_params.json (tools/handler_params.py) with the release's
+    version in it: the battle handler keys mods may change, for kenon."""
+    with open(os.path.join(ROOT, "sdk", "handler_params.json"), encoding="utf-8") as fh:
+        doc = json.load(fh)
+    doc["eidos"] = version
+    return json.dumps(doc, indent=1) + "\n"
+
+
+def features(version):
+    """sdk/features.json with the release's version in it: the first eidos
+    version that reads each table, key and archive a mod may use, for kenon
+    (it writes a mod's `eidos` line from it)."""
+    with open(os.path.join(ROOT, "sdk", "features.json"), encoding="utf-8") as fh:
+        doc = json.load(fh)
+    doc["eidos"] = version
+    return json.dumps(doc, indent=1) + "\n"
+
+
 def common(pkg, version, run, userdir, scratch, extra_note=""):
     for d in DOCS:
         pkg.add(d, os.path.join(ROOT, d))
+    pkg.add("recomplauncher.json", os.path.join(ROOT, "recomplauncher.json"))
+    pkg.add_text("handler_params.json", handler_params(version), scratch=scratch)
+    pkg.add_text("features.json", features(version), scratch=scratch)
     pkg.add_text("README.txt", README_TXT % {
         "version": version, "run": run, "userdir": userdir} + extra_note,
         scratch=scratch)
@@ -210,7 +233,7 @@ def package_windows(args, scratch):
                           % args.build_dir)
         pkg.add("SDL3.dll", sdl)
     common(pkg, args.version, "eidos.exe", "%APPDATA%\\eidos", scratch)
-    out = os.path.join(args.out, "eidos-%s-windows.zip" % args.version)
+    out = os.path.join(args.out, "eidos-standalone-%s-windows.zip" % args.version)
     pkg.write_zip(out)
     return out
 
@@ -254,7 +277,7 @@ def package_macos(args, scratch):
                 subprocess.call(["codesign", "--force", "--sign", "-", src])
     common(pkg, args.version, "eidos", "~/Library/Application Support/eidos",
            scratch, MAC_NOTE)
-    out = os.path.join(args.out, "eidos-%s-macos.zip" % args.version)
+    out = os.path.join(args.out, "eidos-standalone-%s-macos.zip" % args.version)
     pkg.write_zip(out)
     return out
 
@@ -297,6 +320,11 @@ def package_linux(args, scratch):
     with open(os.path.join(appdir, "AppRun"), "w", newline="\n") as fh:
         fh.write(APPRUN)
     os.chmod(os.path.join(appdir, "AppRun"), 0o755)
+    shutil.copy2(os.path.join(ROOT, "recomplauncher.json"), appdir)
+    with open(os.path.join(appdir, "handler_params.json"), "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(handler_params(args.version))
+    with open(os.path.join(appdir, "features.json"), "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(features(args.version))
     share = os.path.join(appdir, "usr/share/doc/eidos")
     os.makedirs(share)
     for d in DOCS:
@@ -305,7 +333,7 @@ def package_linux(args, scratch):
         if os.path.isfile(lib):
             shutil.copy2(lib, os.path.join(appdir, "usr/lib"))
     check_tree(appdir)
-    out = os.path.join(args.out, "eidos-%s-linux-x86_64.AppImage" % args.version)
+    out = os.path.join(args.out, "eidos-standalone-%s-linux-x86_64.AppImage" % args.version)
     if not args.linuxdeploy:
         print("package_release: AppDir written to %s; pass --linuxdeploy PATH "
               "to make the AppImage" % appdir)

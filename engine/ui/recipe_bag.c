@@ -21,6 +21,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "ui.h"
@@ -236,23 +237,63 @@ static void units_to_utf8(const u16 *u, char *out, int max)
     out[n] = '\0';
 }
 
-/* Per work area caches: the names, descriptions and the bank texts. */
-static char g_name[ITEM_ID_MAX][40];
-static u8   g_name_ok[ITEM_ID_MAX];
-static char g_full[ITEM_ID_MAX][64];     /* row_name: a TM with its move */
-static u8   g_full_ok[ITEM_ID_MAX];
-static char g_desc[ITEM_ID_MAX][320];
-static u8   g_desc_ok[ITEM_ID_MAX];
+/* Per work area caches: the names, descriptions and the bank texts.  The
+ * item caches grow to the highest item asked for (mods add items past
+ * the game's 627, limit.items). */
+static char (*g_name)[40];
+static u8   *g_name_ok;
+static char (*g_full)[64];     /* row_name: a TM with its move */
+static u8   *g_full_ok;
+static char (*g_desc)[320];
+static u8   *g_desc_ok;
+static u32  g_item_cap;
 static char g_msg[160][64];
 static u8   g_msg_ok[160];
 static char g_pocket[POCKETS][40];
 static u8   g_pocket_ok[POCKETS];
 
+/* Room in the item caches for `id`: 1, or 0 (no memory, or no item). */
+static int item_room(u32 id)
+{
+    u32 cap;
+    void *a, *b, *c, *d, *e, *f;
+
+    if (id == 0 || id > 0xFFFEu) {
+        return 0;
+    }
+    if (id < g_item_cap) {
+        return 1;
+    }
+    cap = id < ITEM_ID_MAX ? ITEM_ID_MAX : id + 64u;
+    a = realloc(g_name, cap * sizeof *g_name);
+    if (a != NULL) g_name = (char (*)[40])a;
+    b = realloc(g_name_ok, cap);
+    if (b != NULL) g_name_ok = (u8 *)b;
+    c = realloc(g_full, cap * sizeof *g_full);
+    if (c != NULL) g_full = (char (*)[64])c;
+    d = realloc(g_full_ok, cap);
+    if (d != NULL) g_full_ok = (u8 *)d;
+    e = realloc(g_desc, cap * sizeof *g_desc);
+    if (e != NULL) g_desc = (char (*)[320])e;
+    f = realloc(g_desc_ok, cap);
+    if (f != NULL) g_desc_ok = (u8 *)f;
+    if (a == NULL || b == NULL || c == NULL || d == NULL || e == NULL || f == NULL) {
+        return 0;
+    }
+    memset(g_name_ok + g_item_cap, 0, cap - g_item_cap);
+    memset(g_full_ok + g_item_cap, 0, cap - g_item_cap);
+    memset(g_desc_ok + g_item_cap, 0, cap - g_item_cap);
+    g_item_cap = cap;
+    return 1;
+}
+
 static void caches_clear(void)
 {
-    memset(g_name_ok, 0, sizeof g_name_ok);
-    memset(g_full_ok, 0, sizeof g_full_ok);
-    memset(g_desc_ok, 0, sizeof g_desc_ok);
+    if (g_item_cap != 0) {
+        memset(g_name_ok, 0, g_item_cap);
+        memset(g_full_ok, 0, g_item_cap);
+        memset(g_desc_ok, 0, g_item_cap);
+    }
     memset(g_msg_ok, 0, sizeof g_msg_ok);
     memset(g_pocket_ok, 0, sizeof g_pocket_ok);
 }
@@ -261,7 +302,7 @@ static const char *item_name(const void *work, u32 id)
 {
     BagStr s;
 
-    if (id == 0 || id >= ITEM_ID_MAX) {
+    if (!item_room(id)) {
         return "";
     }
     if (!g_name_ok[id]) {
@@ -283,7 +324,7 @@ extern u32 WAZA_TOOL_GetParam(u32 move, u32 param) __attribute__((weak));
 
 static int tm_move(u32 id)
 {
-    return FILE_UTIL_GetMachineMove != NULL && id != 0 && id < ITEM_ID_MAX
+    return FILE_UTIL_GetMachineMove != NULL && item_room(id)
            ? (int)FILE_UTIL_GetMachineMove((u16)id) : 0;
 }
 
@@ -312,7 +353,7 @@ static const char *item_desc(const void *work, u32 id)
 {
     BagStr s;
 
-    if (id == 0 || id >= ITEM_ID_MAX) {
+    if (!item_room(id)) {
         return "";
     }
     if (!g_desc_ok[id]) {
@@ -978,11 +1019,35 @@ static void draw_dialog(EidosUiCtx *c, const BagView *v, int mx, int my, int mw,
         labels[1] = bag_msg(v->work, 133);
         if (labels[0][0] == '\0') labels[0] = "YES";
         if (labels[1][0] == '\0') labels[1] = "NO";
-        /* the game's rectangles are stacked; each button taps its own */
+        int cur = menu != NULL ? (int)(rd32(menu, TM_CURSOR) & 0xFFu) : -1, hover = -1;
+        int keys = UI_GetInputMode != NULL && UI_GetInputMode() == 0;
+
+        /* the game's list is stacked (UP and DOWN move its cursor); the two
+         * buttons stand side by side here, so LEFT and RIGHT move it too */
+        if (menu != NULL) {
+            u32 k = eidos_ui_keys_pressed();
+
+            eidos_ui_take_keys(BW_KEY_LEFT | BW_KEY_RIGHT);
+            if ((k & BW_KEY_LEFT) && cur == 1) {
+                press_key(BW_KEY_UP);
+            } else if ((k & BW_KEY_RIGHT) && cur == 0) {
+                press_key(BW_KEY_DOWN);
+            }
+        }
+        for (i = 0; i < 2; i++) {
+            int bx = dx + dw - 12 - (2 - i) * bw - (1 - i) * 6;
+
+            if (eidos_ui_hit(rect(bx, by, bw, row_h)) & EIDOS_UI_HOVER) {
+                hover = i;
+            }
+        }
+        /* each button taps its own rectangle of the game's.  Lit: the
+         * pointer's, else the game's cursor (#50: only the pointer lit one,
+         * so with the keys neither answer showed as chosen) */
         for (i = 0; i < 2; i++) {
             int bx = dx + dw - 12 - (2 - i) * bw - (1 - i) * 6;
             int st = eidos_ui_hit(rect(bx, by, bw, row_h));
-            int lit = (st & EIDOS_UI_HOVER) != 0;
+            int lit = hover >= 0 ? hover == i : (keys && cur == i);
 
             ui_panel(c, bx, by, bw, row_h, UI_CUT_TL | UI_CUT_BR, 4, lit ? UI_PINK2 : ROW_FILL,
                      lit ? UI_WHITE : UI_RED, 255);
@@ -1428,7 +1493,8 @@ static void run_bag(EidosUiCtx *c, EidosUiView *view, const EidosUiFrame *in)
                 h[n].key = "UP DOWN"; h[n].what = "Amount";
                 h[n].keymask = BW_KEY_UP; h[n].tap_x = -1; h[n].tap_y = 0; n++;
             } else if (v.yesno) {
-                h[n].key = "A"; h[n].what = "Yes"; h[n].keymask = BW_KEY_A;
+                /* (A takes the answer under the cursor, which may be NO) */
+                h[n].key = "A"; h[n].what = "Choose"; h[n].keymask = BW_KEY_A;
                 h[n].tap_x = -1; h[n].tap_y = 0; n++;
                 h[n].key = "B"; h[n].what = "No"; h[n].keymask = BW_KEY_B;
                 h[n].tap_x = -1; h[n].tap_y = 0; n++;

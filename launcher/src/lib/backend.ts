@@ -34,6 +34,10 @@ export type ModInfo = {
   catalogId: string | null;
   version: string | null;
   icon: ModIcon | null;
+  /** The games it works on ("black", "white"); empty when its game line names neither. */
+  games: string[];
+  /** The oldest eidos it works on (its eidos line, "0.2.8"), "" for none. */
+  eidos: string;
 };
 
 /// A mod's icon: a game item's or a species' picture from the player's ROM,
@@ -46,6 +50,8 @@ export type CatalogMod = {
   version: string;
   author: string;
   description: string;
+  /// The Official badge: an index mod unless the index marks it
+  /// unofficial, another repository's mod only when marked official.
   official: boolean;
   multiplayer: boolean;
   hasCode: boolean;
@@ -81,6 +87,12 @@ export const LATEST = "latest";
 export const LOCAL = "local";
 
 export const overview = () => invoke<Overview>("overview");
+/// The saves a plain eidos kept before the game profiles: whether they wait
+/// to be imported, and the import (the game's own line about it, or "").
+export const oldSavesPending = () => invoke<boolean>("old_saves_pending");
+export const importOldSaves = () => invoke<string>("import_old_saves");
+/// Each profile's saves put in order by the game (eidos --tidy-saves): its line for each folder it changed.
+export const tidySaves = () => invoke<string[]>("tidy_saves");
 
 /// One save of a profile, read from its save file (src-tauri/src/saves.rs).
 export type Save = {
