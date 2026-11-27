@@ -320,6 +320,35 @@ class Lp64PathRules(unittest.TestCase):
         rc, out = self.run_tool("src/game/arm9/printsys.c", src, width=4)
         self.assertNotIn("bw_task", out)
 
+    SND_BANK = ("void SND_AssignWaveArc(SNDBankData *bank, int index, SNDWaveArc *waveArc)\n{\n    x;\n}\n"
+                "void SND_DestroyBank(SNDBankData *bank)\n{\n    y;\n}\n"
+                "void SND_DestroyWaveArc(SNDWaveArc *waveArc)\n{\n    z;\n}\n")
+
+    def test_bank_wave_links_reach_the_sound_driver_through_the_ds_slot(self):
+        # The native bank links live in a side table, not in the bank file.
+        # The sound driver finds a bank's wave archives only in the file's
+        # DS-width slots (+0x18 + 8*i), so each assign and destroy keeps the
+        # slot in step.  Without it no bank had a wave archive: every
+        # instrument note was silent (the intro music, all of it).
+        rc, out = self.run_tool("src/game/arm9/snd_bank.c", self.SND_BANK)
+        self.assertEqual(rc, 0)
+        self.assertIn("bw_bank_ds_slot(bank, index, bw_ds_addr_of(waveArc))", out)
+        self.assertIn("bw_bank_ds_slot(bank, index, 0)", out)
+        self.assertIn("bw_bank_ds_slot(bank, i, 0)", out)
+        # the slot is the 32-bit word at +0x18 + 8 * index, little endian
+        self.assertIn("(unsigned char *)bank + 0x18 + 8u * (unsigned int)index", out)
+
+    def test_bank_wave_links_are_untouched_in_the_four_byte_branch(self):
+        # at 4-byte pointers the game's own links ARE the file's slots: the
+        # branch the C code takes there never writes the DS slot by hand
+        rc, out = self.run_tool("src/game/arm9/snd_bank.c", self.SND_BANK)
+        self.assertEqual(rc, 0)
+        marker = "if (sizeof(void *) == 4) {"
+        for fn in ("void SND_AssignWaveArc(", "void SND_DestroyBank("):
+            body = out[out.index(fn):]
+            four = body[body.index(marker):body.index("return;", body.index(marker))]
+            self.assertNotIn("bw_bank_ds_slot", four, fn)
+
     def test_battle_event_state_is_native_storage_owned_by_one_unit(self):
         # btl_event.c's list and variable stack are two DS objects that
         # native pointers enlarge; they become the unit's own storage.

@@ -47,6 +47,15 @@ class WavLevel(unittest.TestCase):
     def test_quiet_noise_below_the_threshold_counts_as_silence(self):
         self.assertEqual(run([9000, 9000, 9000, 10, 12], 30)[0], 1)
 
+    def test_stray_bursts_are_not_music(self):
+        # one loud span among silent ones: the old, partial behaviour
+        rc, out = run([9000, 9000, 9000, 0, 0, 9000, 0, 0, 0, 0], 30)
+        self.assertEqual(rc, 1)
+        self.assertIn("1 of 7 spans", out)
+
+    def test_music_throughout_passes(self):
+        self.assertEqual(run([9000] * 10, 30)[0], 0)
+
     def test_a_recording_shorter_than_the_point_fails(self):
         rc, out = run([9000, 9000], 30)
         self.assertEqual(rc, 1)

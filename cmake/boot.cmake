@@ -902,18 +902,19 @@ if(_boot_lp64 AND NOT "${_eidos_ovls}" STREQUAL "")
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/boot_scenario.cmake)
     set_tests_properties(test_boot_battle_trainer test_boot_new_game_intro PROPERTIES
         SKIP_REGULAR_EXPRESSION "SKIPPED:" TIMEOUT 1500)
-    # The game's sound must not stop for good in the opening: the intro's
-    # music plays to about 20 s, and nothing is heard from the Professor's
-    # speech on.  Known failing, so registered disabled (as the other tests
-    # that wait on a fix); enable it with the fix.
+    # The game's music must play through the opening and after it: with no
+    # wave archive reaching the sound driver (the bank's DS-width link slots,
+    # tools/dsaddr.py snd_bank.c) every instrument note was silent, and only
+    # a few direct-channel sounds were heard.  The run must still be loud
+    # 30 s in, and beyond to 80 s.
     add_test(NAME test_boot_intro_audio
         COMMAND ${CMAKE_COMMAND} -DBOOT=$<TARGET_FILE:eidos_boot>
-                -DDATA=${BW_DATA_ROOT_ABS} -DNAME=intro_audio -DFRAMES=4800
-                -DPRESS_FROM=400 -DPRESS_TO=4500 -DPRESS_EVERY=30 -DPRESS_KEY=A
-                -DAUDIO_AFTER=30 -DAUDIO_MIN_PEAK=64 -DPYTHON=${Python3_EXECUTABLE}
+                -DDATA=${BW_DATA_ROOT_ABS} -DNAME=intro_audio -DFRAMES=5400
+                -DPRESS_FROM=400 -DPRESS_TO=5000 -DPRESS_EVERY=30 -DPRESS_KEY=A
+                -DAUDIO_AFTER=30 -DAUDIO_MIN_PEAK=1000 -DPYTHON=${Python3_EXECUTABLE}
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/boot_scenario.cmake)
     set_tests_properties(test_boot_intro_audio PROPERTIES
-        SKIP_REGULAR_EXPRESSION "SKIPPED:" TIMEOUT 1500 DISABLED TRUE)
+        SKIP_REGULAR_EXPRESSION "SKIPPED:" TIMEOUT 1500)
 endif()
 # The same run with --window, through SDL's dummy video and audio drivers:
 # the window, its pump and the audio queue live on the frame thread, and a

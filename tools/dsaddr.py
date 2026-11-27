@@ -2403,6 +2403,17 @@ static BwNativeBankWaveLink *bw_native_bank_link(SNDBankData *bank, int index)
             if (link->bank == bank && link->index == index) return link;
     return 0;
 }
+extern unsigned int bw_ds_addr_of(const void *);
+/* The sound driver (sdk/arm7/snd_driver.c, bank_of) finds a bank's wave
+ * archives in the bank FILE: waveArcLink[i].waveArc is a 32-bit DS address
+ * at +0x18 + 8 * i.  The native links above live outside the file, so the
+ * slot is kept in step with them. */
+static void bw_bank_ds_slot(SNDBankData *bank, int index, unsigned int value)
+{
+    unsigned char *p = (unsigned char *)bank + 0x18 + 8u * (unsigned int)index;
+    p[0] = (unsigned char)value; p[1] = (unsigned char)(value >> 8);
+    p[2] = (unsigned char)(value >> 16); p[3] = (unsigned char)(value >> 24);
+}
 static void bw_native_unlink_bank(BwNativeBankWaveLink *link)
 {
     BwNativeWaveArcTop *top = bw_native_wave_top(link->waveArc, 0);
@@ -2439,6 +2450,7 @@ static void bw_native_unlink_bank(BwNativeBankWaveLink *link)
     SNDi_LockMutex(); link = bw_native_bank_link(bank, index);
     if (link && link->waveArc == waveArc) { SNDi_UnlockMutex(); return; }
     if (link) bw_native_unlink_bank(link);
+    bw_bank_ds_slot(bank, index, 0);
     if (!waveArc) { free(link); SNDi_UnlockMutex(); return; }
     if (!link) {
         link = (BwNativeBankWaveLink *)calloc(1, sizeof(*link));
@@ -2447,6 +2459,7 @@ static void bw_native_unlink_bank(BwNativeBankWaveLink *link)
     }
     top = bw_native_wave_top(waveArc, 1); link->waveArc = waveArc;
     link->next = top->head; top->head = link;
+    bw_bank_ds_slot(bank, index, bw_ds_addr_of(waveArc));
     SNDi_UnlockMutex();""")
         source = _replace_body(source, "void SND_DestroyBank(SNDBankData *bank)", r"""    int i;
     if (sizeof(void *) == 4) {
@@ -2467,6 +2480,7 @@ static void bw_native_unlink_bank(BwNativeBankWaveLink *link)
     SNDi_LockMutex();
     for (i = 0; i < 4; i++) {
         BwNativeBankWaveLink *link = bw_native_bank_link(bank, i);
+        bw_bank_ds_slot(bank, i, 0);
         if (link) { bw_native_unlink_bank(link); free(link); }
     }
     SNDi_UnlockMutex();""")
