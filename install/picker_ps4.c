@@ -3,6 +3,7 @@
 #include "picker.h"
 #include "install.h"
 
+#include <stdbool.h>
 #include <_kernel.h>
 #include <common_dialog.h>
 #include <libsysmodule.h>
