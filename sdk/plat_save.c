@@ -200,6 +200,7 @@ int bw_plat_move_new(const char *from, const char *to)
 {
     struct stat st;
 
+#if !defined(__ORBIS__)
     if (link(from, to) == 0) {
         if (unlink(from) != 0) {
             (void)unlink(to);       /* (both names: back to the old one alone) */
@@ -209,12 +210,15 @@ int bw_plat_move_new(const char *from, const char *to)
     }
     if (errno == EEXIST)
         return 1;
+#endif
     if (stat(to, &st) == 0)
         return 1;
+    if (errno != ENOENT)
+        return -1;
     return rename(from, to) == 0 ? 0 : -1;
 }
 
-#if defined(__vita__) || defined(__SWITCH__) || defined(__wasm__)
+#if defined(__ORBIS__) || defined(__vita__) || defined(__SWITCH__) || defined(__wasm__)
 /* One process plays: nothing to keep out. */
 void *bw_plat_lock_folder(const char *dir)
 {

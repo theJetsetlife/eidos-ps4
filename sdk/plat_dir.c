@@ -101,6 +101,8 @@ static int plat_remove_entry(const char *path)
 
 #if defined(__ORBIS__)
 #include <_fs.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <stddef.h>
 #include <sys/dirent.h>
 #else
@@ -139,7 +141,7 @@ int bw_plat_list_dir(const char *path, int (*fn)(void *ctx, const char *name),
     int fd;
 
     if (path == NULL || (fd = sceKernelOpen(path, SCE_KERNEL_O_RDONLY |
-                                          SCE_KERNEL_O_DIRECTORY, 0)) < 0) {
+                                          SCE_KERNEL_O_DIRECTORY | O_NOFOLLOW, 0)) < 0) {
         return -1;
     }
     while (result == 0 &&
@@ -191,6 +193,16 @@ int bw_plat_list_dir(const char *path, int (*fn)(void *ctx, const char *name),
 
 #include <unistd.h>
 
+#if defined(__ORBIS__)
+/* unlink acts on the final directory entry itself, including a dangling link.
+ * A directory remains for enumeration and rmdir. */
+static int plat_remove_entry(const char *path)
+{
+    if (unlink(path) == 0 || errno == ENOENT)
+        return 0;
+    return rmdir(path) == 0 ? 0 : -1;
+}
+#else
 static int plat_is_link(const char *path)
 {
     struct stat st;
@@ -207,6 +219,8 @@ static int plat_remove_entry(const char *path)
     }
     return (S_ISDIR(st.st_mode) ? rmdir(path) : unlink(path)) == 0 ? 0 : -1;
 }
+
+#endif
 
 #endif
 
@@ -245,9 +259,16 @@ static int remove_tree(const char *path, int depth)
     size_t at;
     int rc = 0;
 
+#if defined(__ORBIS__)
+    if (unlink(path) == 0 || errno == ENOENT)
+        return 0;
+    if (bw_plat_path_kind(path) != BW_PATH_DIR)
+        return -1;
+#else
     if (plat_is_link(path) || bw_plat_path_kind(path) != BW_PATH_DIR) {
         return plat_remove_entry(path);
     }
+#endif
     if (depth >= 64) {
         return -1;
     }
