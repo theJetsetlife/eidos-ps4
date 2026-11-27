@@ -124,6 +124,29 @@ class Memory(unittest.TestCase):
         self.assertRegex(src, r"unsigned int sceLibcHeapExtendedAlloc\s*=\s*1")
 
 
+class Diagnostics(unittest.TestCase):
+    def test_frame_timing_is_logged_on_the_console(self):
+        # The console has no profiler window: the per-phase frame timing goes
+        # to the run log, so a slow scene can be read back without a debugger.
+        src = read("demo/eidos_boot.c")
+        self.assertIn("eidos_ps4_log_start(", src)
+        self.assertIn("eidos_prof_enable(600u)", src)
+        self.assertLess(src.index("eidos_ps4_log_start("), src.index("eidos_prof_enable(600u)"))
+
+
+class UsbClaims(unittest.TestCase):
+    def test_messages_do_not_promise_usb_logging(self):
+        # The SDK documents no application access to USB storage, and the
+        # console run showed none: the log is on internal storage.  The
+        # messages say where it is and how to read it.
+        src = read("engine/platform/ps4/log_ps4.c")
+        self.assertNotIn("copied to a USB drive when one is in", src)
+        self.assertIn("fetch_log.sh", src)
+        self.assertTrue(os.path.exists(os.path.join(ROOT, "tools/ps4/fetch_log.sh")))
+        pick = read("install/picker_ps4.c")
+        self.assertIn("/data/eidos/rom/", pick)
+
+
 class NotInTheSdk(unittest.TestCase):
     """Calls and headers the official SDK libc does not have (each broke the
     Orbis build or the console run once)."""

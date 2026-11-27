@@ -126,7 +126,7 @@ int bw_pick_rom(void *parent, const char *title, char *out, size_t n)
     picker.out = out;
     picker.size = n;
     picker.status = BW_PICK_UNAVAILABLE;
-    snprintf(out, n, "No Pokemon .nds file found. Put your ROM in the root of a USB drive (none is mounted if the console shows no drive), or copy it over FTP to /data/eidos/rom/.");
+    snprintf(out, n, "No Pokemon .nds file found. Copy your ROM to /data/eidos/rom/ on the console with a file transfer (FTP) client. A USB drive is searched too, but applications often cannot see one.");
     (void)bw_mkdirs_utf8("/data/eidos/rom");    /* a place to put the ROM over FTP */
     rc = sceUserServiceGetInitialUser(&picker.user);
     if (rc < 0) goto failed;

@@ -5078,6 +5078,10 @@ int main(int argc, char **argv)
 #if EIDOS_BOOT_PS4 && EIDOS_BOOT
     eidos_ps4_log_start("EIDP90002", "01.00");
     boot_ps4_log_memory("at start");
+    /* Frame timing into the run log every 600 frames (ten seconds): the
+     * average and worst milliseconds of each phase, the software 3D
+     * rasteriser among them. */
+    eidos_prof_enable(600u);
     /* The launch screen (sce_sys/pic1.png) stays over everything until the
      * application hides it; the ROM picker and the error messages are
      * system dialogs, which would otherwise wait behind it unseen. */

@@ -150,7 +150,8 @@ void eidos_ps4_log_start(const char *title_id, const char *version)
     fprintf(stderr, "\n==== Eidos %s %s run log ====\n", title_id ? title_id : "?",
             version ? version : "?");
     fprintf(stderr, "log: %s (%s)\n", g_path,
-            g_on_usb ? "USB drive" : "internal storage, copied to a USB drive when one is in");
+            g_on_usb ? "USB drive" :
+            "internal storage; applications cannot see USB drives on every system, read it with tools/ps4/fetch_log.sh");
     atexit(at_exit);
 }
 

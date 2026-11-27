@@ -5,8 +5,11 @@
  *
  * Everything the program writes to stdout and stderr is sent to a file.  The
  * file is EIDOS_LOG.txt in the root of the first USB drive that accepts
- * writes (/mnt/usb0, then /mnt/usb1).  With no drive in, the file is
- * /data/eidos/EIDOS_LOG.txt, and eidos_ps4_log_export() copies it to a drive
+ * writes (/mnt/usb0 ...), if the application can see one.  The SDK documents
+ * no application access to USB storage and on a console running homebrew the
+ * sandbox usually shows none, so the file is normally
+ * /data/eidos/EIDOS_LOG.txt: read it over the console's file transfer
+ * service (tools/ps4/fetch_log.sh).  eidos_ps4_log_export() copies it to a drive
  * as soon as one is there (at a setup error and on exit).  A log a run left on
  * internal storage is copied to the drive as EIDOS_LOG_PREV.txt at the next start.
  *
