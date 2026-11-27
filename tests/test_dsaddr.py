@@ -225,6 +225,26 @@ class Lp64PathRules(unittest.TestCase):
                     text = f.read()
             return rc, text
 
+    def test_battle_cry_uses_native_pointer_output_storage(self):
+        # -O2 trainer battle: GetVoiceOfSlot wrote eight bytes into buf's
+        # four-byte DS word and tripped the caller's stack canary.
+        src = ("void f(void) {\n    u32 buf;\n    u32 *out;\n"
+               "    out = &buf;\n"
+               "    BTL_MAIN_GetVoiceOfSlot(main, pos, (struct PerapVoice **)out);\n"
+               "    voice = PM_VOICE_Play(work->sprites[idx].identity.species, "
+               "form, id, chorus, a, b, chorusParamC, (void **)out);\n}\n")
+        rc, out = self.run_tool("src/game/ov094/btlv_mcss.c", src)
+        self.assertEqual(rc, 0)
+        self.assertIn("struct PerapVoice *buf = 0;", out)
+        self.assertIn("BTL_MAIN_GetVoiceOfSlot(main, pos, out)", out)
+        self.assertIn("recordedVoice = buf;", out)
+        self.assertIn("out != 0 ? &recordedVoice : 0", out)
+        self.assertNotIn("(void **)out", out)
+        rc, out = self.run_tool("src/game/ov094/btlv_mcss.c", src, width=4)
+        self.assertEqual(rc, 0)
+        self.assertIn("u32 buf;", out)
+        self.assertIn("(void **)out", out)
+
     def test_ai_script_jumps_are_signed_at_lp64(self):
         # A script jump is a signed 32-bit offset from the cursor.  Added as
         # u32 to a 64-bit pointer, a backward jump lands 4 GiB ahead (the

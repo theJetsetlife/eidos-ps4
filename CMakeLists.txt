@@ -1966,6 +1966,13 @@ endif()
 # Exercise the AudioOut worker's pause/resume handshake on the host with a
 # small API mock. Keep this target out of Orbis cross-builds; it is test-only.
 if(NOT PS4 AND UNIX)
+    add_executable(test_ps4_touch ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ps4_touch.c)
+    target_include_directories(test_ps4_touch PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/sdk
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/ps4/mock_sdk
+        ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform
+        ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4)
+    add_test(NAME test_ps4_touch COMMAND test_ps4_touch)
     add_executable(test_ps4_audio_lifecycle
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ps4_audio_lifecycle.c
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4/audio_ps4.c

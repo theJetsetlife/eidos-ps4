@@ -996,22 +996,9 @@ static void boot_ps4_input_update(void)
         } else {
             /* Eidos and BW keypad words use the DS's identical bit layout. */
             state.buttons = buttons;
-            if (g_ps4_input.connected && g_ps4_input.touch_down &&
-                g_ps4_input.touch_width != 0 &&
-                g_ps4_input.touch_height != 0) {
+            if (eidos_ps4_input_touch_position(&g_ps4_input,
+                                                &state.touch_x, &state.touch_y)) {
                 state.touch = 1;
-                state.touch_x = (int)((unsigned)g_ps4_input.touch_x *
-                                      BW_TOUCH_WIDTH /
-                                      g_ps4_input.touch_width);
-                state.touch_y = (int)((unsigned)g_ps4_input.touch_y *
-                                      BW_TOUCH_HEIGHT /
-                                      g_ps4_input.touch_height);
-                if (state.touch_x >= BW_TOUCH_WIDTH) {
-                    state.touch_x = BW_TOUCH_WIDTH - 1;
-                }
-                if (state.touch_y >= BW_TOUCH_HEIGHT) {
-                    state.touch_y = BW_TOUCH_HEIGHT - 1;
-                }
             } else if (g_ps4_input.connected && g_ps4_input.cursor_touch) {
                 state.touch = 1;
                 state.touch_x = g_ps4_input.cursor_x;
@@ -1368,11 +1355,14 @@ static void boot_render_ps4(void *user, u8 *top, u8 *bottom)
         boot_ps4_video_failure("back-buffer acquisition", result);
         return;
     }
-    const int show_cursor = g_ps4_input.connected && !g_ps4_input.touch_down &&
-                            g_ps4_input.cursor_visible_frames != 0;
+    int cursor_x = -1, cursor_y = -1;
+    if (!eidos_ps4_input_touch_position(&g_ps4_input, &cursor_x, &cursor_y) &&
+        g_ps4_input.connected && g_ps4_input.cursor_visible_frames != 0) {
+        cursor_x = g_ps4_input.cursor_x;
+        cursor_y = g_ps4_input.cursor_y;
+    }
     result = eidos_ps4_video_draw_ds_compatibility(
-        g_ps4_video, top, bottom, show_cursor ? g_ps4_input.cursor_x : -1,
-        show_cursor ? g_ps4_input.cursor_y : -1);
+        g_ps4_video, top, bottom, cursor_x, cursor_y);
     if (result < 0) {
         boot_ps4_video_failure("GNM DS compatibility draw", result);
         return;

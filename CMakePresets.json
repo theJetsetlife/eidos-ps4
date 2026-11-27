@@ -79,7 +79,9 @@
         "EIDOS_PS4_DIAGNOSTICS": "OFF",
         "EIDOS_BOOT": "ON",
         "EIDOS_OVERLAYS": "ALL",
-        "EIDOS_SOURCE_TREE": "game"
+        "EIDOS_SOURCE_TREE": "game",
+        "CMAKE_C_FLAGS_RELEASE": "-O2 -DNDEBUG",
+        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG"
       }
     },
     {
@@ -130,6 +132,12 @@
     {
       "name": "host-tools",
       "configurePreset": "host-tools"
+    },
+    {
+      "name": "ps4-game-fpkg",
+      "displayName": "PS4 optimized game FPKG",
+      "configurePreset": "ps4-game-release",
+      "targets": ["eidos_ps4_release_fpkg"]
     }
   ]
 }

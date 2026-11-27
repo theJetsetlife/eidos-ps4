@@ -1174,3 +1174,53 @@ data. The host suite passes in full (127 tests; five skipped or disabled).
   the DS-bound externs; handler execution is unverified.
 - Display: the DS frame still goes through the transitional 1080p path.
 - Hardware: saves across a package update, battles, and performance.
+
+# 2026-11-27 — Optimized build validation and visible touch position
+
+Recovered state from the clean upstream integration branch rather than the
+older dirty SDK checkout. Upstream HEAD was verified as `6d8a7a95`; the
+Aletheia checkout matches the committed `995615a30f` pin. Existing native
+SDK services, static overlay linkage, original serialized-data decoding and
+offline shader compilation are useful foundations. The transitional renderer
+still rasterizes game 3D on the CPU and uploads DS-resolution screens; a 1080p
+scanout does not establish native-detail rendering or measured 60 FPS.
+
+The optimized host trainer replay exposed a native output-pointer defect:
+`BTLV_MCSS_PlayCry` supplied a four-byte local word to
+`BTL_MAIN_GetVoiceOfSlot`, which writes a native pointer. GDB stopped at the
+stack-canary failure in the cry caller. The LP64 adaptation now supplies a
+`PerapVoice *` slot and converts its value into a separate `void *` slot for
+`PM_VOICE_Play`, preserving pointer types and the no-recording path. The
+32-bit source remains unchanged. The new regression fails against the old
+generator. All 15 LP64 path-rule tests pass, and the corrected optimized
+trainer scenario completes 8,000 frames. That scenario checks survival and
+overlay residency, not complete battle mechanics or return to the field.
+
+The initial optimized host suite had three failures: the trainer defect and
+two sandbox-dependent tests (localhost sockets and application cache access).
+Both sandbox-dependent tests pass outside the sandbox. Optimized new-game
+intro and intro-audio scenarios also pass. Three tests skip for unavailable
+external inputs and two remain disabled; these are not validated behavior.
+
+The game release configure preset now explicitly selects `-O2 -DNDEBUG` for
+C and C++, with a `ps4-game-fpkg` build preset. A packaging target's name did
+not previously guarantee optimized compiler flags. The existing optimized
+SDK build uses explicit `-O2` cache flags; its configuration is recorded
+separately from the preset for provenance.
+
+The user reports touchpad-to-letter cursor misalignment, missing keyboard
+highlight graphics, and missing settings selection graphics. The presenter
+previously hid its stylus marker during touchpad contact. Gameplay input and
+the marker now share one bounded coordinate conversion; contact displays the
+marker at the exact submitted DS touch position. Host tests cover the center,
+edges, out-of-range samples, zero resolution, release and disconnect. This
+provides aiming feedback but does not establish a fix for the game's missing
+selection graphics. Investigate keyboard/settings highlights and missing
+starter sprites as potentially shared rendering defects; do not substitute
+the port marker for game UI fidelity.
+
+Critical path: validate the optimized SDK package and compare console phase
+timings; reproduce missing selection/sprite rendering; validate normal battles,
+save/reload and updates on hardware; implement the production graphics backend.
+Console installation, performance and visual verification of these new changes
+are pending. Do not label this checkpoint a verified playable alpha.

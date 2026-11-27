@@ -13,6 +13,23 @@ export PATH="/tmp/eidos-build-tools/bin:$PATH"
 cmake --build /tmp/eidos-orbis-diagnostics --target eidos_ps4_minimal_pkg
 ```
 
+## Optimized game test package
+
+Use the game release configure preset before the packaging build preset:
+
+```sh
+cmake --preset ps4-game-release
+cmake --build --preset ps4-game-fpkg
+```
+
+The game release preset selects `-O2 -DNDEBUG` for both C and C++. A target
+named `eidos_ps4_release_fpkg` uses its existing build directory's flags; its
+name alone does not turn an unoptimized configuration into a release build.
+Keep debug presets available for debugging. Validate optimized host gameplay
+before deploying changes: optimization can expose native ABI defects that an
+unoptimized run missed. Package validation establishes file integrity and
+contents; console performance and gameplay remain separate acceptance gates.
+
 ## Official route
 
 `orbis_pub_cmd.exe` 4.12 runs through Proton.

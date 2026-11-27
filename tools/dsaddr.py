@@ -1923,6 +1923,24 @@ def main(argv=None) -> int:
         source = _need(source, "MIi_CpuClear32(0, main, 0x474);",
                        "MIi_CpuClear32(0, main, sizeof(*main));")
     if (a.pointer_width and a.pointer_width > 4
+            and src_path.replace("\\", "/").endswith("/src/game/ov094/btlv_mcss.c")):
+        # GetVoiceOfSlot writes a native pointer, not a DS word. Keep its
+        # typed output separate from PM_VOICE_Play's void-pointer input so
+        # neither call aliases a pointer through an incompatible slot type.
+        source = _need(source, "    u32 buf;\n    u32 *out;",
+            "    struct PerapVoice *buf = 0;\n"
+            "    struct PerapVoice **out;\n"
+            "    void *recordedVoice;")
+        source = _need(source,
+            "BTL_MAIN_GetVoiceOfSlot(main, pos, (struct PerapVoice **)out)",
+            "BTL_MAIN_GetVoiceOfSlot(main, pos, out)")
+        source = _need(source,
+            "    voice = PM_VOICE_Play(work->sprites[idx].identity.species,",
+            "    recordedVoice = buf;\n"
+            "    voice = PM_VOICE_Play(work->sprites[idx].identity.species,")
+        source = _need(source, "chorusParamC, (void **)out);",
+            "chorusParamC, out != 0 ? &recordedVoice : 0);")
+    if (a.pointer_width and a.pointer_width > 4
             and src_path.replace("\\", "/").endswith("/src/game/ov093/btlv_core.c")):
         # Opening-step rows are a DS state word followed by a DS code word.
         source = _need(source,

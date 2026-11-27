@@ -36,6 +36,22 @@ typedef struct EidosPs4Input {
     uint8_t stick_dead_zone;
 } EidosPs4Input;
 
+/* One coordinate conversion for gameplay and the visible stylus marker.
+ * Pad resolution is a range size; clamp out-of-range device samples. */
+static inline int eidos_ps4_input_touch_position(const EidosPs4Input *input,
+                                                int *x, int *y)
+{
+    if (!input->connected || !input->touch_down ||
+        input->touch_width == 0 || input->touch_height == 0) {
+        return 0;
+    }
+    *x = (int)((uint32_t)input->touch_x * 256u / input->touch_width);
+    *y = (int)((uint32_t)input->touch_y * 192u / input->touch_height);
+    if (*x > 255) *x = 255;
+    if (*y > 191) *y = 191;
+    return 1;
+}
+
 /* The caller owns UserService and supplies the user who launched the app. */
 int eidos_ps4_input_open(EidosPs4Input *input, SceUserServiceUserId user_id);
 /* Distance from the neutral 128 stick position needed to synthesize a DS
