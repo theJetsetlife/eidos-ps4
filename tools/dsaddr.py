@@ -1898,6 +1898,24 @@ def main(argv=None) -> int:
             and src_path.replace("\\", "/").endswith("/src/game/arm9/convert.c")):
         source = source.replace("#define GAME_TYPES_U32_LONG\n", "")
         source = source.replace("#define GAME_TYPES_S32_LONG\n", "")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/game_beacon.c"):
+        # Aletheia's file keeps the LP64 allocation out of the DS's 4-byte
+        # slot at 0x02146940 by shadowing GAME_BEACON_Work with a static
+        # `sGameBeaconWorkNative`.  The port's armdata_exclusions entry
+        # replaces the DS cell with a pointer-wide host global of the same
+        # name, so the shadow now hides the real storage from overlay
+        # readers.  Drop the LP64 branch so this TU uses the host global.
+        source = _need(source,
+            "#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ > 4\n"
+            "/* This pointer is a 32-bit game global at 0x02146940. Keep the native work\n"
+            " * allocation out of that fixed-width slot on LP64. */\n"
+            "static GameBeaconWork *sGameBeaconWorkNative;\n"
+            "#undef GAME_BEACON_Work\n"
+            "#define GAME_BEACON_Work sGameBeaconWorkNative\n"
+            "#else\n"
+            "extern GameBeaconWork *GAME_BEACON_Work;\n"
+            "#endif",
+            "extern GameBeaconWork *GAME_BEACON_Work;")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/btl_setup.c"):
         # BTL_SETUP_SetTrainer indexes param->trainerData, an array of
         # BattleTrainerData pointers, by byte arithmetic with the DS's
