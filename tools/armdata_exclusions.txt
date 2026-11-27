@@ -35,6 +35,14 @@ _GflUse 0x020AA194 0x18 sdk/game_globals.c
 # pointer-wide storage; the matched access reaches the port object.
 GAME_BEACON_Work 0x02146940 0x4 sdk/game_globals.c
 
+# g_021469F8 (sdk's Mersenne-Twister state pointer) and g_ZoneDataMgr
+# (field zone-data manager) are the same class: the matched TU already
+# shadows each with a static on LP64 (see tools/dsaddr.py), which worked
+# while the port left them BIND_DS and now hides them from cross-TU readers.
+# Own them here so every TU shares one host pointer.
+g_021469F8 0x021469F8 0x4 sdk/game_globals.c
+g_ZoneDataMgr 0x02146264 0x4 sdk/game_globals.c
+
 # sdk/fs.c: the ROM archive object (FSArchive, 0x5C bytes).
 d_02150DA8                 0x02150DA8  0x5C   sdk/fs.c
 

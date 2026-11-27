@@ -55,6 +55,12 @@ void *_pTouchPanelWork;
 /* ov010's `GameBeaconWork *GAME_BEACON_Work = GFL_HEAP_Alloc(...)` -- see
  * tools/armdata_exclusions.txt for why it is not bound to the DS cell. */
 void *GAME_BEACON_Work;
+/* Same class: the sdk's MT state pointer and the field zone-data manager
+ * pointer each live in a 4-byte DS cell; the matched TU shadows them with a
+ * static on LP64 (dsaddr.py strips that so this global is the canonical
+ * storage). */
+void *g_021469F8;
+void *g_ZoneDataMgr;
 struct BwUiState {
     void *context;
     int (*bounds)(void *lower, void *upper);
@@ -607,6 +613,8 @@ void bw_game_globals_register(void)
     _pOverlayTables = NULL;
     _pTouchPanelWork = NULL;
     GAME_BEACON_Work = NULL;
+    g_021469F8 = NULL;
+    g_ZoneDataMgr = NULL;
     memset(&gUiState, 0, sizeof(gUiState));
     memset(&_GflUse, 0, sizeof(_GflUse));
     /* The personal-data archive handle and its memo, which the game opens
@@ -618,6 +626,8 @@ void bw_game_globals_register(void)
     g_0214652C = NULL;
     memset(&g_02146270, 0, sizeof(g_02146270));
     BW_REG(0x02146940u, GAME_BEACON_Work, 4u);
+    BW_REG(0x021469F8u, g_021469F8, 4u);
+    BW_REG(0x02146264u, g_ZoneDataMgr, 4u);
     BW_REG(0x02146990u, g_ProcSys, 4u);
     BW_REG(0x02146994u, svsys, 4u);
     BW_REG(0x021469B8u, _pOverlayTables, 4u);

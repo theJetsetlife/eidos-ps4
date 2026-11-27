@@ -1898,24 +1898,91 @@ def main(argv=None) -> int:
             and src_path.replace("\\", "/").endswith("/src/game/arm9/convert.c")):
         source = source.replace("#define GAME_TYPES_U32_LONG\n", "")
         source = source.replace("#define GAME_TYPES_S32_LONG\n", "")
-    if src_path.replace("\\", "/").endswith("/src/game/arm9/game_beacon.c"):
-        # Aletheia's file keeps the LP64 allocation out of the DS's 4-byte
-        # slot at 0x02146940 by shadowing GAME_BEACON_Work with a static
-        # `sGameBeaconWorkNative`.  The port's armdata_exclusions entry
-        # replaces the DS cell with a pointer-wide host global of the same
-        # name, so the shadow now hides the real storage from overlay
-        # readers.  Drop the LP64 branch so this TU uses the host global.
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/nns_fnd_expheap.c"):
+        # NNSi_FndGetListAllocatableSize views the heap through a simplified
+        # `struct Heap { u8 pad_00[0x24]; struct HeapBlock *head; }` that
+        # pins .head at the DS offset 0x24.  On LP64 the real ExpHeap's
+        # freeList.head is at offset 0x48 (NNSiFndHeapHead grows), so
+        # heap->head reads junk (gdb at the first trainer battle: 0x80000)
+        # and the alignment math faults.  The companion GetListTotalSize
+        # already casts (struct ExpHeap *) and uses `freeList.head`; mirror
+        # that here, then widen the per-iteration address math to uptr so
+        # the pointer-size arithmetic doesn't truncate.
         source = _need(source,
-            "#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ > 4\n"
-            "/* This pointer is a 32-bit game global at 0x02146940. Keep the native work\n"
-            " * allocation out of that fixed-width slot on LP64. */\n"
-            "static GameBeaconWork *sGameBeaconWorkNative;\n"
-            "#undef GAME_BEACON_Work\n"
-            "#define GAME_BEACON_Work sGameBeaconWorkNative\n"
-            "#else\n"
-            "extern GameBeaconWork *GAME_BEACON_Work;\n"
-            "#endif",
-            "extern GameBeaconWork *GAME_BEACON_Work;")
+            "s32 NNSi_FndGetListAllocatableSize(struct Heap *heap, s32 x)\n"
+            "{\n"
+            "    s32 size = abs(x);\n"
+            "    u32 best = 0;\n"
+            "    u32 ofs = -1;\n"
+            "    struct HeapBlock *blk = heap->head;\n"
+            "\n"
+            "    for (; blk != 0; blk = blk->next) {\n"
+            "        u32 data = (uptr)blk + 0x10;\n"
+            "        u32 start = ((size - 1) + data) & ~(size - 1);\n"
+            "        u32 end = blk->size + data;\n"
+            "\n"
+            "        if (start < end) {\n"
+            "            u32 amt = end - start;\n"
+            "            u32 off = start - data;\n",
+            "s32 NNSi_FndGetListAllocatableSize(struct Heap *heap, s32 x)\n"
+            "{\n"
+            "    s32 size = abs(x);\n"
+            "    u32 best = 0;\n"
+            "    u32 ofs = -1;\n"
+            "    struct HeapBlock *blk = (struct HeapBlock *)\n"
+            "        ((struct ExpHeap *)heap)->freeList.head;\n"
+            "\n"
+            "    for (; blk != 0; blk = blk->next) {\n"
+            "        uptr data = (uptr)blk + 0x10;\n"
+            "        uptr start = ((size - 1) + data) & ~(uptr)(size - 1);\n"
+            "        uptr end = blk->size + data;\n"
+            "\n"
+            "        if (start < end) {\n"
+            "            uptr amt = end - start;\n"
+            "            uptr off = start - data;\n")
+    # Aletheia keeps a few pointer globals out of the DS's 4-byte slot on LP64
+    # by shadowing them with a static in the defining TU.  That works while
+    # the global is bound BW_DATA_BIND_DS, but the port owns these symbols
+    # (armdata_exclusions.txt) and the shadow then hides the real storage
+    # from cross-TU readers (watchpoint at GAME_BEACON_Work: zero writes to
+    # the port global while the arm9 TU was writing its shadow).  Replace
+    # each shadow block with a plain extern of the game's own type so this
+    # TU writes the host global.
+    _BEACON_SHADOW = (
+        "#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ > 4\n"
+        "/* This pointer is a 32-bit game global at 0x02146940. Keep the native work\n"
+        " * allocation out of that fixed-width slot on LP64. */\n"
+        "static GameBeaconWork *sGameBeaconWorkNative;\n"
+        "#undef GAME_BEACON_Work\n"
+        "#define GAME_BEACON_Work sGameBeaconWorkNative\n"
+        "#else\n"
+        "extern GameBeaconWork *GAME_BEACON_Work;\n"
+        "#endif")
+    _MT_SHADOW = (
+        "#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ > 4\n"
+        "/* The DS global is a four-byte pointer slot; keep the allocated MT state\n"
+        " * pointer in native storage on LP64. The Mt payload itself is fixed-width. */\n"
+        "static struct Mt *sMtStateNative;\n"
+        "#undef g_021469F8\n"
+        "#define g_021469F8 sMtStateNative\n"
+        "#else\n"
+        "extern struct Mt *g_021469F8;\n"
+        "#endif")
+    _ZONE_SHADOW = (
+        "#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ > 4\n"
+        "/* The original manager pointer occupies a four-byte DS global. */\n"
+        "static struct ZoneDataMgr *sZoneDataMgrNative;\n"
+        "#undef g_ZoneDataMgr\n"
+        "#define g_ZoneDataMgr sZoneDataMgrNative\n"
+        "#else\n"
+        "extern struct ZoneDataMgr *g_ZoneDataMgr;\n"
+        "#endif")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/game_beacon.c"):
+        source = _need(source, _BEACON_SHADOW, "extern GameBeaconWork *GAME_BEACON_Work;")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/gf_standard.c"):
+        source = _need(source, _MT_SHADOW, "extern struct Mt *g_021469F8;")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/zonedata.c"):
+        source = _need(source, _ZONE_SHADOW, "extern struct ZoneDataMgr *g_ZoneDataMgr;")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/btl_setup.c"):
         # BTL_SETUP_SetTrainer indexes param->trainerData, an array of
         # BattleTrainerData pointers, by byte arithmetic with the DS's
