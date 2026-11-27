@@ -396,7 +396,10 @@ static int ps4_visit_directory(const char *path,
                                int (*visit)(const struct dirent *, void *),
                                void *context)
 {
-    char buffer[4096];
+    union {
+        struct dirent alignment;
+        char bytes[4096];
+    } buffer;
     long base = 0;
     struct stat directory_stat;
     int fd;
@@ -405,12 +408,12 @@ static int ps4_visit_directory(const char *path,
     if (stat(path, &directory_stat) != 0 || !S_ISDIR(directory_stat.st_mode)) {
         return -1;
     }
-    fd = sceKernelOpen(path, O_RDONLY, 0);
+    fd = sceKernelOpen(path, O_RDONLY | O_NOFOLLOW | O_DIRECTORY, 0);
     if (fd < 0) {
         return fd;
     }
     for (;;) {
-        const int count = sceKernelGetdirentries(fd, buffer,
+        const int count = sceKernelGetdirentries(fd, buffer.bytes,
                                                   (int)sizeof(buffer), &base);
         int offset;
 
@@ -423,17 +426,25 @@ static int ps4_visit_directory(const char *path,
         }
         offset = 0;
         while (offset < count) {
-            const struct dirent *entry =
-                (const struct dirent *)(const void *)(buffer + offset);
+            struct dirent record;
+            const struct dirent *entry = &record;
             const size_t minimum = offsetof(struct dirent, d_name) + 1u;
             int visit_result;
 
-            if (entry->d_reclen < minimum ||
-                (size_t)entry->d_reclen > (size_t)(count - offset) ||
-                entry->d_name[entry->d_namlen] != '\0') {
+            if ((size_t)(count - offset) < minimum) {
                 result = -1;
                 break;
             }
+            memcpy(&record, buffer.bytes + offset, minimum - 1);
+            if (entry->d_reclen < minimum ||
+                (size_t)entry->d_reclen > (size_t)(count - offset) ||
+                minimum + entry->d_namlen > entry->d_reclen ||
+                buffer.bytes[offset + minimum - 1 + entry->d_namlen] != '\0') {
+                result = -1;
+                break;
+            }
+            memcpy(record.d_name, buffer.bytes + offset + minimum - 1,
+                   (size_t)record.d_namlen + 1);
             visit_result = visit(entry, context);
             if (visit_result != 0) {
                 result = visit_result;
@@ -449,6 +460,33 @@ static int ps4_visit_directory(const char *path,
         result = -1;
     }
     return result;
+}
+
+struct Ps4DirectoryVisitor {
+    int (*fn)(void *, const char *, int);
+    void *ctx;
+};
+
+static int ps4_list_entry(const struct dirent *entry, void *opaque)
+{
+    struct Ps4DirectoryVisitor *visitor = opaque;
+
+    if (!entry->d_fileno || strcmp(entry->d_name, ".") == 0 ||
+        strcmp(entry->d_name, "..") == 0)
+        return 0;
+    if (entry->d_type == DT_UNKNOWN)
+        return -1;
+    if (entry->d_type != DT_DIR && entry->d_type != DT_REG)
+        return 0;
+    return visitor->fn(visitor->ctx, entry->d_name,
+                       entry->d_type == DT_DIR ? BW_PATH_DIR : BW_PATH_FILE);
+}
+
+int bw_list_dir_utf8(const char *path,
+                     int (*fn)(void *, const char *, int), void *ctx)
+{
+    struct Ps4DirectoryVisitor visitor = {fn, ctx};
+    return ps4_visit_directory(path, ps4_list_entry, &visitor);
 }
 
 static int mark_not_empty(const struct dirent *entry, void *context)
