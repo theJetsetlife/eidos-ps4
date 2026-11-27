@@ -8,13 +8,14 @@ This file records that revision.
 
 ## The pin
 
-The native port builds against `778cd9e6514bd298e66a515f68934e88a5e9f3c6`
+The native port builds against `49ad8dbfaba0132fa7c82b76c4f4064e1d8cb2ec`
 on the local Aletheia branch `integration/eidos-20261127`. Its upstream
 base is `ea39ea3ad618b328cb5df5230800506461759b82`, the revision required
 by Eidos `6d8a7a95`. Commit `8e38c84d55` carries the native layout changes
 and `778cd9e651` carries the pointer-width sound command arguments.
 For a build on another machine, transfer the Aletheia integration branch
-before running the pinned checkout tool.
+before running the pinned checkout tool. The pinned revision also preserves the
+upstream missing-cry channel guard in the native voice implementation.
 
 The step from `d4dfca3956`: the day care's TM scan (ov021 sodateya.c)
 runs to `ITEM_LAST` in place of a literal 626, so on the PC build it

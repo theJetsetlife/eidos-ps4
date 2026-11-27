@@ -1019,6 +1019,10 @@ set(BW_ENGINE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/arm7/snd_hw.c
 )
 
+if(EIDOS_SOURCE_TREE STREQUAL "matched")
+    list(APPEND BW_SDK_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/sdk/voice_stop_matched.c)
+endif()
+
 add_library(eidos STATIC
     ${BW_MATCHED_SOURCES}
     ${BW_SDK_SOURCES}
