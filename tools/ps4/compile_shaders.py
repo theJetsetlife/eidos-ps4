@@ -18,6 +18,7 @@ def main() -> int:
     parser.add_argument("--compiler", required=True, type=Path)
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--depfile", type=Path)
     parser.add_argument("--profile", required=True,
                         choices=("sce_vs_vs_orbis", "sce_ps_orbis"))
     parser.add_argument("--cache-dir", required=True, type=Path)
@@ -39,6 +40,8 @@ def main() -> int:
     for path in args.include_dir:
         command.append(f"-I{path}")
     command.extend(("-profile", args.profile, "-o", str(args.output)))
+    if args.depfile:
+        command.extend(("-MD", "-MF", str(args.depfile)))
     if args.auxdata:
         command.append("--auxdata")
     command.extend((str(args.source), "-cache", "-cachedir", str(args.cache_dir)))
