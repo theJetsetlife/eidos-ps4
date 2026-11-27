@@ -129,7 +129,7 @@ typedef struct BtlvBagWork {
     u8           isWildBattle;     /* 0x29 */
     u8           selectedItemPage; /* 0x2A */
     u8           reserved2B;
-    int          auxViewHandle;    /* 0x2C */
+    u8          *auxViewHandle;    /* 0x2C (a pointer in the game's header) */
     s16          pocketCursorPos[4]; /* 0x30 */
     s16          pocketScrollPos[4]; /* 0x38 */
     int          allowBag;         /* 0x40 */
@@ -164,7 +164,7 @@ typedef struct BtlvPlistWork {
     u8           sickFlags[6];   /* 0x38 */
     u8           reserved3E[2];
     int          allowBag;       /* 0x40 */
-    int          auxViewHandle;  /* 0x44 */
+    void        *auxViewHandle;  /* 0x44 (the game's syncFlagPtr) */
     u8           pickedSlots[3]; /* 0x48 */
     u8           result;         /* 0x4B */
     u8           done;           /* 0x4C */
@@ -228,6 +228,13 @@ BW_PORT_STATIC_ASSERT(core_scene_unit, sizeof(void *) != 4 ||
                       offsetof(struct BtlvCore, sceneUnit) == 0x17Cu);
 BW_PORT_STATIC_ASSERT(core_heap, sizeof(void *) != 4 ||
                       offsetof(struct BtlvCore, heapId) == 0x184u);
+/* The game's own layout at native pointer width (btlv_core_types.h): the
+ * core is made by the game's btlv_core.c, so this copy must put every
+ * field where that one does. */
+BW_PORT_STATIC_ASSERT(core_scene_unit_lp64, sizeof(void *) != 8 ||
+                      offsetof(struct BtlvCore, sceneUnit) == 0x200u);
+BW_PORT_STATIC_ASSERT(core_heap_lp64, sizeof(void *) != 8 ||
+                      offsetof(struct BtlvCore, heapId) == 0x210u);
 
 /*
  * The battle's scene unit (src/game/ov093/btlv_scu_types.h): the message

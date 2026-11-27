@@ -1982,7 +1982,29 @@ def main(argv=None) -> int:
             "            __typeof__(sBtlMsgBuilders[0].build) build =\n"
             "                (__typeof__(sBtlMsgBuilders[0].build))bw_ds_code_word(row, 1u);\n"
             "            build(dest, msgId, args);")
+    if (a.pointer_width and a.pointer_width > 4
+            and src_path.replace("\\", "/").endswith("/src/game/ov096/tr_ai.c")):
+        # Script jumps are signed 32-bit offsets from the cursor.  On the DS
+        # a u32 offset added to a 32-bit pointer wraps, so a backward jump
+        # works; added to a 64-bit pointer it lands 4 GiB ahead.
+        import re as _re
+        source, _n = _re.subn(r"vm->pc \+ (\w+Offset)\b", r"vm->pc + (int)\1", source)
+        if _n == 0:
+            raise SystemExit("dsaddr: tr_ai.c has no cursor-relative offsets to widen")
     if a.pointer_width and a.pointer_width > 4:
+        # ov095's field and position registries have two DS words per
+        # record. The side registry also stores a third word, maxLayers.
+        for kind, words in (("field", 2), ("pos", 2), ("side", 3)):
+            if src_path.replace("\\", "/").endswith("/src/game/ov095/hand_" + kind + ".c"):
+                table = "gHand" + kind.title() + "EffectTable"
+                source = '#include "battle_registry.h"\n' + source
+                source = _need(source, table + "[i].effectId",
+                               f"BW_BTL_KEY({table}, i, {words}u, effectId)")
+                source = _need(source, table + "[i].getHandlers",
+                               f"BW_BTL_GETTER({table}, i, {words}u)")
+                if kind == "side":
+                    source = _need(source, table + "[i].maxLayers",
+                                   f"bw_btl_registry_word({table}, i * 3u + 2u)")
         # The effect and trainer AI VMs share an inline DS parameter table.
         vm_param_sources = {
             "/src/game/ov094/btlv_effvm.c": "(const struct ScriptVmParams *)d_02209DCC",

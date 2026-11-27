@@ -18,6 +18,8 @@
  *   gItemHandlerRegistry     0x021F1EA4  data  ov093
  */
 
+#include "battle_registry.h"
+
 typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned int u32;
@@ -84,8 +86,8 @@ static struct BtlEventFactor *add_joined_items(struct BtlPokeParam *poke, u32 it
         tables[k] = 0;
         counts[k] = 0;
         for (i = 0; base != 0 && i < ITEM_HANDLER_COUNT; i++) {
-            if (base == gItemHandlerRegistry[i].itemId) {
-                tables[k] = gItemHandlerRegistry[i].getHandlers(&counts[k]);
+            if (base == BW_BTL_KEY(gItemHandlerRegistry, i, 2u, itemId)) {
+                tables[k] = BW_BTL_GETTER(gItemHandlerRegistry, i, 2u)(&counts[k]);
                 found = 1;
                 break;
             }
@@ -117,10 +119,10 @@ struct BtlEventFactor *HAND_ITEM_AddFactor(struct BtlPokeParam *poke, u32 itemId
         return add_joined_items(poke, itemId, parts);
     }
     for (i = 0; i < ITEM_HANDLER_COUNT; i++) {
-        if (base == gItemHandlerRegistry[i].itemId) {
+        if (base == BW_BTL_KEY(gItemHandlerRegistry, i, 2u, itemId)) {
             speed = BTL_POKEPARAM_GetStatRaw(poke, 0xc);
             ownerId = BTL_POKEPARAM_GetPokeId(poke);
-            handlerTable = gItemHandlerRegistry[i].getHandlers(&handlerCount);
+            handlerTable = BW_BTL_GETTER(gItemHandlerRegistry, i, 2u)(&handlerCount);
             return BTL_EVENT_AddFactor(BTL_EVENT_TYPE_ITEM, itemId, 6, speed, ownerId, handlerTable, handlerCount);
         }
     }

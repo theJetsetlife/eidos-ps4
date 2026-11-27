@@ -20,6 +20,8 @@
  *   gAbilityHandlerRegistry             0x021F0E74  data   ov093
  */
 
+#include "battle_registry.h"
+
 typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned int u32;
@@ -92,11 +94,11 @@ static struct BtlEventFactor *add_joined_abilities(struct BtlPokeParam *bpp, u16
         tables[k] = 0;
         counts[k] = 0;
         for (i = 0; base != 0 && i < ABILITY_REGISTRY_COUNT; i++) {
-            if (base == gAbilityHandlerRegistry[i].abilityId) {
+            if (base == BW_BTL_KEY(gAbilityHandlerRegistry, i, 2u, abilityId)) {
                 u32 packed;
                 int p;
 
-                tables[k] = gAbilityHandlerRegistry[i].getHandlers(&packed);
+                tables[k] = BW_BTL_GETTER(gAbilityHandlerRegistry, i, 2u)(&packed);
                 p = HAND_TOKUSEI_UnpackAbilityPriority(&packed);
                 counts[k] = packed;
                 if (priority < 0) {
@@ -134,10 +136,10 @@ struct BtlEventFactor *HAND_TOKUSEI_AddAbilityHandlers(struct BtlPokeParam *bpp)
         return add_joined_abilities(bpp, abilityId, parts);
     }
     for (i = 0; i < ABILITY_REGISTRY_COUNT; i++) {
-        if (base == gAbilityHandlerRegistry[i].abilityId) {
+        if (base == BW_BTL_KEY(gAbilityHandlerRegistry, i, 2u, abilityId)) {
             speed = HAND_TOKUSEI_GetPokeSpeed(bpp);
             pokeId = BTL_POKEPARAM_GetPokeId(bpp);
-            handlers = gAbilityHandlerRegistry[i].getHandlers(&handlerCount);
+            handlers = BW_BTL_GETTER(gAbilityHandlerRegistry, i, 2u)(&handlerCount);
             priority = HAND_TOKUSEI_UnpackAbilityPriority(&handlerCount);
             return BTL_EVENT_AddFactor(BTL_EVENT_TYPE_ABILITY, abilityId, priority, speed, pokeId, handlers, handlerCount);
         }

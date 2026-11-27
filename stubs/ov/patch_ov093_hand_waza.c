@@ -49,6 +49,8 @@
  *   BTL_SERVER_FLOW_SetCurTurnStateFlag  0x021C83DC  thumb  ov093
  */
 
+#include "battle_registry.h"
+
 typedef unsigned char u8;
 typedef signed char s8;
 typedef unsigned short u16;
@@ -601,8 +603,8 @@ static const BtlEventHandler *base_handlers(int base, int *count, int *found)
     case NAMED_GEOMANCY:      *count = ROWS(k_geomancy);      return k_geomancy;
     }
     for (index = 0; base > 0 && base < NAMED_FIRST && index < WAZA_HANDLER_REGISTRY_COUNT; index++) {
-        if (base == gWazaHandlerRegistry[index].moveId) {
-            return gWazaHandlerRegistry[index].getHandlers(count);
+        if (base == BW_BTL_KEY(gWazaHandlerRegistry, index, 2u, moveId)) {
+            return BW_BTL_GETTER(gWazaHandlerRegistry, index, 2u)(count);
         }
     }
     *found = 0;
@@ -674,11 +676,11 @@ int HAND_WAZA_AddMoveHandler(struct BtlPokeParam *bpp, u16 moveId, u32 subPriori
         u32 index;
 
         for (index = 0; index < WAZA_HANDLER_REGISTRY_COUNT; index++) {
-            if ((u16)base == gWazaHandlerRegistry[index].moveId) {
+            if ((u16)base == BW_BTL_KEY(gWazaHandlerRegistry, index, 2u, moveId)) {
                 ownerId = BTL_POKEPARAM_GetPokeId(bpp);
                 alreadyAdded = 0;
                 if (HAND_WAZA_CanAddMoveHandler(ownerId, moveId, &alreadyAdded) != 0) {
-                    handlers = gWazaHandlerRegistry[index].getHandlers(&handlerCount);
+                    handlers = BW_BTL_GETTER(gWazaHandlerRegistry, index, 2u)(&handlerCount);
                     if (handlers != 0) {
                         BTL_EVENT_AddFactor(BTL_EVENT_TYPE_WAZA, moveId, 0, subPriority, ownerId, handlers,
                                             (u16)handlerCount);

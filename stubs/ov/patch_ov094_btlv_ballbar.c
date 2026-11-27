@@ -18,7 +18,9 @@
  */
 
 #include "game/ov094/btlv_effect_shared_types.h"
-#include "game/ov094/btlv_b_gauge.h"
+/* The overlay planner scans explicit prototypes before compiling this patch. */
+BtlvPartyBallBar *BTLV_B_GAUGE_CreatePartyBallBar(const BtlvPartyBallBarParam *param, u32 heapId);
+void BTLV_B_GAUGE_DeletePartyBallBar(BtlvPartyBallBar *bar);
 
 extern void bw_ui_ballbar(int side, const int *kinds);
 extern void bw_ui_ballbar_end(int side);
