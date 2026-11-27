@@ -418,7 +418,12 @@ typedef struct BwPortSetup {
     BwPortFieldSituation  field;        /* 0x008 */
     u16                   bgmBattle;    /* 0x018 */
     u16                   bgmWin;       /* 0x01A */
-    u32                   netHandle;    /* 0x01C */
+    void                 *netHandle;    /* 0x01C: GFLNetHandle* in the game's
+                                         * BattleSetupParam -- a pointer, so it
+                                         * must be pointer-width here too, or on
+                                         * LP64 every field after it (party,
+                                         * trainerData, ...) shifts 8 bytes and
+                                         * trainerData[] reads garbage. */
     u8                    commPos;      /* 0x020 */
     u8                    netId;        /* 0x021 */
     u8                    multiMode;    /* 0x022 */
@@ -430,7 +435,8 @@ typedef struct BwPortSetup {
     void                 *gameData;     /* 0x058 */
     void                 *config;       /* 0x05C */
     void                 *myItem;       /* 0x060 */
-    u32                   mapMatrix;    /* 0x064 */
+    void                 *mapMatrix;    /* 0x064: BagCursor* in the game's
+                                         * struct -- pointer-width, as above. */
     void                 *zukanWork;    /* 0x068 */
     void                 *trainerRecord;/* 0x06C */
     void                 *pmsWork;      /* 0x070 */
@@ -476,7 +482,7 @@ BW_PORT_STATIC_ASSERT(setup_result, sizeof(void *) != 4 ||
 BW_PORT_STATIC_ASSERT(setup_turn_count, sizeof(void *) != 4 ||
                       offsetof(BwPortSetup, turnCount) == 0x0B6u);
 BW_PORT_STATIC_ASSERT(setup_size, sizeof(BwPortSetup) ==
-                      (sizeof(void *) == 4 ? 0x0B8u : 0x110u));
+                      (sizeof(void *) == 4 ? 0x0B8u : 0x118u));
 /*
  * The field situation and the trainer data hold no pointer of their own
  * (the trainer data's name is one), so the situation's layout is the
