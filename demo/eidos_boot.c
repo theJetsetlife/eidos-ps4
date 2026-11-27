@@ -113,6 +113,7 @@ extern void bw_text_from_apply(void);    /* sdk/text_from.c */
 #include "audio_ps4.h"
 #include "input_ps4.h"
 #include "save_ps4.h"
+#include "picker.h"
 #include "video_ps4.h"
 #include "setup.h"
 #include <stdbool.h>
@@ -1199,13 +1200,13 @@ static int boot_ps4_prepare_game_data(const BwSetupRequest *request,
         }
     }
     if (rom == NULL || rom[0] == '\0') {
-        snprintf(message, sizeof(message),
-                 "Eidos needs your own Pokemon Black or White Nintendo DS ROM.\n"
-                 "Place it in the game's ROM import folder as pokemon.nds, "
-                 "then relaunch Eidos.\n\nImport path: %s/pokemon.nds",
-                 rom_dir);
-        boot_ps4_report_setup_error(message);
-        return -1;
+        int choice = bw_pick_rom(NULL, "Choose a ROM", default_rom, sizeof(default_rom));
+        if (choice != BW_PICK_OK) {
+            boot_ps4_report_setup_error(choice == BW_PICK_CANCELLED ?
+                "ROM installation cancelled." : default_rom);
+            return -1;
+        }
+        rom = default_rom;
     }
 
     printf("PS4: importing user-provided ROM into application storage.\n");
