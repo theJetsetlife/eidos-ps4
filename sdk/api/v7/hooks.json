@@ -392,8 +392,8 @@
       "name": "GAME_COMM_CallHandler",
       "region": "arm9",
       "events": [],
-      "prototype": "void GAME_COMM_CallHandler(void *, unsigned int)",
-      "signature": "void (void *, unsigned int)",
+      "prototype": "void GAME_COMM_CallHandler(void *, void *)",
+      "signature": "void (void *, void *)",
       "aletheia_name": "GAME_COMM_CallHandler",
       "aliases": []
     },
@@ -402,8 +402,8 @@
       "name": "GAME_COMM_CallKindNotify",
       "region": "arm9",
       "events": [],
-      "prototype": "void GAME_COMM_CallKindNotify(void *, unsigned int)",
-      "signature": "void (void *, unsigned int)",
+      "prototype": "void GAME_COMM_CallKindNotify(void *, void *)",
+      "signature": "void (void *, void *)",
       "aletheia_name": "GAME_COMM_CallKindNotify",
       "aliases": []
     },
