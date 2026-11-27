@@ -513,12 +513,10 @@ int bw_data_bind(const BwDataImage *img)
             }
             break;
         }
-        if (p == NULL && bw_ds_vram_window(n->addr)) {
-            /* Data that lives in a VRAM bank (overlay 95's tables in LCDC
-             * bank H), named by an overlay that loads while the bank is
-             * mapped elsewhere: the address is the bytes once it is back,
-             * as on the DS, where the name is only an address. */
-            p = (void *)(uintptr_t)n->addr;
+        if (p == NULL) {
+            /* Overlay 94 binds names in LCDC bank H before overlay 95
+             * maps the bank and loads its tables. */
+            p = bw_ds_vram_binding(n->addr);
         }
         if (p == NULL) {
             snprintf(g_error, sizeof(g_error),

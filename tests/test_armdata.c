@@ -286,6 +286,25 @@ static int test_reset_path(void)
     return 0;
 }
 
+static int test_lcdc_binding(void)
+{
+    const u32 addr = 0x0689E090u; /* overlay 95, LCDC bank H */
+    void *ref = NULL;
+    const BwDataName name = {
+        "lcdc", addr, &ref, BW_DATA_BIND_DS, BW_DATA_SEC_OVERLAY,
+        0, 4, NULL, 0
+    };
+    const BwDataImage image = { .names = &name, .name_count = 1 };
+
+    bw_ds_reset();
+    CHECK_PTR("LCDC name starts unmapped", bw_ds_try_ptr(addr), NULL);
+    BW_CHECK_EQ("bind LCDC name before mapping", bw_data_bind(&image), BW_DATA_OK);
+    BW_REQUIRE("LCDC name has backing", ref != NULL);
+    bw_io_write16(0x04000248u, 0x0080u); /* map bank H to LCDC */
+    CHECK_PTR("LCDC map uses the bound bytes", bw_ds_try_ptr(addr), ref);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1 && strcmp(argv[1], "--trap") == 0) {
@@ -296,7 +315,7 @@ int main(int argc, char **argv)
     printf("pointer width %u, relocation %s\n", (unsigned)sizeof(void *),
            bw_data_relocation_supported() ? "supported" : "refused (LP64)");
     if (test_steps() != 0 || test_mismatch_and_missing() != 0
-        || test_reset_path() != 0) {
+        || test_reset_path() != 0 || test_lcdc_binding() != 0) {
         BW_REPORT("test_armdata");
     }
     BW_REPORT("test_armdata");

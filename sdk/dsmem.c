@@ -877,19 +877,24 @@ static void vram_remap_do(void)
     mirror_window(VRAM_SUB_OBJ, 0x20000u);
 }
 
-int bw_ds_vram_window(u32 addr)
+void *bw_ds_vram_binding(u32 addr)
 {
     int i;
 
     if (!g_vram_window) {
-        return 0;
+        u32 offset = addr - VRAM_LCDC_BASE;
+
+        if (g_vram != NULL && offset < VRAM_TOTAL) {
+            return g_vram + offset;
+        }
+        return NULL;
     }
     for (i = 0; i < VRAM_WINDOW_PARTS; i++) {
         if (addr - k_window_base[i] < k_window_size[i]) {
-            return 1;
+            return (void *)(uintptr_t)addr;
         }
     }
-    return 0;
+    return NULL;
 }
 
 /* Rebuild the tables if a VRAMCNT byte moved since they were built. */

@@ -106,13 +106,12 @@ int bw_ds_registered(u32 addr, u32 size);
 int bw_ds_identity(void);
 
 /*
- * Non-zero when `addr` is in the VRAM window of an identity-mapped run:
- * the host bytes at that address exist whatever the banks are mapped to
- * now (they hold the bank when one is mapped there).  A name the game
- * keeps for VRAM-resident data (overlay 95 runs from LCDC bank H) binds to
- * that address even while nothing is mapped there.
+ * Storage for a data name that must bind before its VRAM bank is mapped.
+ * Identity runs use the CPU address. Movable runs can bind LCDC addresses
+ * to the corresponding physical bank, which keeps a stable host address.
+ * The caller still needs to map that bank before loading its image.
  */
-int bw_ds_vram_window(u32 addr);
+void *bw_ds_vram_binding(u32 addr);
 
 /*
  * Called first thing by a program that wants the identity mapping (before
