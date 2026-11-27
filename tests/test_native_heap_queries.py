@@ -20,17 +20,21 @@ with tempfile.TemporaryDirectory() as directory:
     subprocess.run([sys.executable, '-I', str(root / 'tools/dsaddr.py'),
                     args.source, '-o', str(adapted), '--pointer-width', '8'], check=True)
     source = adapted.read_text()
+    manager_source = Path(args.source).with_name('gfl_heap.c')
+    subprocess.run([sys.executable, '-I', str(root / 'tools/dsaddr.py'),
+                    str(manager_source), '-o', str(adapted), '--pointer-width', '8'], check=True)
+    manager = adapted.read_text()
 
 
-def declaration(kind, name):
-    match = re.search(r'^' + kind + r' ' + name + r'\s*\{.*?^};', source, re.M | re.S)
+def declaration(kind, name, text=None):
+    match = re.search(r'^' + kind + r' ' + name + r'\s*\{.*?^};', source if text is None else text, re.M | re.S)
     if match is None:
         raise RuntimeError('canonical declaration not found: ' + name)
     return match.group(0)
 
 
-def function(name):
-    match = re.search(r'^(?:int|s32) ' + name + r'\([^;]*?\)\n\{.*?^}', source, re.M | re.S)
+def function(name, text=None):
+    match = re.search(r'^(?:int|s32|u32) ' + name + r'\([^;]*?\)\n\{.*?^}', source if text is None else text, re.M | re.S)
     if match is None:
         raise RuntimeError('canonical function not found: ' + name)
     return match.group(0)
@@ -46,9 +50,18 @@ fixture += '#include <stddef.h>\n#include "' + str(Path(args.source).parent / 'n
 fixture += '\n'.join(declaration('struct', name) for name in ('MBlock', 'MBlockList', 'ExpHeap', 'Heap', 'HeapBlock'))
 fixture += '\n' + function('NNSi_FndGetListTotalSize')
 fixture += '\n' + function('NNSi_FndGetListAllocatableSize')
+fixture += '\n'.join(declaration('struct', name, manager) for name in ('HeapRecord', 'HeapManager'))
+# Keep an old private mirror available only to demonstrate the old generator's
+# wrong field access at runtime; the corrected function never uses it.
+old_manager = manager_source.read_text()
+fixture += '\n' + declaration('struct', 'ExpHeapHead', old_manager)
+fixture += '\nstruct HeapManager gHeapManager;\nstatic void *current_heap;\n'
+fixture += 'void *GFL_HEAP_GetHeap(u32 id) { return id == 0 ? current_heap : 0; }\n'
+fixture += function('GFL_HEAP_GetHeapSize', manager)
+
 fixture += '''
 extern int sub_02060E6C(int *arena);
-extern s32 sub_02060E94(void *arena, s32 align);
+extern s32 sub_02060E94(struct Heap *arena, s32 align);
 void bw_panic(const char *name, u32 address, const char *reason) {
     (void)address; fprintf(stderr, "%s: %s\\n", name, reason); abort();
 }
@@ -66,13 +79,22 @@ int main(void) {
         unsigned afree = aa < a.size ? a.size - aa : 0;
         unsigned bfree = ba < b.size ? b.size - ba : 0;
         unsigned expected = afree > bfree ? afree : bfree;
-        if ((unsigned)sub_02060E94(&heap, (s32)align) != expected) return 5;
-        if ((unsigned)sub_02060E94(&heap, -(s32)align) != expected) return 6;
+        if ((unsigned)sub_02060E94((struct Heap *)&heap, (s32)align) != expected) return 5;
+        if ((unsigned)sub_02060E94((struct Heap *)&heap, -(s32)align) != expected) return 6;
     }
     heap.freeList.head = &b;
     if (sub_02060E6C((int *)&heap) != 160) return 3;
     heap.freeList.head = 0;
     if (sub_02060E6C((int *)&heap) != 0) return 4;
+    union { void *align; unsigned char bytes[4096]; } storage = {0};
+    NNSiFndHeapHead *owner = (NNSiFndHeapHead *)storage.bytes;
+    current_heap = storage.bytes;
+    owner->heapEnd = storage.bytes + sizeof(storage.bytes);
+    gHeapManager.heapIdCount = 2;
+    if (GFL_HEAP_GetHeapSize(0) != sizeof(storage.bytes)) return 7;
+    if (GFL_HEAP_GetHeapSize(0x8000) != sizeof(storage.bytes)) return 8;
+    if (GFL_HEAP_GetHeapSize(2) != 0 || gHeapManager.lastError != 1) return 9;
+    if (GFL_HEAP_GetHeapSize(1) != 0) return 10;
     puts("native free-list query: empty, multiple blocks and list changes pass");
     return 0;
 }

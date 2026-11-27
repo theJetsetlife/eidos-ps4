@@ -1915,6 +1915,18 @@ def main(argv=None) -> int:
             "client->seqFn = (BtlClientSeqFn)bw_ds_code_word(\n"
             "            gServerCommandHandlers, tableIndex * 2u + 1u);")
     if (a.pointer_width and a.pointer_width > 4
+            and src_path.replace("\\", "/").endswith("/src/game/arm9/gfl_heap.c")):
+        # The end-only DS mirror has end at 0x20 on LP64, whereas the
+        # canonical native header owns heapEnd at 0x38 (SDK layout dump).
+        # Use the owner type, not a replacement native byte offset.
+        source = '#include "nns_fnd_types.h"\n' + source
+        source = _need(source,
+            "struct ExpHeapHead {\n    u32 head[7];\n    u32 *end;\n};",
+            "/* Arena header is owned by NNSiFndHeapHead. */")
+        source = _need(source, "struct ExpHeapHead *heap;", "NNSiFndHeapHead *heap;")
+        source = _need(source, "u32 end = (uptr)heap->end;",
+                       "uptr end = (uptr)heap->heapEnd;")
+    if (a.pointer_width and a.pointer_width > 4
             and src_path.replace("\\", "/").endswith("/src/game/ov093/btl_main.c")):
         # Both the work allocation and its clear must cover the native type.
         source = _need(source,
@@ -2088,11 +2100,12 @@ def main(argv=None) -> int:
             "            uptr amt = end - start;\n"
             "            uptr off = start - data;\n")
     if (a.pointer_width and a.pointer_width > 4
-            and src_path.replace("\\", "/").endswith("/src/game/arm9/gfl_heap_wrap.c")):
-        # Report the original allocation request before legacy dump helpers;
-        # a secondary diagnostic failure must not hide the first failure.
-        source = _need(source, '#include "../types.h"',
-                       '#include "../types.h"\n#include <stdio.h>')
+            and src_path.replace("\\", "/").endswith((
+                "/src/game/arm9/gfl_heap_wrap.c",
+                "/src/matched/arm9/sub_02030958.c"))):
+        # The library still supplies the matched reporter and cuts the game
+        # copy. Instrument whichever representation is actually compiled.
+        source = '#include <stdio.h>\n' + source
         source = _need(source,
             "void GFL_HEAP_ReportOutOfMemory(u32 heapId, u32 size, const char *site, int tag)\n{",
             "void GFL_HEAP_ReportOutOfMemory(u32 heapId, u32 size, const char *site, int tag)\n{\n"

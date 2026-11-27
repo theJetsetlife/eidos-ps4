@@ -2,9 +2,10 @@
  * Small closures without the implementation retain an explicit diagnostic. */
 #include "stubs.h"
 
-extern s32 NNSi_FndGetListAllocatableSize(void *arena, s32 align) __attribute__((weak));
+struct Heap;
+extern s32 NNSi_FndGetListAllocatableSize(struct Heap *arena, s32 align) __attribute__((weak));
 
-s32 sub_02060E94(void *arena, s32 align)
+s32 sub_02060E94(struct Heap *arena, s32 align)
 {
     if (NNSi_FndGetListAllocatableSize == NULL) {
         bw_panic("sub_02060E94", 0x02060E94,

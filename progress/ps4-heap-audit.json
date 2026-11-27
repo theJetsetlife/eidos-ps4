@@ -1,0 +1,256 @@
+{
+  "scope": "Native heap boundary in the synchronized direct-LP64 game profile; not a whole-engine audit",
+  "source_revision": "f078734",
+  "aletheia_revision": "995615a30f1b1d47109d435a7cb355983ec32e18",
+  "owner": "Codex",
+  "status": "audit-open",
+  "representations": [
+    {
+      "object": "HeapSpec",
+      "representation": "original fixed-width startup specification",
+      "ownership": "cartridge data; decoded by canonical manager constructor",
+      "native_pointer_fields": []
+    },
+    {
+      "object": "HeapRecord / BwEnvEntry",
+      "representation": "native runtime manager record",
+      "ownership": "manager owns table; record refers to arena, parent arena and backing block",
+      "constructors": [
+        "GFL_HEAP_InitManager",
+        "GFL_HEAP_AddRecord",
+        "bw_heap_init_sizes"
+      ],
+      "consumers": [
+        "GFL_HEAP_AllocMemory",
+        "GFL_HEAP_FreeMemory",
+        "bw_heap_handle"
+      ],
+      "destructors": [
+        "GFL_HEAP_Delete"
+      ],
+      "target_size": 32,
+      "target_alignment": 8,
+      "exception": "Port view has implicit trailing padding where canonical record names pad0F; semantic fields match, not an offset mismatch."
+    },
+    {
+      "object": "HeapManager / BwEnvModule",
+      "representation": "one port-owned native global with canonical alias names",
+      "ownership": "g_EnvModule in sdk/game_globals.c",
+      "target_size": 24,
+      "target_alignment": 8,
+      "validation": "Canonical/port size, alignment and all six field offsets match."
+    },
+    {
+      "object": "NNSiFndHeapHead / ExpHeap",
+      "representation": "native arena runtime header",
+      "constructors": [
+        "NNS_FndCreateExpHeapEx",
+        "NNSi_FndCreateExpHeap"
+      ],
+      "destructors": [
+        "NNSi_FndDestroyExpHeap"
+      ],
+      "target_size": 112,
+      "target_alignment": 8,
+      "field_offsets": {
+        "heapStart": 48,
+        "heapEnd": 56,
+        "freeList": 72,
+        "usedList": 88
+      }
+    },
+    {
+      "object": "MBlock",
+      "representation": "native free-list node inside a real reserved arena",
+      "ownership": "arena list",
+      "target_size": 24,
+      "target_alignment": 8,
+      "consumers": [
+        "NNSi_FndGetListTotalSize",
+        "NNSi_FndGetListAllocatableSize"
+      ]
+    },
+    {
+      "object": "BlockHeader",
+      "representation": "port/game allocation bookkeeping record, not a serialized save record",
+      "ownership": "allocation wrapper",
+      "target_size": 28,
+      "target_alignment": 4,
+      "fields": {
+        "heapId": 0,
+        "magic": 2,
+        "name": 4,
+        "tag": 22
+      }
+    },
+    {
+      "object": "malloc-backed floor prefix",
+      "representation": "port-owned compatibility metadata, separate from native arena MBlock",
+      "constructors": [
+        "bw_block_alloc"
+      ],
+      "destructors": [
+        "bw_block_free"
+      ],
+      "invariant": "Payload is pointer-aligned after the 28-byte bookkeeping header; base pointer and size metadata occupy distinct slots. Do not traverse this prefix as MBlock."
+    },
+    {
+      "object": "g_heap_arena test tokens",
+      "representation": "four-byte opaque test handles, not ExpHeap headers",
+      "constructors": [
+        "bw_heap_init_sizes when EIDOS_HEAP_MATCHED=0"
+      ],
+      "invariant": "Never pass these tokens to native arena queries. Current type system does not enforce this distinction."
+    },
+    {
+      "object": "SDK arena low/high tables",
+      "representation": "original four-byte DS address slots",
+      "ownership": "DS shared memory",
+      "boundary": [
+        "OS_GetArenaLo",
+        "OS_GetArenaHi",
+        "OS_SetArenaLo",
+        "OS_SetArenaHi"
+      ],
+      "invariant": "Resolve addresses through DS mapping; do not store native pointer bits in wire slots."
+    }
+  ],
+  "invariants": [
+    {
+      "id": "H-REP",
+      "requirement": "Distinguish real arena handles, test tokens, malloc-backed block metadata and serialized DS addresses.",
+      "status": "documented; API enforcement incomplete"
+    },
+    {
+      "id": "H-LAYOUT",
+      "requirement": "Every active native arena view uses canonical offsets and alignment.",
+      "status": "source-corrected; target rebuild in progress",
+      "evidence": "Official SDK layout: NNSiFndHeapHead.heapEnd at byte 56, ExpHeap 112 bytes aligned 8; generated gfl_heap now uses canonical NNSiFndHeapHead and typed heapEnd."
+    },
+    {
+      "id": "H-QUERY",
+      "requirement": "Free-list queries consume real arena nodes and calculate alignment from sizeof(MBlock).",
+      "status": "focused-regression-passed",
+      "exceptions": "Does not prove host malloc availability or DS fragmentation semantics."
+    },
+    {
+      "id": "H-ABI",
+      "requirement": "Cross-TU public signatures agree on pointer versus byte-count return.",
+      "status": "failed",
+      "evidence": "GFL_HEAP_GetTotalFreeSize is u32(u32) and void*(u32) in actual compiled declarations."
+    },
+    {
+      "id": "H-OWNER",
+      "requirement": "Each block is freed once by its allocating backend; external arena backing is not freed by heap deletion.",
+      "status": "source-traced; full lifetime stress unverified"
+    },
+    {
+      "id": "H-RESIZE",
+      "requirement": "A resize API that cannot return a replacement pointer must not move a malloc block.",
+      "status": "implemented",
+      "evidence": "LP64 GFL_HEAP_ResizeMemory reports in-place failure and preserves original allocation; end-to-end shrinking behavior unverified."
+    },
+    {
+      "id": "H-ACCOUNT",
+      "requirement": "Specify whether queries measure reserved arena ranges, logical heap budget, or host allocator capacity.",
+      "status": "open",
+      "evidence": "LP64 malloc floor bypasses arena free-list consumption; query results must not be labelled host free memory."
+    },
+    {
+      "id": "H-INIT",
+      "requirement": "Constructors initialize every field later read and reinitialization cannot invalidate live allocations silently.",
+      "status": "open",
+      "evidence": "Token initializer resets records; no live-allocation epoch policy established. Native floor attribute-prefix initialization needs review."
+    },
+    {
+      "id": "H-BUILD",
+      "requirement": "Address aliases do not suppress canonical implementations; small tools retain fallback aliases.",
+      "status": "source-selection-corrected; full host and prior SDK package passed",
+      "correcting_commit": "f078734"
+    }
+  ],
+  "compiler_evidence": {
+    "host": "Clang 23.1.5 replay of Ninja compilation commands",
+    "target": "Official SDK 12.508.041 replay of three actual target compile commands",
+    "targets_examined": [
+      "nns_fnd_expheap",
+      "gfl_heap",
+      "sdk/game_globals"
+    ],
+    "notes": "Only selected heap record metadata is retained; no SDK source is distributed."
+  },
+  "declaration_audit": {
+    "requested_tus": 12,
+    "examined_tus": 11,
+    "distinct_symbols": 49,
+    "variant_symbols": 1,
+    "missing_tu": "sub_0203038C.c not selected in this compilation profile",
+    "confirmed_variant": "GFL_HEAP_GetTotalFreeSize",
+    "full_source_pointer_return_candidates": 6,
+    "closure": "This is the heap-boundary TU scope, not every gameplay consumer."
+  },
+  "validation_gates": {
+    "A": "partial: representations and producers/consumers recorded; lifetime/accounting open",
+    "B": "partial: canonical heap-end view corrected; GFL_HEAP_GetTotalFreeSize return-signature mismatch open",
+    "C": "prior host and official SDK build passed; latest canonical heap-end target rebuild in progress",
+    "D": "query and ABI-tool regressions passed; full subsystem not covered",
+    "E": "failed: natural encounter advances past query and then faults in cutin text rendering; no localization patch applied",
+    "F": "126 host tests passed; 3 skipped and 2 disabled; latest source batch not rerun full suite",
+    "G": "not run for this batch"
+  },
+  "controlled_experiment": {
+    "input": "Independent working copy of user-designated checkpoint; START@4800 A@5000 DOWN@6200, repeated A from6350",
+    "prediction": "Restoring the canonical query eliminates the query panic without establishing downstream subsystem correctness.",
+    "observed_before": "Panic through FLD3D_CI_EventMain -> GFL_HEAP_GetHeapHead -> GFL_HEAP_GetTotalFreeSize -> sub_02060E6C",
+    "observed_after": "Query panic passed; later SIGSEGV in FLD3D_CI_DrawMessageTexture.",
+    "interpretation": "Supports only the narrow query-selection correction. Normal encounter/battle validation fails. No new cutin patch is justified without a complete cutin audit."
+  },
+  "delivery": "Development test package may be built and validated; normal battle is not a verified fix or playable alpha.",
+  "correction_batches": [
+    {
+      "defect_class": "native arena header view mismatch",
+      "violated_invariant": "H-LAYOUT",
+      "root_cause": "private 32-bit-like ExpHeapHead placed end at byte 32; canonical native heapEnd is byte 56",
+      "scope": [
+        "src/game/arm9/gfl_heap.c",
+        "tools/dsaddr.py",
+        "tests/test_native_heap_queries.py"
+      ],
+      "candidates": 1,
+      "confirmed": 1,
+      "corrected": 1,
+      "exceptions": 0,
+      "validation": "source-derived GCC and Clang query fixtures passed; official target rebuild in progress",
+      "commit": null
+    },
+    {
+      "defect_class": "compiler evidence false-success",
+      "violated_invariant": "compiler/layout probes must fail when compilation, layout presence, size or alignment checks fail",
+      "root_cause": "abi_dump ignored compiler errors and cmp_mirror returned success for some mismatches",
+      "scope": [
+        "tools/lp64/abi_dump.py",
+        "tools/lp64/cmp_mirror.py",
+        "tests/test_macos_port_tools.py"
+      ],
+      "candidates": 2,
+      "confirmed": 2,
+      "corrected": 2,
+      "exceptions": 0,
+      "validation": "13 focused host tool tests passed; mutation checks still pending",
+      "commit": null
+    },
+    {
+      "defect_class": "cross-translation-unit heap signature mismatch",
+      "violated_invariant": "H-ABI",
+      "scope": [
+        "GFL_HEAP_GetTotalFreeSize"
+      ],
+      "candidates": 6,
+      "confirmed": 1,
+      "corrected": 0,
+      "exceptions": "five further return candidates require canonical consumer audit",
+      "validation": "compiler AST scan of 11 selected heap boundary translation units",
+      "commit": null
+    }
+  ]
+}

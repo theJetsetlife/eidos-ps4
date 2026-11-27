@@ -5,6 +5,8 @@ import subprocess
 import shutil
 import tempfile
 import unittest
+import json
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import armdata
@@ -13,6 +15,52 @@ import wasm32_layout
 import gamespell
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/lp64"))
 import layouts
+import abi_dump
+
+
+class AbiEvidenceGates(unittest.TestCase):
+    def test_failed_compiler_cannot_yield_layout_evidence(self):
+        result = subprocess.CompletedProcess([], 1, "", "invalid native declaration")
+        with mock.patch.object(abi_dump.subprocess, "run", return_value=result):
+            with self.assertRaisesRegex(SystemExit, "layout compiler failed"):
+                abi_dump.layout_dump(".", "bad.c", ["cc", "-c", "bad.c"])
+
+    def test_compdb_ignores_phony_dependency_rows(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "commands.json"
+            path.write_text(json.dumps([
+                {"file": "unit.c", "command": "", "directory": directory},
+                {"file": "unit.c", "command": "cc -c unit.c", "directory": directory}]))
+            self.assertEqual(abi_dump.compile_cmd(str(path), "unit.c")[2][0], "cc")
+
+    def test_missing_requested_layout_is_not_success(self):
+        with mock.patch.object(sys, "argv", ["abi_dump.py", "commands.json", "unit.c", "Missing"]), \
+             mock.patch.object(abi_dump, "compile_cmd", return_value=(".", "unit.c", ["cc"])), \
+             mock.patch.object(abi_dump, "layout_dump", return_value=""):
+            with self.assertRaisesRegex(SystemExit, "did not emit requested layouts"):
+                abi_dump.main()
+
+    def test_alignment_is_part_of_layout_evidence(self):
+        dump = "    0 | struct Work\n    0 |   void * value\n      | [sizeof=8, align=8]\n"
+        record = abi_dump.fields(dump, "Work")
+        self.assertEqual(record["alignment"], 8)
+        self.assertEqual(record["size"], 8)
+
+    def test_mirror_gate_checks_extent_alignment_and_all_fields(self):
+        script = Path(layouts.__file__).with_name("cmp_mirror.py")
+        base = {"size": 16, "alignment": 8, "fields": [[0, "a"], [8, "b"]]}
+        variants = [base, dict(base, size=24), dict(base, alignment=4),
+                    dict(base, fields=[[0, "a"]]),
+                    dict(base, fields=[[0, "a"], [4, "b"]])]
+        with tempfile.TemporaryDirectory() as directory:
+            p = Path(directory) / "port.json"; g = Path(directory) / "game.json"
+            p.write_text(json.dumps({"Record": base}))
+            for index, record in enumerate(variants):
+                with self.subTest(index=index):
+                    g.write_text(json.dumps({"Record": record}))
+                    result = subprocess.run([sys.executable, str(script), str(p), "Record",
+                                             str(g), "Record"], capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0 if index == 0 else 1, result.stdout)
 
 
 class PortTools(unittest.TestCase):

@@ -245,6 +245,18 @@ class Lp64PathRules(unittest.TestCase):
         self.assertIn("u32 buf;", out)
         self.assertIn("(void **)out", out)
 
+    def test_matched_heap_reporter_logs_before_legacy_queries(self):
+        src = ("typedef unsigned int u32;\n"
+               "void GFL_HEAP_ReportOutOfMemory(u32 heapId, u32 size, const char *site, int tag)\n"
+               "{\n    void *arena;\n    sub_02060E6C(arena);\n}\n")
+        rc, out = self.run_tool("src/matched/arm9/sub_02030958.c", src)
+        self.assertEqual(rc, 0)
+        self.assertIn("#include <stdio.h>", out)
+        self.assertLess(out.index("heap allocation failed:"), out.index("sub_02060E6C(arena)"))
+        rc, out = self.run_tool("src/matched/arm9/sub_02030958.c", src, width=4)
+        self.assertEqual(rc, 0)
+        self.assertNotIn("heap allocation failed:", out)
+
     def test_ai_script_jumps_are_signed_at_lp64(self):
         # A script jump is a signed 32-bit offset from the cursor.  Added as
         # u32 to a 64-bit pointer, a backward jump lands 4 GiB ahead (the
