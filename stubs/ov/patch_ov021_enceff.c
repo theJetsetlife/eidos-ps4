@@ -25,7 +25,6 @@ struct FieldMap;
 struct EncEffWork;
 
 typedef unsigned int  u32;
-typedef unsigned long uptr;
 
 /* The port's own name for the row shape, same bytes as the DS table. */
 #define BW_ENCEFF_STRIDE   0x14u
@@ -42,23 +41,37 @@ typedef void (*BwEncEffUpdate)(struct EncEffWork *eff);
 typedef struct GameEvent *(*BwEncEffBuild)(struct GameSystem *gs,
                                            struct FieldMap *fm, u32 arg);
 
-typedef struct BwEncEffWorkHead {
-    struct FieldMap *fieldMap;     /* 0x00 */
-    BwEncEffUpdate   update;       /* 0x08 on LP64 */
-    struct GameEvent *effect;      /* 0x10 */
-} BwEncEffWorkHead;
+/* Match the native work allocated by ENCEFF_Create. */
+struct EncEffWork {
+    struct GameEvent *effect;
+    BwEncEffUpdate update;
+    struct FieldMap *fieldMap;
+    u32 overlayIds[3];
+    int overlayCount;
+    void *effectWork;
+};
 
-extern void *d_021DB4FC;           /* BW_DATA_BIND_DS, cast to raw bytes */
+#if UINTPTR_MAX <= UINT32_MAX
+typedef struct BwEncEffEntry {
+    BwEncEffBuild build;
+    BwEncEffUpdate update;
+    int overlayId;
+    u32 buildArg;
+    u32 minLevel;
+} BwEncEffEntry;
+#endif
+extern const unsigned char d_021DB4FC[];
 
 extern struct GameSystem *FIELDMAP_GetGameSystem(struct FieldMap *fm);
 extern unsigned int GFL_HEAP_GetAllocatableSize(unsigned int heapId);
-extern void ENCEFF_LoadOverlay(struct EncEffWork *eff, int overlayId);
+extern void ENCEFF_LoadOverlay(struct EncEffWork *eff, u32 overlayId);
 extern void GAME_EVENT_CallEvent(struct GameEvent *parent, struct GameEvent *ev);
 extern void *GAME_EVENT_GetWork(struct GameEvent *ev);
 
 /* bw_ds_code_word: DS code address -> host function (sdk/overlay_image.c).  */
 void (*bw_ds_code_word(const void *table, unsigned long index))(void);
 
+#if UINTPTR_MAX > UINT32_MAX
 /* Little-endian 4-byte read from the raw DS bytes. */
 static u32 bw_rd32_le(const unsigned char *p)
 {
@@ -67,43 +80,54 @@ static u32 bw_rd32_le(const unsigned char *p)
 
 static const unsigned char *bw_enceff_row(int kind)
 {
-    return (const unsigned char *)d_021DB4FC + (unsigned)kind * BW_ENCEFF_STRIDE;
+    return d_021DB4FC + (unsigned)kind * BW_ENCEFF_STRIDE;
 }
 
-void ENCEFF_Start(struct EncEffWork *effWork, struct GameEvent *parentEvent, int kind)
+#endif
+
+void ENCEFF_Start(struct EncEffWork *eff, struct GameEvent *parentEvent, int kind)
 {
-    BwEncEffWorkHead *eff = (BwEncEffWorkHead *)effWork;
-    struct GameEvent *effect;
-    struct GameSystem *gameSystem;
     struct FieldMap *fieldMap = eff->fieldMap;
-    const unsigned char *row;
-    u32 minLevel;
+    struct GameSystem *gameSystem = FIELDMAP_GetGameSystem(fieldMap);
+    struct GameEvent *effect;
+    BwEncEffBuild build;
+    BwEncEffUpdate update;
     int overlayId;
     u32 buildArg;
-    BwEncEffBuild build;
 
-    gameSystem = FIELDMAP_GetGameSystem(fieldMap);
-    if (kind >= ENCEFF_KIND_COUNT) {
+    if ((unsigned)kind >= ENCEFF_KIND_COUNT) {
         kind = 0;
     }
-    row = bw_enceff_row(kind);
-    minLevel = bw_rd32_le(row + BW_ENCEFF_MINLEVEL);
-    if (GFL_HEAP_GetAllocatableSize(0x15) < minLevel) {
-        kind = ENCEFF_KIND_FALLBACK;
-        row = bw_enceff_row(kind);
+#if UINTPTR_MAX > UINT32_MAX
+    const unsigned char *row = bw_enceff_row(kind);
+
+    if (GFL_HEAP_GetAllocatableSize(0x15) < bw_rd32_le(row + BW_ENCEFF_MINLEVEL)) {
+        row = bw_enceff_row(ENCEFF_KIND_FALLBACK);
     }
     overlayId = (int)bw_rd32_le(row + BW_ENCEFF_OVERLAY);
-    if (overlayId != -1) {
-        ENCEFF_LoadOverlay(effWork, overlayId);
-    }
     buildArg = bw_rd32_le(row + BW_ENCEFF_BUILDARG);
-    build = (BwEncEffBuild)bw_ds_code_word((const void *)d_021DB4FC,
-                                           (uptr)(unsigned)kind * BW_ENCEFF_STRIDE
-                                           + BW_ENCEFF_BUILD);
+#else
+    const BwEncEffEntry *table = (const void *)d_021DB4FC;
+    const BwEncEffEntry *row = &table[kind];
+
+    if (GFL_HEAP_GetAllocatableSize(0x15) < row->minLevel) {
+        row = &table[ENCEFF_KIND_FALLBACK];
+    }
+    overlayId = row->overlayId;
+    buildArg = row->buildArg;
+#endif
+    if (overlayId != -1) {
+        ENCEFF_LoadOverlay(eff, (u32)overlayId);
+    }
+#if UINTPTR_MAX > UINT32_MAX
+    build = (BwEncEffBuild)bw_ds_code_word(row, BW_ENCEFF_BUILD / 4u);
+    update = (BwEncEffUpdate)bw_ds_code_word(row, BW_ENCEFF_UPDATE / 4u);
+#else
+    build = row->build;
+    update = row->update;
+#endif
     effect = build(gameSystem, fieldMap, buildArg);
     GAME_EVENT_CallEvent(parentEvent, effect);
-    eff->effect = (struct GameEvent *)GAME_EVENT_GetWork(effect);
-    eff->update = (BwEncEffUpdate)bw_ds_code_word((const void *)d_021DB4FC,
-                                                   (uptr)(unsigned)kind * BW_ENCEFF_STRIDE
-                                                   + BW_ENCEFF_UPDATE);
+    eff->effect = GAME_EVENT_GetWork(effect);
+    eff->update = update;
 }
