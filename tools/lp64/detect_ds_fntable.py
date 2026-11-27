@@ -16,6 +16,7 @@ import glob, json, os, re, sys
 
 BIND = re.compile(r'\{\s*"(\w+)",\s*0x[0-9A-Fa-f]+u?,\s*&bw_dsref_\w+,\s*BW_DATA_BIND_DS\b')
 CALL = re.compile(r"\b([A-Za-z_]\w*)\s*((?:\[[^\[\]]*\]\s*)+)(?:(?:\.|->)\s*(\w+)\s*)?\(")
+RECORD_INDEX = re.compile(r"\b([A-Za-z_]\w*)\s*\[")
 WIDE = re.compile(r"__SIZEOF_POINTER__\s*>\s*4|UINTPTR_MAX\s*>\s*UINT32_MAX")
 NARROW = re.compile(r"__SIZEOF_POINTER__\s*(?:<=|==)\s*4|UINTPTR_MAX\s*<=\s*UINT32_MAX")
 
@@ -30,7 +31,8 @@ def ds_bound(build):
 def scan(path, names):
     out, stack = [], []
     try:
-        lines = open(path, errors="replace").read().splitlines()
+        with open(path, errors="replace") as stream:
+            lines = stream.read().splitlines()
     except OSError:
         return out
     for i, ln in enumerate(lines, 1):
@@ -53,20 +55,60 @@ def scan(path, names):
                                 member=m.group(3), snippet=s[:160]))
     return out
 
+
+def scan_record_accesses(path, names):
+    """Candidate reads/writes of DS-bound records, including non-call fields.
+
+    A callback-only scan misses lookups such as ``&table[i]`` followed by
+    ``record->field``. These are candidates until the declaration and its DS
+    layout have been checked; no source is rewritten from these matches.
+    """
+    out, stack = [], []
+    try:
+        with open(path, errors="replace") as stream:
+            lines = stream.read().splitlines()
+    except OSError:
+        return out
+    for i, ln in enumerate(lines, 1):
+        s = ln.strip()
+        if s.startswith("#if"):
+            stack.append("wide" if WIDE.search(s) else "narrow" if NARROW.search(s) else None)
+            continue
+        if s.startswith("#el") and stack:
+            t = stack[-1]
+            stack[-1] = "narrow" if t == "wide" else "wide" if t == "narrow" else None
+            continue
+        if s.startswith("#endif") and stack:
+            stack.pop()
+            continue
+        if "narrow" in stack or s.startswith(("*", "//", "/*", "#", "extern ")):
+            continue
+        seen = set()
+        for m in RECORD_INDEX.finditer(ln):
+            sym = m.group(1)
+            if sym in names and sym not in seen:
+                out.append(dict(file=path, line=i, symbol=sym,
+                                kind="record-access", snippet=s[:160]))
+                seen.add(sym)
+    return out
+
 def main():
     build = sys.argv[1]
+    records = "--record-accesses" in sys.argv[2:]
     names = ds_bound(build)
     hits = []
     for root in ("dsaddr", "ovl/boot/src"):
         for dp, _, fs in os.walk(os.path.join(build, root)):
             for f in fs:
                 if f.endswith(".c"):
-                    hits += scan(os.path.join(dp, f), names)
+                    hits += (scan_record_accesses if records else scan)(
+                        os.path.join(dp, f), names)
     for h in hits:
         print(json.dumps(h))
     syms = sorted({h["symbol"] for h in hits})
-    sys.stderr.write("DS-bound symbols: %d; call sites through them: %d (%d tables)\n"
-                     % (len(names), len(hits), len(syms)))
+    sys.stderr.write("DS-bound symbols: %d; %s: %d (%d tables)\n"
+                     % (len(names), "indexed record accesses" if records else
+                        "call sites through them", len(hits), len(syms)))
     for h in hits:
         sys.stderr.write("  %s:%d %s\n" % (h["file"].split("/src/game/")[-1].split("/dsaddr/")[-1],
                                            h["line"], h["snippet"][:100]))

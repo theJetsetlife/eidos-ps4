@@ -1035,6 +1035,40 @@ def _read(path: str) -> str:
 _DS_BIND_RE = re.compile(r'\{\s*"(\w+)",\s*0x[0-9A-Fa-f]+u?,\s*&bw_dsref_\w+,\s*BW_DATA_BIND_DS\b')
 _DS_FN_CALL_RE = re.compile(
     r"\b([A-Za-z_]\w*)\s*\[([^\[\]]+)\](?:\s*\[([^\[\]]+)\])?\s*(?=\()")
+# DS-bound records retain ARM EABI strides and field offsets. The entries
+# below come from compiler record layouts of their canonical declarations;
+# they are deliberately separate from the native sizeof/offsetof values.
+# Kinds: code = stored DS code address; data = stored DS data address;
+# u8/u16/u32 = little-endian scalar. Only fields consumed in compiled LP64
+# source are listed. Re-run detect_ds_fntable.py --record-accesses on changes.
+_DS_RECORD_FIELDS = {
+    "FieldLinkEventTable": (8, {"create": ("code", 0), "id": ("u32", 4)}),
+    "IRC_COMPATIBLE_StepTable": (16, {"overlayId": ("u32", 0), "procData": ("data", 4),
+                                      "createArgs": ("code", 8), "destroyArgs": ("code", 12)}),
+    "d_021B8228": (8, {"a": ("code", 0), "b": ("code", 4)}),
+    "d_021C1E80": (12, {"collect": ("code", 0), "wordIds": ("data", 4),
+                         "wordCount": ("u32", 8)}),
+    "d_021C7D68": (8, {"onFirst": ("code", 0), "onSecond": ("code", 4)}),
+    "d_021C7D78": (12, {"start": ("code", 0)}),
+    "d_021C7D7C": (12, {"onFinish": ("code", 0), "result": ("u32", 4)}),
+    "d_021E37A8": (12, {"init": ("code", 0), "update": ("code", 4),
+                         "finish": ("code", 8)}),
+    "d_021EFA4C": (8, {"a": ("code", 0), "b": ("code", 4)}),
+    "g3dSceneHandlers": (8, {"fn": ("code", 0)}),
+    "g3dStateCallbacks": (8, {"call": ("code", 0)}),
+    "gBagItemEffectTable": (8, {"itemId": ("u16", 0), "useMode": ("u8", 2),
+                                "matchExactId": ("u8", 3), "effectFunc": ("code", 4)}),
+    "gItemMenuUseRanges": (8, {"firstItemId": ("u16", 0), "itemCount": ("u16", 2),
+                               "useHandler": ("code", 4)}),
+    "g_021B7398": (8, {"init": ("code", 0), "update": ("code", 4)}),
+    "sFieldGimmickBsubwayZoneHandlers": (12, {"init": ("code", 0),
+                                                "update": ("code", 4),
+                                                "exit": ("code", 8)}),
+    "sUnionSubEventTable": (8, {"func": ("code", 0), "startStatus": ("u8", 4),
+                                "endStatus": ("u8", 5)}),
+}
+_DS_RECORD_MEMBER_RE = re.compile(
+    r"\b([A-Za-z_]\w*)\s*\[([^\[\]]+)\]\s*\.\s*([A-Za-z_]\w*)")
 _WIDE_IF_RE = re.compile(r"__SIZEOF_POINTER__\s*>\s*4|UINTPTR_MAX\s*>\s*UINT32_MAX")
 _NARROW_IF_RE = re.compile(r"__SIZEOF_POINTER__\s*(?:<=|==)\s*4|UINTPTR_MAX\s*<=\s*UINT32_MAX")
 
@@ -1183,6 +1217,67 @@ def _ds_fntable_rewrite(text: str, output_path: str, name: str):
     else:
         text = proto + '#line 1 "%s"\n' % name.replace("\\", "/") + text
     return text, count, skipped
+
+
+def _ds_record_rewrite(text: str, output_path: str, name: str):
+    """Decode indexed DS records using their wire layout, never native stride."""
+    regions = _ds_bound_names(output_path)
+    if not regions:
+        return text, 0
+    m = re.search(r"/ov(\d{3})/", output_path.replace("\\", "/"))
+    names = set(regions.get("arm9", ()))
+    if m:
+        names |= regions.get(m.group(1), set())
+    names &= _DS_RECORD_FIELDS.keys()
+    if not names or not any(sym in text for sym in names):
+        return text, 0
+    spans = _code_spans(text)
+
+    def in_span(p):
+        lo, hi = 0, len(spans)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if spans[mid][1] <= p:
+                lo = mid + 1
+            else:
+                hi = mid
+        return lo < len(spans) and spans[lo][0] <= p < spans[lo][1]
+
+    out, last, count = [], 0, 0
+    for mt in _DS_RECORD_MEMBER_RE.finditer(text):
+        sym, idx, member = mt.groups()
+        if sym not in names or in_span(mt.start()):
+            continue
+        stride, fields = _DS_RECORD_FIELDS[sym]
+        if member not in fields:
+            raise SystemExit("DS record %s.%s has no verified wire layout (%s)" %
+                             (sym, member, name))
+        kind, offset = fields[member]
+        byte = "((const u8 *)%s + (unsigned long)(%s) * %du + %du)" % (
+            sym, idx, stride, offset)
+        typ = "__typeof__(%s[0].%s)" % (sym, member)
+        if kind == "code":
+            assert stride % 4 == 0 and offset % 4 == 0
+            val = "bw_ds_code_word((const void *)%s, (unsigned long)(%s) * %du + %du)" % (
+                sym, idx, stride // 4, offset // 4)
+        elif kind == "data":
+            val = "bw_ds_try_ptr(bw_ds_wire_u32(%s))" % byte
+        elif kind == "u8":
+            val = "(*%s)" % byte
+        elif kind in ("u16", "u32"):
+            val = "bw_ds_wire_%s(%s)" % (kind, byte)
+        else:
+            raise AssertionError(kind)
+        out.append(text[last:mt.start()])
+        out.append("((%s)%s)" % (typ, val))
+        last = mt.end()
+        count += 1
+    if not count:
+        return text, 0
+    out.append(text[last:])
+    proto = ("/* tools/dsaddr.py: DS-bound record fields */\n"
+             '#include "ds_record.h"\n')
+    return proto + '#line 1 "%s"\n' % name.replace("\\", "/") + "".join(out), count
 
 
 def _write(path: str, text: str) -> None:
@@ -2803,6 +2898,17 @@ static void (*bw_save_callback(unsigned int address))(void)
 def _ds_fntables(a, text: str, name: str) -> str:
     if not (a.pointer_width and a.pointer_width > 4):
         return text
+    if name.replace("\\", "/").endswith("src/game/ov070/itemmenu.c"):
+        # The one local alias to a DS record is not a direct `.member` read.
+        # Keep the range scan in wire bytes, before the generic member pass.
+        text = _need(text, "    const ItemUseRange *range;\n",
+                     "    const u8 *range;\n")
+        text = _need(text,
+            "        range = &gItemMenuUseRanges[rangeIndex];\n"
+            "        if (itemId >= range->firstItemId && itemId < range->firstItemId + range->itemCount)",
+            "        range = (const u8 *)gItemMenuUseRanges + rangeIndex * 8u;\n"
+            "        if (itemId >= bw_ds_wire_u16(range) && itemId < bw_ds_wire_u16(range) + bw_ds_wire_u16(range + 2u))")
+    text, _record_count = _ds_record_rewrite(text, a.output, name)
     text, _n, skipped = _ds_fntable_rewrite(text, a.output, name)
     for sym in sorted(set(skipped)):
         sys.stderr.write("dsaddr.py: %s: call through DS table %s not rewritten "
