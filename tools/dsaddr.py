@@ -2122,6 +2122,17 @@ def main(argv=None) -> int:
                        "off = client * 4;\n    slots = (u8 *)param->trainerData;",
                        "off = client * sizeof(struct BattleTrainerData *);\n"
                        "    slots = (u8 *)param->trainerData;")
+    if (a.pointer_width and a.pointer_width > 4
+            and src_path.replace("\\", "/").endswith("/src/game/arm9/gf_font.c")):
+        # gFontState (the text colours and the glyph decoder's bit reader) is
+        # a 16-byte DS object at 0x02146578, directly before the 512-byte
+        # glyph expansion table at 0x02146588.  The bit reader holds a
+        # pointer: natively the object is 24 bytes, and the decoder's writes
+        # fell on the table's first entries, so every blank pixel group of a
+        # glyph came out as colour 8 (yellow dashes above and below all text).
+        source = _need(source, "extern struct FontState gFontState;",
+            "#undef gFontState\n"
+            "static struct FontState gFontState;")
     if a.pointer_width and a.pointer_width > 4:
         path = src_path.replace("\\", "/")
         # Blocks sized for the DS's 32-bit pointers hold the native structs

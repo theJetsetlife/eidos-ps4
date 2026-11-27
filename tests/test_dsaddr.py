@@ -349,6 +349,22 @@ class Lp64PathRules(unittest.TestCase):
             four = body[body.index(marker):body.index("return;", body.index(marker))]
             self.assertNotIn("bw_bank_ds_slot", four, fn)
 
+    def test_font_state_is_native_storage_not_the_ds_object(self):
+        # gFontState's DS slot is 16 bytes; with a pointer in the bit reader
+        # it is 24, and the extra 8 landed on gGlyphExpandTable[0..3]: colour
+        # 8 in every blank pixel group of every glyph (the yellow dashes).
+        src = "extern struct FontState gFontState;\nvoid f(void) { gFontState.textColor[0] = 1; }\n"
+        rc, out = self.run_tool("src/game/arm9/gf_font.c", src)
+        self.assertEqual(rc, 0)
+        self.assertIn("static struct FontState gFontState;", out)
+        self.assertIn("#undef gFontState", out)
+
+    def test_other_sources_keep_their_font_state(self):
+        src = "extern struct FontState gFontState;\n"
+        rc, out = self.run_tool("src/game/arm9/other.c", src)
+        self.assertEqual(rc, 0)
+        self.assertNotIn("static struct FontState", out)
+
     def test_battle_event_state_is_native_storage_owned_by_one_unit(self):
         # btl_event.c's list and variable stack are two DS objects that
         # native pointers enlarge; they become the unit's own storage.
