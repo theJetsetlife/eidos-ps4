@@ -3249,7 +3249,7 @@ if(VITA)
     vita_create_self(eidos_boot.self eidos_boot UNSAFE)
     vita_create_vpk(eidos.vpk EIDS00001 eidos_boot.self VERSION 01.00 NAME "eidos")
 endif()
-target_link_libraries(eidos_boot PRIVATE eidos)
+target_link_libraries(eidos_boot PRIVATE eidos eidos_install)
 # The 32-bit Windows program must end, with its stack, below the DS memory
 # mapped at 0x02000000: the build stops before a program that would not
 # (cmake/check_image.cmake).

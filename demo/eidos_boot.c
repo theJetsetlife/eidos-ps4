@@ -96,6 +96,8 @@ extern void bw_text_from_apply(void);    /* sdk/text_from.c */
 #include "save.h"
 #include "mod_title.h"
 #include "plat_save.h"
+#include "save_tidy.h"
+#include "install.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -113,7 +115,6 @@ extern void bw_text_from_apply(void);    /* sdk/text_from.c */
 #include "save_ps4.h"
 #include "video_ps4.h"
 #include "setup.h"
-#include "install.h"
 #include <stdbool.h>
 #include <common_dialog.h>
 #include <libsysmodule.h>
@@ -320,7 +321,6 @@ static int parse_shots(const char *list)
 #include "save_slots.h"
 /* sdk/save_games.h (its BwGame is not install/setup.h's): the records read again */
 extern void bw_games_forget(void);
-#include "save_tidy.h"
 #include "firmware.h"
 
 #ifndef EIDOS_OVERLAYS
