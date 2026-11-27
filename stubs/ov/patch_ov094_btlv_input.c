@@ -42,61 +42,20 @@
  *   BTLV_INPUT_DeleteAllTasks 0x022068E8 thumb ov094
  *   BTLV_FINGER_CURSOR_Delete 0x02209B30 thumb ov094
  *
- * The game's own record
- * ---------------------
- * BtlvInput (src/game/ov094/btlv_input_shared_types.h), as far as these two
- * read it: taskMgr 0x00, taskMgrMem 0x04, arc 0x48, msgData 0x5C,
- * fingerCursor 0x60, palAnm 0x64, resCommonChr 0x104, resCommonPal 0x108,
- * resCommonCell 0x10C, resButtonChr 0x110, resButtonCell 0x114, typeChr
- * 0x1E0, typePal 0x1F0, typeCell 0x1F4, infoWinEnabled 0x23C, heap 0x240,
- * palBackup 0x284.
+ * Use the same work type as the allocator and the rest of overlay 94.
  */
 
-typedef unsigned char u8;
-typedef unsigned short u16;
-typedef unsigned int u32;
-typedef int s32;
-
-typedef struct BtlvInput {
-    void *taskMgr;              /* 0x000 */
-    void *taskMgrMem;           /* 0x004 */
-    u8 pad_008[0x48 - 0x08];
-    void *arc;                  /* 0x048 */
-    u8 pad_04c[0x5C - 0x4C];
-    void *msgData;              /* 0x05C */
-    void *fingerCursor;         /* 0x060 */
-    void *palAnm;               /* 0x064 */
-    u8 pad_068[0x104 - 0x68];
-    int resCommonChr;           /* 0x104 */
-    int resCommonPal;           /* 0x108 */
-    int resCommonCell;          /* 0x10C */
-    int resButtonChr;           /* 0x110 */
-    int resButtonCell;          /* 0x114 */
-    u8 pad_118[0x1E0 - 0x118];
-    int typeChr[4];             /* 0x1E0 */
-    int typePal;                /* 0x1F0 */
-    int typeCell;               /* 0x1F4 */
-    u8 pad_1f8[0x23C - 0x1F8];
-    int infoWinEnabled;         /* 0x23C */
-    u16 heap;                   /* 0x240 */
-    u8 pad_242[0x284 - 0x242];
-    u16 palBackup[16];          /* 0x284 */
-} BtlvInput;
-
-typedef char btlv_input_palanm_at_0x64[sizeof(void *) != 4 || __builtin_offsetof(BtlvInput, palAnm) == 0x64 ? 1 : -1];
-typedef char btlv_input_typepal_at_0x1f0[sizeof(void *) != 4 || __builtin_offsetof(BtlvInput, typePal) == 0x1F0 ? 1 : -1];
-typedef char btlv_input_heap_at_0x240[sizeof(void *) != 4 || __builtin_offsetof(BtlvInput, heap) == 0x240 ? 1 : -1];
-typedef char btlv_input_palbackup_at_0x284[sizeof(void *) != 4 || __builtin_offsetof(BtlvInput, palBackup) == 0x284 ? 1 : -1];
+#include "game/ov094/btlv_input_shared_types.h"
 
 /* sdk/type_icons.h */
 extern void bw_type_screen_push(const void *owner, int engine, int base, int row, void *palanm, int bank,
                                 u16 type_rows);
 extern void bw_type_screen_pop(const void *owner);
 
-void PALANM_LoadHandlePaletteToSlot(void *fade, void *arcHandle, u32 fileId, u32 heapId, u32 slotIdx, u32 byteSize,
+void PALANM_LoadHandlePaletteToSlot(PaletteFade *fade, void *arcHandle, u32 fileId, u32 heapId, u32 slotIdx, u32 byteSize,
                                     u16 dstOffset);
-void PALANM_CopyHwPaletteToSlot(void *fade, u32 bank, u32 dstOffset, u32 size);
-u16 *PALANM_GetDefaultWork(void *p, int i);
+void PALANM_CopyHwPaletteToSlot(PaletteFade *fade, u32 bank, u32 dstOffset, u32 size);
+u16 *PALANM_GetDefaultWork(PaletteFade *p, int i);
 u32 APP_ICON_GetArchiveId(void);
 u32 APP_ICON_GetTouchBarFileId(void);
 u32 APP_ICON_GetTypePaletteFileId(u32 mapping);
