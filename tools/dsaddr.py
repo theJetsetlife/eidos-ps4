@@ -2076,17 +2076,28 @@ def main(argv=None) -> int:
             "    s32 size = abs(x);\n"
             "    u32 best = 0;\n"
             "    u32 ofs = -1;\n"
-            "    struct HeapBlock *blk = (struct HeapBlock *)\n"
+            "    struct MBlock *blk = (struct MBlock *)\n"
             "        ((struct ExpHeap *)heap)->freeList.head;\n"
             "\n"
             "    for (; blk != 0; blk = blk->next) {\n"
-            "        uptr data = (uptr)blk + 0x10;\n"
+            "        uptr data = (uptr)blk + sizeof(*blk);\n"
             "        uptr start = ((size - 1) + data) & ~(uptr)(size - 1);\n"
             "        uptr end = blk->size + data;\n"
             "\n"
             "        if (start < end) {\n"
             "            uptr amt = end - start;\n"
             "            uptr off = start - data;\n")
+    if (a.pointer_width and a.pointer_width > 4
+            and src_path.replace("\\", "/").endswith("/src/game/arm9/gfl_heap_wrap.c")):
+        # Report the original allocation request before legacy dump helpers;
+        # a secondary diagnostic failure must not hide the first failure.
+        source = _need(source, '#include "../types.h"',
+                       '#include "../types.h"\n#include <stdio.h>')
+        source = _need(source,
+            "void GFL_HEAP_ReportOutOfMemory(u32 heapId, u32 size, const char *site, int tag)\n{",
+            "void GFL_HEAP_ReportOutOfMemory(u32 heapId, u32 size, const char *site, int tag)\n{\n"
+            '    fprintf(stderr, "heap allocation failed: heap=%u bytes=%u site=%p tag=%d\\n",\n'
+            "            (unsigned)heapId, (unsigned)size, (const void *)site, tag);")
     # Aletheia keeps a few pointer globals out of the DS's 4-byte slot on LP64
     # by shadowing them with a static in the defining TU.  That works while
     # the global is bound BW_DATA_BIND_DS, but the port owns these symbols

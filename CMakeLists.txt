@@ -872,6 +872,14 @@ set(BW_HEAP_REIMPL
     ${CMAKE_CURRENT_SOURCE_DIR}/stubs/stub_02060E94.c
     ${CMAKE_CURRENT_SOURCE_DIR}/stubs/stub_02060F90.c
 )
+# In the native game boot the typed query bodies come from nns_fnd_expheap.c.
+# Address-named stubs would mark the same DS addresses as port replacements
+# and make bootlink cut those bodies, even when the stub only forwards weakly.
+if(EIDOS_BOOT AND EIDOS_SOURCE_TREE STREQUAL "game" AND NOT EIDOS_HEAP_MATCHED)
+    list(REMOVE_ITEM BW_HEAP_REIMPL
+        ${CMAKE_CURRENT_SOURCE_DIR}/stubs/stub_02060E6C.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/stubs/stub_02060E94.c)
+endif()
 if(EIDOS_HEAP_MATCHED)
     list(APPEND BW_MATCHED_SOURCES ${BW_HEAP_MATCHED})
 else()
@@ -1966,6 +1974,14 @@ endif()
 # Exercise the AudioOut worker's pause/resume handshake on the host with a
 # small API mock. Keep this target out of Orbis cross-builds; it is test-only.
 if(NOT PS4 AND UNIX)
+    if(EIDOS_SOURCE_TREE STREQUAL "game")
+        add_test(NAME test_native_heap_queries
+            COMMAND ${Python3_EXECUTABLE} -I
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_native_heap_queries.py
+                --source ${ALETHEIA_ROOT}/src/game/arm9/nns_fnd_expheap.c
+                --build ${CMAKE_BINARY_DIR}
+                --cc ${CMAKE_C_COMPILER})
+    endif()
     add_executable(test_ps4_touch ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ps4_touch.c)
     target_include_directories(test_ps4_touch PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/sdk

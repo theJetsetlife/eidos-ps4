@@ -1224,3 +1224,53 @@ timings; reproduce missing selection/sprite rendering; validate normal battles,
 save/reload and updates on hardware; implement the production graphics backend.
 Console installation, performance and visual verification of these new changes
 are pending. Do not label this checkpoint a verified playable alpha.
+
+# 2026-11-27 — Encounter heap-query closure
+
+The user-reported battle flicker crash has concrete console evidence: the run
+stops at frame 5302 with a panic in sub_02060E6C, overlays 10 11 18 20 21 24 30
+73 resident. The old LP64 boot exclusion removes the canonical typed free-list
+query even though Aletheia now supplies it. Retain both arena queries in the
+boot closure and forward the historical largest-block name to its canonical
+implementation. This restores real queries over the native arena; it does not
+claim that malloc-backed allocations have DS arena fragmentation semantics.
+
+A source-derived compiled regression uses the actual adapted ExpHeap and
+MBlock declarations, the actual query bodies, and the historical-name
+forwarders. Empty lists, multiple blocks, changed lists, and signed alignment
+requests from 4 through 256 bytes pass. The test also exposed the LP64
+largest-block adaptation's remaining 16-byte DS payload offset and its separate
+HeapBlock view. It now reads MBlock and uses sizeof(*blk). Against the pre-fix
+generator the executable fails its aligned-capacity check (exit 5).
+
+The heap query may be reached from allocation-failure diagnostics. Print the
+original requested heap, size, site pointer and tag before the diagnostic walk,
+so a secondary failure cannot mask that request. Console verification is still
+required; the stub panic alone does not prove the original allocation failed.
+
+A read-only copy of the console save completed a 14000-frame host replay, but
+without entering the encounter. A debug-injected normal encounter instead
+faults in the legacy debug_party_count helper through its fixed GameSystem
+field view. This is a distinct diagnostic LP64 boundary, not a reproduction of
+the console crash, and must not be reported as such. The console save was not
+modified. The battle-only replay remains useful but skips the transition.
+
+SDK compilation/package validation succeeded for b42be6c before this heap batch;
+the heap batch is rebuilding. Update target evidence only after that build and
+physical retest. The prior package has not been replaced on the console.
+
+The generated boot cut list exposed the deeper closure issue: address-named
+forwarders themselves mark the canonical functions as replacements by their
+shared DS addresses. Removing only explicit exclusion rows is insufficient.
+The game-boot source selection must also omit those query stubs. Non-game and
+small configurations retain their explicit fallback diagnostics. The new test
+checks the actual generated boot cut list and library source list, in addition
+to runtime query values, and rejects the previous generated configuration.
+
+For the normal-encounter reproduction, replace 25 UI reads of GameSystem's
+fixed DS game-data/field-map offsets with GAMESYSTEM_GetGameData and
+GAMESYSTEM_GetFieldMap. Shared typed accessor helpers now serve the diagnostic
+party, encounter, warp and related consumers. The actual optimized host compile
+command passes a syntax check with implicit declarations treated as errors.
+Runtime validation follows the rebuilt game; this does not by itself establish
+normal encounter completion.

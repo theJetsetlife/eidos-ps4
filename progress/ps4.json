@@ -1,7 +1,7 @@
 {
   "date": "2026-11-27",
   "eidos_upstream": "6d8a7a95c4c199828ae059dba51f882fa8388703",
-  "aletheia": "49ad8dbfaba0132fa7c82b76c4f4064e1d8cb2ec",
+  "aletheia": "995615a30f1b1d47109d435a7cb355983ec32e18",
   "milestones": [
     {
       "id": "sync",
@@ -9,8 +9,8 @@
       "acceptance": "Both upstream base commits are ancestors of the integration branches",
       "status": "verified-local",
       "commit": "15ad0e8",
-      "evidence": "6d8a7a95 in Eidos; ea39ea3a in Aletheia; port dependency 49ad8dbfab",
-      "remaining": "Promotion to shared development branch pending"
+      "evidence": "Upstream Eidos HEAD 6d8a7a95 verified; Aletheia pin 995615a30f includes the required ea39ea3a baseline.",
+      "remaining": "Local dependency commits still require publication for clean clones."
     },
     {
       "id": "lp64",
@@ -25,28 +25,28 @@
       "id": "field",
       "subsystem": "overworld",
       "acceptance": "Traverse two connected locations through normal input",
-      "status": "historical-host",
-      "commit": null,
-      "evidence": "Prior field checkpoints in docs/ps4/CLAUDE_HANDOFF.md",
-      "remaining": "Revalidate on synchronized sources and hardware"
+      "status": "hardware-partial",
+      "commit": "dae8b02",
+      "evidence": "User reached the opening bedroom on PS4 Slim, firmware 13.52.",
+      "remaining": "Connected-location traversal and later progression remain unverified."
     },
     {
       "id": "battle",
       "subsystem": "battle",
       "acceptance": "Complete trainer and wild encounters, return to field, repeat",
-      "status": "blocked",
-      "commit": "87e9893",
-      "evidence": "Trainer 18 debug run reproduced a BtlvInput archive-handle crash. With the canonical input work layout it reaches opponent send-out and fails in bw_rd16 from BTLV_GAUGE_DrawBar.",
-      "remaining": "Validate the gauge tile payload address. The NCGR unpacker retains the self-relative field at 0x14 on LP64, while BtlvGaugeTileFile declares a native pointer."
+      "status": "host-partial",
+      "commit": "b42be6c",
+      "evidence": "Optimized trainer 18 replay passes 8000 frames after native cry output-pointer correction. User reports console encounter-flicker crash; log ends at frame 5302 in sub_02060E6C panic.",
+      "remaining": "Reproduce normal encounter transition; distinguish heap-query exclusion from allocation failure; validate normal battle completion, return and repetition."
     },
     {
       "id": "menus",
       "subsystem": "menus",
       "acceptance": "Title, field and battle menus respond to controller",
-      "status": "implemented-partial",
-      "commit": "8bb5310",
-      "evidence": "LP64 title input follows upstream free-slot semantics",
-      "remaining": "Exercise on console"
+      "status": "hardware-partial",
+      "commit": "b42be6c",
+      "evidence": "User reports absent keyboard and settings selection feedback. Name entry hides game arrow cursors in touch mode; port marker now covers contact.",
+      "remaining": "Verify marker and diagnose settings palette-based selection rendering."
     },
     {
       "id": "ui",
@@ -79,37 +79,37 @@
       "id": "pad",
       "subsystem": "input",
       "acceptance": "Drive overworld, dialogue, battle and USB selection on console",
-      "status": "unverified",
-      "commit": null,
-      "evidence": "DualShock adapter and native picker present",
-      "remaining": "Hardware checks"
+      "status": "hardware-partial",
+      "commit": "b42be6c",
+      "evidence": "Controller reaches opening gameplay; shared touch coordinate conversion and visible touch marker pass host bounds tests.",
+      "remaining": "Verify new marker on console; keyboard alignment and missing selection graphics remain reported defects."
     },
     {
       "id": "audio",
       "subsystem": "audio",
       "acceptance": "Music and effects survive scene and battle transitions",
-      "status": "unverified",
-      "commit": "e3e92dd",
-      "evidence": "AudioOut worker exists; native voice cleanup corrected",
-      "remaining": "Listen on hardware and measure underruns"
+      "status": "hardware-partial",
+      "commit": "fee5dd2",
+      "evidence": "User heard opening music on Slim; optimized host intro audio scenario passes.",
+      "remaining": "Battle transitions, prolonged playback and underrun measurements."
     },
     {
       "id": "storage",
       "subsystem": "storage",
       "acceptance": "Mount both per-user directories across restarts",
-      "status": "blocked-hardware",
-      "commit": "06a4a10",
-      "evidence": "Earlier user report of game-data startup failure; operation/code now reported",
-      "remaining": "Collect native startup result"
+      "status": "hardware-partial",
+      "commit": "18eddf7",
+      "evidence": "Console imports ROM and boots from internal application-readable storage fallback. Latest SaveData mount returns 0x809f000f.",
+      "remaining": "Verify per-user SaveData lifecycle, isolation and persistence; preserve user saves."
     },
     {
       "id": "usb",
       "subsystem": "ROM install",
       "acceptance": "Choose a user ROM from USB and relaunch from installed data",
-      "status": "compiled",
-      "commit": "0bb3fa8",
-      "evidence": "Official compiler accepted picker and boot; USB root candidates are /mnt/usb0 and /mnt/usb1",
-      "remaining": "Verify filesystem access, picker and extraction on Slim"
+      "status": "blocked-hardware",
+      "commit": "18eddf7",
+      "evidence": "Console sandbox cannot access mounted USB volumes; internal ROM import works.",
+      "remaining": "USB selection remains a product requirement without a verified supported access route."
     },
     {
       "id": "save",
@@ -124,44 +124,51 @@
       "id": "console",
       "subsystem": "hardware",
       "acceptance": "Install and play on base, Slim and Pro",
-      "status": "blocked-hardware",
-      "commit": null,
-      "evidence": "Retail Slim 13.52 GoldHEN reported by user",
-      "remaining": "No measured gameplay on integrated build"
+      "status": "hardware-partial",
+      "commit": "dae8b02",
+      "evidence": "Slim installation, startup, ROM preparation, music and opening bedroom reported by user.",
+      "remaining": "Current changes, normal battles, saves and performance need target validation; base PS4 and Pro untested."
     },
     {
       "id": "perf",
       "subsystem": "performance",
       "acceptance": "Measure resolution and frame times on each console model",
-      "status": "unmeasured",
-      "commit": null,
-      "evidence": "Target 1920x1080 and 60 FPS",
-      "remaining": "Hardware measurements"
+      "status": "measured-baseline",
+      "commit": "37c213a",
+      "evidence": "Pre-optimization console log has 16.66 ms idle intervals and roughly 22-25 ms intervals in sampled 3D scenes. Optimized SDK build underway.",
+      "remaining": "Compare equivalent scenes on console after installing optimized package."
     },
     {
       "id": "host-runtime",
       "subsystem": "host runtime",
-      "status": "partial",
-      "evidence": "35000 frames without input on White using an isolated save folder; overlays 10 11 88. Separate 6000-frame START@4800 regression passed after e3e92dd.",
-      "remaining": "Natural progression and repeated battle validation"
+      "status": "verified-partial",
+      "evidence": "Optimized intro, intro audio and 8000-frame trainer replay pass; trainer scenario checks frame limit and overlay residency.",
+      "remaining": "Normal encounters, expected battle outcomes, return and campaign progression remain distinct gates.",
+      "commit": "b42be6c"
     },
     {
       "id": "regressions",
       "subsystem": "all-overlay host regression",
-      "status": "partial",
-      "evidence": "Before the voice fix: 117 passed, 1 failed, 3 skipped, 2 disabled out of 123 registered. The failing test passed in isolation after the correction. Full post-correction run pending at checkpoint."
+      "status": "verified-partial",
+      "evidence": "Initial 129-test suite: 121 passed, 3 failed, 3 skipped, 2 disabled. Both sandbox-dependent failures passed outside sandbox; corrected trainer replay passed. New touch test plus PS4 source rules/audio lifecycle pass; all 15 LP64 path rules pass and old generator fails new cry regression.",
+      "commit": "b42be6c",
+      "remaining": "Three external-input skips and two disabled tests remain unexercised; new console encounter crash under investigation."
     },
     {
       "id": "orbis-build",
       "subsystem": "official SDK",
       "status": "in-progress",
-      "evidence": "SDK 12.508.041 compiled the new USB picker, boot, save backend and installer directory visitor. Full link first failed on missing bw_list_dir_utf8. Implemented in ffd6af5. Final integrated link pending at checkpoint."
+      "evidence": "Official SDK 12.508.041 optimized ELF linked and packaged before latest corrections; final corrected build is active.",
+      "commit": "b42be6c",
+      "remaining": "Check final build exit, binary and package integrity."
     },
     {
       "id": "package",
       "subsystem": "native packaging",
-      "status": "pending",
-      "evidence": "Local Nov 26 official game PKG predates integration. Integrated official game PKG pending a successful link and package verification."
+      "status": "built-prior-revision",
+      "evidence": "Previous game FPKG installed and launched on Slim; optimized corrected replacement building.",
+      "commit": "18eddf7",
+      "remaining": "Verify and checksum final artifact; upload/read-back; user installs and tests."
     }
   ],
   "campaign": [

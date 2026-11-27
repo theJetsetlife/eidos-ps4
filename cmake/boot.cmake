@@ -319,10 +319,9 @@ if(NOT EIDOS_HEAP_MATCHED)
         # walks on host blocks (the LP64 heap floor)
         src/matched/arm9/func_02060A08.c
         src/matched/arm9/func_02060ABC.c
-        # stubs/stub_02060E6C.c, stub_02060E94.c: the free-space queries,
-        # which the LP64 floor has no expanded heap to answer
-        src/matched/arm9/func_02060E6C.c
-        src/matched/arm9/func_02060E94.c)
+        # The typed arena queries remain compiled: encounter transitions
+        # and allocation diagnostics inspect the native arena's free list.
+        )
 endif()
 
 # Aletheia has since matched functions this port previously stood in for.  The

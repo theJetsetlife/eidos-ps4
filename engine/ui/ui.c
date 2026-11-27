@@ -941,6 +941,27 @@ extern u32 MYITEM_SAVEDATA_AddItem(void *bag, u16 itemId, u16 quantity, u16 heap
 extern u32 bw_debug_whiteouts __attribute__((weak));
 
 /* The party's size while the field runs; -1 before. */
+/* Native GameSystem fields move when pointers widen. Use the game's own
+ * accessors for every field/data view, including debug encounter injection. */
+struct GameSystem;
+struct GameData;
+extern struct GameData *GAMESYSTEM_GetGameData(const struct GameSystem *system)
+    __attribute__((weak));
+extern void *GAMESYSTEM_GetFieldMap(const struct GameSystem *system)
+    __attribute__((weak));
+
+static u8 *ui_game_data(const void *system)
+{
+    return system != NULL && GAMESYSTEM_GetGameData != NULL
+        ? (u8 *)GAMESYSTEM_GetGameData((const struct GameSystem *)system) : NULL;
+}
+
+static void *ui_field_map(const void *system)
+{
+    return system != NULL && GAMESYSTEM_GetFieldMap != NULL
+        ? GAMESYSTEM_GetFieldMap((const struct GameSystem *)system) : NULL;
+}
+
 static int debug_party_count(void)
 {
     u8 *gs, *gd;
@@ -950,7 +971,7 @@ static int debug_party_count(void)
         return -1;
     }
     gs = *(u8 **)bw_dsref__GameSystemGlobal;
-    if (gs == NULL || *(void **)(gs + 0x20) == NULL || (gd = *(u8 **)(gs + 0x1C)) == NULL ||
+    if (gs == NULL || ui_field_map(gs) == NULL || (gd = ui_game_data(gs)) == NULL ||
         (party = GAME_DATA_GetMyParty(gd)) == NULL) {
         return -1;
     }
@@ -1039,10 +1060,10 @@ static void debug_held(void)
         return;
     }
     gs = *(u8 **)bw_dsref__GameSystemGlobal;
-    if (gs == NULL || *(void **)(gs + 0x20) == NULL) {
+    if (gs == NULL || ui_field_map(gs) == NULL) {
         return;                         /* the field is not running yet    */
     }
-    gd = *(u8 **)(gs + 0x1C);
+    gd = ui_game_data(gs);
     party = gd != NULL ? GAME_DATA_GetMyParty(gd) : NULL;
     if (party == NULL) {
         return;
@@ -1080,10 +1101,10 @@ static void debug_party(void)
         return;
     }
     gs = *(u8 **)bw_dsref__GameSystemGlobal;
-    if (gs == NULL || *(void **)(gs + 0x20) == NULL) {
+    if (gs == NULL || ui_field_map(gs) == NULL) {
         return;                         /* the field is not running yet    */
     }
-    gd = *(u8 **)(gs + 0x1C);
+    gd = ui_game_data(gs);
     party = gd != NULL ? GAME_DATA_GetMyParty(gd) : NULL;
     if (party == NULL) {
         return;
@@ -1584,7 +1605,7 @@ static int try_field_free(void)
         return 1;
     }
     gs = *(u8 **)bw_dsref__GameSystemGlobal;
-    return gs != NULL && *(void **)(gs + 0x20) != NULL && GAMESYSTEM_GetEvent(gs) == NULL;
+    return gs != NULL && ui_field_map(gs) != NULL && GAMESYSTEM_GetEvent(gs) == NULL;
 }
 
 /* Every frame: the way to the screen asked for, and the cover over it. */
@@ -1790,7 +1811,7 @@ static void debug_warp(void)
         return;
     }
     gs = *(u8 **)bw_dsref__GameSystemGlobal;
-    if (gs == NULL || *(void **)(gs + 0x20) == NULL || GAMESYSTEM_GetEvent(gs) != NULL) {
+    if (gs == NULL || ui_field_map(gs) == NULL || GAMESYSTEM_GetEvent(gs) != NULL) {
         wait = 0;
         return;
     }
@@ -1806,9 +1827,9 @@ static void debug_warp(void)
         /* The plain warp has no season check (the game's own map changes have one,
          * EVENT_MAPCHANGE_CheckSeasonChange): EIDOS_DEBUG_WARP_SEASON=1 takes the season from the clock here, as
          * that check ends, so a test with EIDOS_RTC sees the place in that date's season and calendar weather. */
-        COMM_PLAYER_SUPPORT_SetSeason(*(void **)(gs + 0x1C), (s32)COMM_PLAYER_SUPPORT_GetSeasonFromClock());
+        COMM_PLAYER_SUPPORT_SetSeason(ui_game_data(gs), (s32)COMM_PLAYER_SUPPORT_GetSeasonFromClock());
     }
-    ev = EVENT_MAPCHANGE_CreateWarpEventPlain(gs, *(void **)(gs + 0x20), (u16)z, pos, (short)d);
+    ev = EVENT_MAPCHANGE_CreateWarpEventPlain(gs, ui_field_map(gs), (u16)z, pos, (short)d);
     if (ev != NULL) {
         GAMESYSTEM_SetEvent(gs, ev);
         fprintf(stderr, "eidos: debug warp to zone %u (%.0f, %.0f, %.0f)\n", z, (double)x, (double)y, (double)zz);
@@ -1850,7 +1871,7 @@ static void debug_cutin(void)
         return;
     }
     gs = *(u8 **)bw_dsref__GameSystemGlobal;
-    if (gs == NULL || *(void **)(gs + 0x20) == NULL || GAMESYSTEM_GetEvent(gs) != NULL) {
+    if (gs == NULL || ui_field_map(gs) == NULL || GAMESYSTEM_GetEvent(gs) != NULL) {
         wait = 0;
         return;
     }
@@ -1861,7 +1882,7 @@ static void debug_cutin(void)
         return;                         /* the warp first, then a settled field */
     }
     done = 1;
-    ci = ov021_FIELDMAP_GetFld3dCi(*(void **)(gs + 0x20));
+    ci = ov021_FIELDMAP_GetFld3dCi(ui_field_map(gs));
     if (ci == NULL) {
         return;
     }
@@ -1907,7 +1928,7 @@ static void debug_where(void)
         return;
     }
     gs = *(u8 **)bw_dsref__GameSystemGlobal;
-    if (gs == NULL || *(void **)(gs + 0x20) == NULL || GAMESYSTEM_GetEvent(gs) != NULL) {
+    if (gs == NULL || ui_field_map(gs) == NULL || GAMESYSTEM_GetEvent(gs) != NULL) {
         wait = 0;
         return;
     }
@@ -1915,7 +1936,7 @@ static void debug_where(void)
         return;
     }
     done = 1;
-    gd = *(u8 **)(gs + 0x1C);
+    gd = ui_game_data(gs);
     pw = gd + 4 + 4 * 0x44;
     p = (const s32 *)(pw + 4);
     fprintf(stderr, "eidos: debug where: EIDOS_DEBUG_WARP=\"%u %.0f %.0f %.0f 1\"\n",
@@ -1977,7 +1998,7 @@ static void debug_script(void)
         return;
     }
     gs = *(u8 **)bw_dsref__GameSystemGlobal;
-    if (gs == NULL || *(void **)(gs + 0x20) == NULL || GAMESYSTEM_GetEvent(gs) != NULL) {
+    if (gs == NULL || ui_field_map(gs) == NULL || GAMESYSTEM_GetEvent(gs) != NULL) {
         wait = 0;
         return;
     }
@@ -2083,7 +2104,7 @@ static void debug_open(void)
         return;
     }
     gs = *(u8 **)bw_dsref__GameSystemGlobal;
-    fm = gs != NULL ? *(u8 **)(gs + 0x20) : NULL;
+    fm = gs != NULL ? (u8 *)ui_field_map(gs) : NULL;
     if (fm == NULL || GAMESYSTEM_GetEvent(gs) != NULL) {
         wait = 0;
         return;
@@ -2092,7 +2113,7 @@ static void debug_open(void)
         return;
     }
     done = 1;
-    gd = *(u8 **)(gs + 0x1C);
+    gd = ui_game_data(gs);
     if (sscanf(what, "demo %u", &a) == 1 && FIELD_STATUS_CreateSubProcCallbackEvent != NULL
         && &bw_dsref_ov010_gDemo3dProcData != NULL) {
         /* the field closed first (its overlays share the demo's memory: a
@@ -2307,11 +2328,11 @@ static void live_objects_log(void)
         return;
     }
     gs = *(u8 **)bw_dsref__GameSystemGlobal;
-    fm = gs != NULL ? *(u8 **)(gs + 0x20) : NULL;
+    fm = gs != NULL ? (u8 *)ui_field_map(gs) : NULL;
     if (fm == NULL || (sys = ov021_FIELDMAP_GetMmdlSys(fm)) == NULL) {
         return;                         /* not in the field */
     }
-    gd = *(u8 **)(gs + 0x1C);
+    gd = ui_game_data(gs);
     pw = gd + 4 + 4 * 0x44;
     zone = (unsigned)(pw[0] | (pw[1] << 8));
     if (zone != last_zone) {
@@ -2349,7 +2370,7 @@ static void debug_seek(u32 frame)
         return;
     }
     gs = *(u8 **)bw_dsref__GameSystemGlobal;
-    fm = gs != NULL ? *(u8 **)(gs + 0x20) : NULL;
+    fm = gs != NULL ? (u8 *)ui_field_map(gs) : NULL;
     if (fm == NULL || (sys = ov021_FIELDMAP_GetMmdlSys(fm)) == NULL || (me = ov010_FLDMMDL_SysSearchPlayer(sys)) == NULL) {
         return;
     }
@@ -2523,7 +2544,7 @@ static void debug_move(u32 frame)
         return;
     }
     gs = *(u8 **)bw_dsref__GameSystemGlobal;
-    fm = gs != NULL ? *(u8 **)(gs + 0x20) : NULL;
+    fm = gs != NULL ? (u8 *)ui_field_map(gs) : NULL;
     if (fm == NULL || (sys = ov021_FIELDMAP_GetMmdlSys(fm)) == NULL || (me = ov010_FLDMMDL_SysSearchPlayer(sys)) == NULL) {
         return;
     }
@@ -2698,7 +2719,7 @@ static void debug_battle(void)
      * battle end does (EVENT_BATTLE_ProcScriptedBattle). */
     if (done && fade_back && ov021_EVENT_FIELDMAP_CONTROL_StartFadeIn != NULL) {
         gs = *(u8 **)bw_dsref__GameSystemGlobal;
-        fm = gs != NULL ? *(void **)(gs + 0x20) : NULL;
+        fm = gs != NULL ? ui_field_map(gs) : NULL;
         if (fm != NULL && GAMESYSTEM_GetEvent(gs) == NULL) {
             fade_back = 0;
             ev = ov021_EVENT_FIELDMAP_CONTROL_StartFadeIn(gs, fm, 0, 0, 1, 0, 0);
@@ -2730,17 +2751,17 @@ static void debug_battle(void)
         return;
     }
     gs = *(u8 **)bw_dsref__GameSystemGlobal;
-    fm = gs != NULL ? *(void **)(gs + 0x20) : NULL;
+    fm = gs != NULL ? ui_field_map(gs) : NULL;
     {
         /* EIDOS_DEBUG_BATTLE_SCENE=N: the game's own Battle Scene option
          * (the save's; with it off a battle shows no move animations) */
         static int scene_done;
         const char *sc = getenv("EIDOS_DEBUG_BATTLE_SCENE");
 
-        if (!scene_done && sc != NULL && gs != NULL && *(u8 **)(gs + 0x1C) != NULL
+        if (!scene_done && sc != NULL && gs != NULL && ui_game_data(gs) != NULL
             && GAME_DATA_GetSaveControl != NULL && SYSTEM_DATA_GetConfig != NULL
             && CONFIG_SetBattleScene != NULL && CONFIG_GetBattleScene != NULL) {
-            void *cfg = SYSTEM_DATA_GetConfig(GAME_DATA_GetSaveControl(*(u8 **)(gs + 0x1C)));
+            void *cfg = SYSTEM_DATA_GetConfig(GAME_DATA_GetSaveControl(ui_game_data(gs)));
 
             scene_done = 1;
             fprintf(stderr, "eidos: debug battle scene: was %u, set %d\n", CONFIG_GetBattleScene(cfg), atoi(sc));
