@@ -1734,6 +1734,16 @@ def main(argv=None) -> int:
             and src_path.replace("\\", "/").endswith("/src/game/arm9/convert.c")):
         source = source.replace("#define GAME_TYPES_U32_LONG\n", "")
         source = source.replace("#define GAME_TYPES_S32_LONG\n", "")
+    if src_path.replace("\\", "/").endswith("/src/game/arm9/btl_setup.c"):
+        # BTL_SETUP_SetTrainer indexes param->trainerData, an array of
+        # BattleTrainerData pointers, by byte arithmetic with the DS's
+        # pointer stride (`off = client * 4`, the shape mwccarm matched).
+        # The store through it is pointer-width, so on LP64 client 1 lands
+        # at +4 and straddles entries 0 and 1; the reader then sees junk.
+        source = _need(source,
+                       "off = client * 4;\n    slots = (u8 *)param->trainerData;",
+                       "off = client * sizeof(struct BattleTrainerData *);\n"
+                       "    slots = (u8 *)param->trainerData;")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/tcb_list.c"):
         source = "#include <stddef.h>\n" + source
         source = _need(source, "return (idx << 5) + 0x38;",
