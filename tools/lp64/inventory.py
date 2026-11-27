@@ -34,9 +34,11 @@ CORRECTED = [
      "netHandle/mapMatrix u32 vs game pointers shifted fields; void*, verified 0 mismatches via abi_dump"),
     ("btl_setup BTL_SETUP_SetTrainer", "ptr-array-stride", "4b20ed5",
      "off=client*4 into trainerData[] with 8B store; sizeof(struct BattleTrainerData *)"),
-    ("calls through DS-bound fn-pointer arrays (94 sites)", "ds-fnptr-table", "pending",
+    ("calls through DS-bound fn-pointer arrays (94 sites)", "ds-fnptr-table", "60209fd",
      "dsaddr.py rewrites TABLE[i](..)/TABLE[i][j](..) through BIND_DS names to "
      "bw_ds_code_word (4-byte DS word, resolved); overlays now get --pointer-width"),
+    ("PM_VOICE_Stop in sdk/cries.c", "native-handle-in-sidecar", "e3e92dd",
+     "START@4800 crashed at frame 4929 when two DS channel-presence words were read as a native handle; game-tree cleanup now uses Aletheia's channel accessors"),
 ]
 
 def reach(path):
