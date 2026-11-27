@@ -57,12 +57,21 @@ endif()
 if(DEFINED PRESS AND NOT "${PRESS}" STREQUAL "")
     list(APPEND window_arg --press ${PRESS})
 endif()
+# The boot can tidy or migrate the save folder before its first frame.
+# Give concurrent windowed and headless runs separate application data.
+string(RANDOM LENGTH 16 run_id)
+set(run_home "${CMAKE_CURRENT_BINARY_DIR}/boot-test-${run_id}")
+file(MAKE_DIRECTORY "${run_home}/saves")
+set(ENV{EIDOS_HOME} "${run_home}")
+set(ENV{BW_SAVE_DIR} "${run_home}/saves")
+set(ENV{EIDOS_SETTINGS} "${run_home}/settings.ini")
 execute_process(COMMAND "${BOOT}" --data-root "${DATA}" --frames ${FRAMES}
                         --watchdog ${WATCHDOG} ${window_arg}
     RESULT_VARIABLE rc
     OUTPUT_VARIABLE out
     ERROR_VARIABLE err
     TIMEOUT 600)
+file(REMOVE_RECURSE "${run_home}")
 set(all "${out}${err}")
 if(LP64)
     if(all MATCHES "the boot needs an ILP32 build")
