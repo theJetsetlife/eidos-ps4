@@ -14,11 +14,21 @@ int32_t sceAudioOutInit(void)
     return 0;
 }
 
+/* SDK 12.508, AudioOut overview: the MAIN port is opened for
+ * SCE_USER_SERVICE_USER_ID_SYSTEM; for a player's id the real service
+ * answers SCE_DEVICE_SERVICE_ERROR_INVALID_USER (0x809B0001). */
+static int32_t g_first_open_user = -1;
+
 int32_t sceAudioOutOpen(SceUserServiceUserId user_id, int32_t type,
                         int32_t index, uint32_t length, uint32_t rate,
                         uint32_t parameters)
 {
-    (void)user_id;
+    if (g_first_open_user == -1) {
+        g_first_open_user = user_id;
+    }
+    if (type == 0 && user_id != SCE_USER_SERVICE_USER_ID_SYSTEM) {
+        return (int32_t)0x809B0001;
+    }
     (void)type;
     (void)index;
     (void)length;
@@ -86,6 +96,10 @@ int main(void)
     memset(input, 0, sizeof(input));
     if (eidos_ps4_audio_create(&audio, 1) != 0 || audio == NULL) {
         return fail("audio backend did not initialize against the mock SDK");
+    }
+    if (g_first_open_user != SCE_USER_SERVICE_USER_ID_SYSTEM) {
+        (void)eidos_ps4_audio_destroy(audio);
+        return fail("the MAIN port was not first opened for the system user");
     }
     if (eidos_ps4_audio_pause(audio) != 0) {
         (void)eidos_ps4_audio_destroy(audio);

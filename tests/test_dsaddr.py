@@ -192,6 +192,147 @@ class NativeTypes(unittest.TestCase):
         self.assertEqual(dsaddr.native_matched_types(source, path, 4), source)
 
 
+# what the tool also looks for in the trainer AI source (the VM parameters)
+AI_ANCHORS = ('#include "../arm9/vm.h"\n'
+              "static ScriptVm *mk(u32 heapId) { return VM_Create(heapId, &gTrAiVmParams); }\n")
+
+
+PRINTSYS_CALLBACK = ("struct TextPrinter *PRINTSYS_PrintStreamCallBack(struct Tcbl *tcbl, u32 priority) {\n"
+                     "    task = (struct TcblNode *)TCBL_AddTask((struct TcblSystem *)tcbl, PRINTSYS_Task, 0x50, priority);\n}\n")
+# the print stream's delete, as printsys.c has it (the rewrite looks for it)
+PRINTSYS_DELETE = ("void PRINTSYS_PrintStreamDelete(struct TextPrinter *printer)\n{\n"
+                   "    if (printer->task != 0) {\n"
+                   "        TCBL_DeleteTask((struct TcblTask *)printer->task);\n"
+                   "        printer->task = 0;\n    }\n}\n")
+
+
+class Lp64PathRules(unittest.TestCase):
+    """The rewrites dsaddr.main applies to one named source at 8-byte
+    pointers.  Each was a fault found running the game: the source is put
+    where the rule looks for it, the tool run as the build runs it."""
+
+    def run_tool(self, relpath, source, width=8):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = os.path.join(tmp, relpath)
+            os.makedirs(os.path.dirname(src))
+            with open(src, "w", encoding="utf-8") as f:
+                f.write(source)
+            out = os.path.join(tmp, "out.c")
+            rc = dsaddr.main([src, "-o", out, "--pointer-width", str(width)])
+            text = ""
+            if os.path.exists(out):
+                with open(out, encoding="utf-8") as f:
+                    text = f.read()
+            return rc, text
+
+    def test_ai_script_jumps_are_signed_at_lp64(self):
+        # A script jump is a signed 32-bit offset from the cursor.  Added as
+        # u32 to a 64-bit pointer, a backward jump lands 4 GiB ahead (the
+        # trainer AI faulted in bw_vm_read_u16).
+        src = (AI_ANCHORS +
+               "void f(ScriptVm *vm) {\n"
+               "    u32 jumpOffset; jumpOffset = VM_GetU32(vm);\n"
+               "    VM_Jump(vm, (u8 *)vm->pc + jumpOffset);\n"
+               "    VM_Jump(vm, (u8 *)(vm->pc + tableOffset));\n"
+               "}\n")
+        rc, out = self.run_tool("src/game/ov096/tr_ai.c", src)
+        self.assertEqual(rc, 0)
+        self.assertIn("vm->pc + (int)jumpOffset", out)
+        self.assertIn("vm->pc + (int)tableOffset", out)
+        self.assertNotIn("vm->pc + jumpOffset", out)
+
+    def test_ai_script_jumps_are_left_at_ds_width(self):
+        src = AI_ANCHORS + "void f(ScriptVm *vm) { VM_Jump(vm, (u8 *)vm->pc + jumpOffset); }\n"
+        rc, out = self.run_tool("src/game/ov096/tr_ai.c", src, width=4)
+        self.assertEqual(rc, 0)
+        self.assertIn("vm->pc + jumpOffset", out)
+        self.assertNotIn("(int)jumpOffset", out)
+
+    def test_ai_script_without_offsets_is_an_error_not_a_silent_pass(self):
+        # a changed upstream source must not quietly lose the rule
+        with self.assertRaises(SystemExit):
+            self.run_tool("src/game/ov096/tr_ai.c", AI_ANCHORS + "void f(void) {}\n")
+
+    def test_other_sources_keep_their_offsets(self):
+        src = "void f(ScriptVm *vm) { VM_Jump(vm, (u8 *)vm->pc + jumpOffset); }\n"
+        rc, out = self.run_tool("src/game/ov010/other.c", src)
+        self.assertEqual(rc, 0)
+        self.assertIn("vm->pc + jumpOffset", out)
+
+    def test_effect_registries_are_read_as_ds_words(self):
+        # ov095's field/position/side registries are rows of two DS words
+        # (three for the side one: id, getter, layer limit); a native struct
+        # row is twice as wide, so the 2nd row's id was read from the 1st
+        # row's getter (the ability getter fault at the first battle).
+        for kind, words in (("field", 2), ("pos", 2), ("side", 3)):
+            table = "gHand%sEffectTable" % kind.title()
+            body = ("int f(int i) { return %s[i].effectId + %s[i].getHandlers"
+                    % (table, table))
+            if kind == "side":
+                body += " + %s[i].maxLayers" % table
+            body += "; }\n"
+            rc, out = self.run_tool("src/game/ov095/hand_%s.c" % kind, body)
+            self.assertEqual(rc, 0, kind)
+            self.assertIn('#include "battle_registry.h"', out)
+            self.assertIn("BW_BTL_KEY(%s, i, %du, effectId)" % (table, words), out)
+            self.assertIn("BW_BTL_GETTER(%s, i, %du)" % (table, words), out)
+            if kind == "side":
+                self.assertIn("bw_btl_registry_word(%s, i * 3u + 2u)" % table, out)
+
+    def test_registry_rewrite_is_not_applied_at_ds_width(self):
+        rc, out = self.run_tool("src/game/ov095/hand_field.c",
+                                "int f(int i){return gHandFieldEffectTable[i].effectId;}\n", 4)
+        self.assertEqual(rc, 0)
+        self.assertNotIn("BW_BTL_KEY", out)
+
+    def test_music_switch_set_is_allocated_at_its_native_size(self):
+        # 0x3c is the DS size; with 8-byte pointers the set is 0x60 and
+        # ISS_SWITCH_SET_Init wrote past the block (ASan; the game's
+        # switch-driven music).
+        src = ("struct IssSwitchSet *ISS_SWITCH_SET_Alloc(u32 heapId) {\n"
+               "    return GFL_HEAP_Alloc(heapId, 0x3c, 0, IssSwitchSetFileName, 0x12a);\n}\n")
+        rc, out = self.run_tool("src/game/arm9/iss_switch_set.c", src)
+        self.assertEqual(rc, 0)
+        self.assertIn("sizeof(struct IssSwitchSet)", out)
+        self.assertNotIn("0x3c", out)
+        rc, out = self.run_tool("src/game/arm9/iss_switch_set.c", src, width=4)
+        self.assertIn("0x3c", out)
+
+    def test_print_stream_task_work_is_the_native_printer_size(self):
+        # the TextPrinter was 0x50 bytes of task work; native it is larger,
+        # and PRINTSYS_SetupJob wrote past it (the intro's text, the heap
+        # error, and the yellow streaks in every text box).
+        src = PRINTSYS_CALLBACK + PRINTSYS_DELETE
+        rc, out = self.run_tool("src/game/arm9/printsys.c", src)
+        self.assertEqual(rc, 0)
+        self.assertIn("sizeof(struct TextPrinter)", out)
+        rc, out = self.run_tool("src/game/arm9/printsys.c", src, width=4)
+        self.assertIn("PRINTSYS_Task, 0x50", out)
+
+    def test_print_stream_delete_does_not_write_after_the_free(self):
+        # the printer is the task's own work area: deleting the task frees
+        # it, so printer->task is cleared first (ASan: heap-use-after-free in
+        # PRINTSYS_PrintStreamDelete; the console's libc heap error).
+        src = PRINTSYS_CALLBACK + PRINTSYS_DELETE
+        rc, out = self.run_tool("src/game/arm9/printsys.c", src)
+        self.assertEqual(rc, 0)
+        self.assertLess(out.index("printer->task = 0;"), out.index("TCBL_DeleteTask(bw_task)"))
+        rc, out = self.run_tool("src/game/arm9/printsys.c", src, width=4)
+        self.assertNotIn("bw_task", out)
+
+    def test_battle_event_state_is_native_storage_owned_by_one_unit(self):
+        # btl_event.c's list and variable stack are two DS objects that
+        # native pointers enlarge; they become the unit's own storage.
+        src = ("extern struct BtlEventFactor gBtlEventFactorStorage[BTL_EVENT_FACTOR_MAX];\n"
+               "extern struct BtlEventFactorList gBtlEventFactorList;\n"
+               "extern struct BtlEventFactor *gBtlEventFactorFreePool[BTL_EVENT_FACTOR_MAX];\n"
+               "extern struct BtlEventVarStack gBtlEventVarStack;\n")
+        rc, out = self.run_tool("src/game/ov093/btl_event.c", src)
+        self.assertEqual(rc, 0)
+        self.assertIn("static struct BtlEventFactorList gBtlEventFactorList;", out)
+        self.assertIn("static struct BtlEventVarStack gBtlEventVarStack;", out)
+
+
 class LeftAlone(unittest.TestCase):
     """What the rewrite must not touch."""
 

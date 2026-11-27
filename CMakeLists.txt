@@ -1944,6 +1944,25 @@ target_include_directories(test_ps4_resampler PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4)
 add_test(NAME test_ps4_resampler COMMAND test_ps4_resampler)
 
+# Source rules each learned on a real console against the SDK reference
+# (tests/ps4/test_ps4_rules.py); reads sources only.
+add_test(NAME test_ps4_rules
+    COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/ps4/test_ps4_rules.py)
+
+# The silent-audio check the scripted boot scenarios use (tests/wav_level.py).
+add_test(NAME test_wav_level
+    COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_wav_level.py)
+
+# Handler registry rows read as the DS's 32-bit words (sdk/battle_registry.h).
+# The word reader is the 8-byte-pointer form; at 4 bytes a row is the struct.
+if(CMAKE_SIZEOF_VOID_P GREATER 4)
+    add_executable(test_battle_registry
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_battle_registry.c)
+    target_include_directories(test_battle_registry PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/sdk)
+    add_test(NAME test_battle_registry COMMAND test_battle_registry)
+endif()
+
 # Exercise the AudioOut worker's pause/resume handshake on the host with a
 # small API mock. Keep this target out of Orbis cross-builds; it is test-only.
 if(NOT PS4 AND UNIX)

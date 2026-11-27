@@ -2122,6 +2122,34 @@ def main(argv=None) -> int:
                        "off = client * 4;\n    slots = (u8 *)param->trainerData;",
                        "off = client * sizeof(struct BattleTrainerData *);\n"
                        "    slots = (u8 *)param->trainerData;")
+    if a.pointer_width and a.pointer_width > 4:
+        path = src_path.replace("\\", "/")
+        # Blocks sized for the DS's 32-bit pointers hold the native structs
+        # they are cast to only by luck: the writes ran into the next
+        # block's header (a heap error on the console, ASan on the host).
+        if path.endswith("/src/game/arm9/iss_switch_set.c"):
+            # struct IssSwitchSet is 0x3c on the DS (bgmNo, 9 zones, 9
+            # pointers): 0x60 with 8-byte pointers
+            source = _need(source,
+                "GFL_HEAP_Alloc(heapId, 0x3c, 0, IssSwitchSetFileName, 0x12a)",
+                "GFL_HEAP_Alloc(heapId, sizeof(struct IssSwitchSet), 0, IssSwitchSetFileName, 0x12a)")
+        if path.endswith("/src/game/arm9/printsys.c"):
+            # TCBL_DeleteTask frees the task together with its work area, and
+            # the printer IS that work area: clearing printer->task after the
+            # delete is a write into freed memory (harmless on the DS, a
+            # corrupted free block in the console's libc: "A heap error is
+            # detected" on the next allocation).
+            source = _need(source,
+                "        TCBL_DeleteTask((struct TcblTask *)printer->task);\n"
+                "        printer->task = 0;",
+                "        struct TcblTask *bw_task = (struct TcblTask *)printer->task;\n"
+                "        printer->task = 0;\n"
+                "        TCBL_DeleteTask(bw_task);")
+            # the print stream's task work is a struct TextPrinter (0x50 on
+            # the DS) holding pointers, a function pointer and the job
+            source = _need(source,
+                "TCBL_AddTask((struct TcblSystem *)tcbl, PRINTSYS_Task, 0x50, priority)",
+                "TCBL_AddTask((struct TcblSystem *)tcbl, PRINTSYS_Task, sizeof(struct TextPrinter), priority)")
     if src_path.replace("\\", "/").endswith("/src/game/arm9/tcb_list.c"):
         source = "#include <stddef.h>\n" + source
         source = _need(source, "return (idx << 5) + 0x38;",

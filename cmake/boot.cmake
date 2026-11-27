@@ -876,6 +876,45 @@ add_test(NAME test_boot_run
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/boot_run.cmake)
 set_tests_properties(test_boot_run PROPERTIES
     SKIP_REGULAR_EXPRESSION "SKIPPED:" TIMEOUT 900)
+# Scripted scenarios through the real game, each a regression guard for a path
+# found failing (tests/boot_scenario.cmake).  Native pointers only: they run
+# the game's own code at 8-byte pointers, and skip without the game data.
+if(_boot_lp64 AND NOT "${_eidos_ovls}" STREQUAL "")
+    # A trainer battle, played by the automatic player to the end of 8000
+    # frames.  Held it to: the ability, field, position and side handler
+    # registries (read as DS words), the trainer AI's script jumps (signed
+    # offsets), and the battle core's layout against the game's own
+    # (sceneUnit), which faulted at the first battle start, the first AI
+    # decision and the first message in turn.
+    add_test(NAME test_boot_battle_trainer
+        COMMAND ${CMAKE_COMMAND} -DBOOT=$<TARGET_FILE:eidos_boot>
+                -DDATA=${BW_DATA_ROOT_ABS} -DNAME=battle_trainer -DFRAMES=8000
+                "-DENV=EIDOS_BATTLE_ONLY=1;EIDOS_DEBUG_BATTLE=trainer 18;EIDOS_DEBUG_PARTY=498,501;EIDOS_DEBUG_AUTO_PLAYER=2"
+                -DRESIDENT_HAS=93
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/boot_scenario.cmake)
+    # A new game from the title through the intro to the player's bedroom
+    # (A pressed every 30 frames), with the field overlay resident at the end.
+    add_test(NAME test_boot_new_game_intro
+        COMMAND ${CMAKE_COMMAND} -DBOOT=$<TARGET_FILE:eidos_boot>
+                -DDATA=${BW_DATA_ROOT_ABS} -DNAME=new_game_intro -DFRAMES=9500
+                -DPRESS_FROM=400 -DPRESS_TO=9000 -DPRESS_EVERY=30 -DPRESS_KEY=A
+                -DRESIDENT_HAS=21
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/boot_scenario.cmake)
+    set_tests_properties(test_boot_battle_trainer test_boot_new_game_intro PROPERTIES
+        SKIP_REGULAR_EXPRESSION "SKIPPED:" TIMEOUT 1500)
+    # The game's sound must not stop for good in the opening: the intro's
+    # music plays to about 20 s, and nothing is heard from the Professor's
+    # speech on.  Known failing, so registered disabled (as the other tests
+    # that wait on a fix); enable it with the fix.
+    add_test(NAME test_boot_intro_audio
+        COMMAND ${CMAKE_COMMAND} -DBOOT=$<TARGET_FILE:eidos_boot>
+                -DDATA=${BW_DATA_ROOT_ABS} -DNAME=intro_audio -DFRAMES=4800
+                -DPRESS_FROM=400 -DPRESS_TO=4500 -DPRESS_EVERY=30 -DPRESS_KEY=A
+                -DAUDIO_AFTER=30 -DAUDIO_MIN_PEAK=64 -DPYTHON=${Python3_EXECUTABLE}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/boot_scenario.cmake)
+    set_tests_properties(test_boot_intro_audio PROPERTIES
+        SKIP_REGULAR_EXPRESSION "SKIPPED:" TIMEOUT 1500 DISABLED TRUE)
+endif()
 # The same run with --window, through SDL's dummy video and audio drivers:
 # the window, its pump and the audio queue live on the frame thread, and a
 # run that stalls there (it froze a real window once) fails on the
