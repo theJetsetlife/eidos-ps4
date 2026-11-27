@@ -179,6 +179,7 @@ static int g_ps4_video_failure_reported;
 static int g_ps4_audio_failure_reported;
 static int g_ps4_save_path_ready;
 static int g_ps4_data_path_ready;
+static char g_ps4_storage_error[160];
 static int g_ps4_background;
 static int g_ps4_system_service_warning_reported;
 static char g_ps4_save_path[SCE_SAVE_DATA_MOUNT_POINT_DATA_MAXSIZE];
@@ -839,40 +840,32 @@ static void boot_print_resident(void)
 static void boot_ps4_storage_start(void)
 {
     int result;
+    const char *operation = "sceUserServiceInitialize";
 
     result = sceUserServiceInitialize(NULL);
-    if (result < 0) {
-        printf("WARNING ps4: UserService initialization failed: 0x%08x\n",
-               (unsigned)result);
-        return;
-    }
+    if (result < 0) goto failed;
     g_ps4_user_service_initialized = 1;
+
+    operation = "sceUserServiceGetInitialUser";
     result = sceUserServiceGetInitialUser(&g_ps4_user_id);
-    if (result < 0 || g_ps4_user_id < 0 ||
-        g_ps4_user_id == SCE_USER_SERVICE_USER_ID_SYSTEM ||
+    if (result < 0) goto failed;
+    if (g_ps4_user_id < 0 || g_ps4_user_id == SCE_USER_SERVICE_USER_ID_SYSTEM ||
         g_ps4_user_id == SCE_USER_SERVICE_USER_ID_EVERYONE) {
-        printf("WARNING ps4: no launch user available for controller input: 0x%08x\n",
-               (unsigned)result);
+        snprintf(g_ps4_storage_error, sizeof(g_ps4_storage_error),
+                 "sceUserServiceGetInitialUser returned no eligible launch user.");
+        printf("WARNING ps4: %s\n", g_ps4_storage_error);
         return;
     }
     result = eidos_ps4_save_mount(g_ps4_user_id, g_ps4_save_path,
-                                  sizeof(g_ps4_save_path));
-    if (result < 0) {
-        printf("WARNING ps4: per-user SaveData mount failed: 0x%08x; "
-               "game saves are unavailable\n", (unsigned)result);
-        return;
-    }
+                                  sizeof(g_ps4_save_path), &operation);
+    if (result < 0) goto failed;
     bw_set_save_dir(g_ps4_save_path);
     g_ps4_save_path_ready = 1;
     printf("INFO ps4: per-user save data mounted\n");
 
     result = eidos_ps4_data_mount(g_ps4_user_id, g_ps4_data_path,
-                                  sizeof(g_ps4_data_path));
-    if (result < 0) {
-        printf("WARNING ps4: user game-data mount failed: 0x%08x; "
-               "ROM import is unavailable\n", (unsigned)result);
-        return;
-    }
+                                  sizeof(g_ps4_data_path), &operation);
+    if (result < 0) goto failed;
     g_ps4_data_path_ready = 1;
     bw_setup_set_home(g_ps4_data_path);
     printf("INFO ps4: user game-data storage mounted\n");
@@ -885,6 +878,12 @@ static void boot_ps4_storage_start(void)
         printf("WARNING ps4: import-time controller initialization failed: 0x%08x\n",
                (unsigned)result);
     }
+    return;
+
+failed:
+    snprintf(g_ps4_storage_error, sizeof(g_ps4_storage_error),
+             "Storage startup failed at %s (0x%08x).", operation, (unsigned)result);
+    printf("WARNING ps4: %s\n", g_ps4_storage_error);
 }
 
 static void boot_ps4_devices_start(void)
@@ -1168,7 +1167,7 @@ static int boot_ps4_prepare_game_data(const BwSetupRequest *request,
     int written;
 
     if (!g_ps4_data_path_ready) {
-        boot_ps4_report_setup_error("Eidos could not open its game data storage.");
+        boot_ps4_report_setup_error(g_ps4_storage_error);
         return -1;
     }
     written = snprintf(extract_dir, sizeof(extract_dir), "%s/extract",

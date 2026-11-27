@@ -21,7 +21,7 @@ static int g_data_mounted;
 static int mount_directory(SceUserServiceUserId user_id, const char *name,
                            SceSaveDataBlocks blocks,
                            SceSaveDataMountPoint *mount_point, int *mounted,
-                           char *path, size_t path_size)
+                           char *path, size_t path_size, const char **operation)
 {
     SceSaveDataDirName dir_name;
     SceSaveDataMount2 mount;
@@ -29,6 +29,7 @@ static int mount_directory(SceUserServiceUserId user_id, const char *name,
     size_t name_length;
     int rc;
 
+    *operation = "SaveData mount arguments";
     if (user_id < 0 || name == NULL || mount_point == NULL || mounted == NULL ||
         path == NULL || path_size < SCE_SAVE_DATA_MOUNT_POINT_DATA_MAXSIZE ||
         !g_save_data_initialized || *mounted) {
@@ -49,12 +50,15 @@ static int mount_directory(SceUserServiceUserId user_id, const char *name,
                       SCE_SAVE_DATA_MOUNT_MODE_RDWR;
     memset(&result, 0, sizeof(result));
 
+    *operation = (mount_point == &g_mount_point) ? "sceSaveDataMount2 (saves)" :
+                                                 "sceSaveDataMount2 (game data)";
     rc = sceSaveDataMount2(&mount, &result);
     if (rc < 0) {
         return rc;
     }
     *mount_point = result.mountPoint;
     *mounted = 1;
+    *operation = "SaveData mount path";
     if (memchr(mount_point->data, '\0', sizeof(mount_point->data)) == NULL) {
         return -1;
     }
@@ -68,16 +72,18 @@ static int mount_directory(SceUserServiceUserId user_id, const char *name,
 }
 
 int eidos_ps4_save_mount(SceUserServiceUserId user_id, char *path,
-                         size_t path_size)
+                         size_t path_size, const char **operation)
 {
     int rc;
 
+    *operation = "SaveData mount arguments";
     if (user_id < 0 || path == NULL || path_size <
             SCE_SAVE_DATA_MOUNT_POINT_DATA_MAXSIZE ||
         g_save_data_initialized || g_save_data_mounted || g_data_mounted) {
         return -1;
     }
 
+    *operation = "sceSaveDataInitialize3";
     rc = sceSaveDataInitialize3(NULL);
     if (rc < 0) {
         return rc;
@@ -85,7 +91,7 @@ int eidos_ps4_save_mount(SceUserServiceUserId user_id, char *path,
     g_save_data_initialized = 1;
     rc = mount_directory(user_id, EIDOS_PS4_SAVE_DIRECTORY,
                          EIDOS_PS4_SAVE_BLOCKS, &g_mount_point,
-                         &g_save_data_mounted, path, path_size);
+                         &g_save_data_mounted, path, path_size, operation);
     if (rc < 0) {
         (void)eidos_ps4_save_unmount();
         return rc;
@@ -94,12 +100,12 @@ int eidos_ps4_save_mount(SceUserServiceUserId user_id, char *path,
 }
 
 int eidos_ps4_data_mount(SceUserServiceUserId user_id, char *path,
-                         size_t path_size)
+                         size_t path_size, const char **operation)
 {
     return mount_directory(user_id, EIDOS_PS4_DATA_DIRECTORY,
                            SCE_SAVE_DATA_BLOCKS_MAX,
                            &g_data_mount_point, &g_data_mounted,
-                           path, path_size);
+                           path, path_size, operation);
 }
 
 int eidos_ps4_save_unmount(void)
