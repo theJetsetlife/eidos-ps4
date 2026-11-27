@@ -4,6 +4,7 @@
  * sdk/plat_save.c.
  */
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -112,12 +113,25 @@ int bw_save_write_atomic(const char *path, const void *data, u32 size)
         return -1;
     sprintf(tmp, "%s.tmp", path);
     f = fopen(tmp, "wb");
-    if (f == NULL)
+    if (f == NULL) {
+        fprintf(stderr, "eidos: save: cannot create %s (errno %d)\n", tmp, errno);
         return -1;
+    }
     ok = (size == 0 || fwrite(data, 1, size, f) == size);
-    ok = ok && bw_plat_sync_file(f) == 0;
+    if (!ok)
+        fprintf(stderr, "eidos: save: write of %s failed (errno %d)\n", tmp, errno);
+    if (ok && bw_plat_sync_file(f) != 0) {
+#if defined(__ORBIS__)
+        /* fsync is refused in the application sandbox on some volumes; the
+         * data is written and the rename below still replaces atomically */
+        fprintf(stderr, "eidos: save: sync of %s refused (errno %d); continuing\n", tmp, errno);
+#else
+        ok = 0;
+#endif
+    }
     ok = (fclose(f) == 0) && ok;
     if (!ok || bw_plat_replace_file(tmp, path) != 0) {
+        fprintf(stderr, "eidos: save: replacing %s failed (errno %d)\n", path, errno);
         remove(tmp);
         return -1;
     }

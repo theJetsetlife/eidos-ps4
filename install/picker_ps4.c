@@ -18,7 +18,22 @@ typedef struct {
     char *out;
     size_t size;
     int status;
+    int count;      /* .nds files found, before any dialog */
 } UsbPicker;
+
+static int is_nds(const char *name, int kind)
+{
+    const char *ext = strrchr(name, '.');
+    return kind == BW_PATH_FILE && ext != NULL && strlen(ext) == 4 &&
+           (ext[1] == 'n' || ext[1] == 'N') && (ext[2] == 'd' || ext[2] == 'D') &&
+           (ext[3] == 's' || ext[3] == 'S');
+}
+
+static int count_entry(void *ctx, const char *name, int kind)
+{
+    if (is_nds(name, kind)) ((UsbPicker *)ctx)->count++;
+    return 0;
+}
 
 static int pick_entry(void *ctx, const char *name, int kind)
 {
@@ -30,18 +45,18 @@ static int pick_entry(void *ctx, const char *name, int kind)
     SceMsgDialogResult result = {0};
     int rc;
 
-    if (kind != BW_PATH_FILE || ext == NULL || strlen(ext) != 4 ||
-        (ext[1] != 'n' && ext[1] != 'N') || (ext[2] != 'd' && ext[2] != 'D') ||
-        (ext[3] != 's' && ext[3] != 'S'))
+    (void)ext;
+    if (!is_nds(name, kind))
         return 0;
-    snprintf(prompt, sizeof(prompt), "Install this ROM?\n\n%s/%s\n\nChoose No to see the next file.",
-             p->root, name);
+    snprintf(prompt, sizeof(prompt), "Install this ROM?\n\n%s\n\nX: Yes, install it\nO: No%s",
+             name, p->count > 1 ? " (show the next file)" : " (quit)");
     sceMsgDialogParamInitialize(&params);
     params.mode = SCE_MSG_DIALOG_MODE_USER_MSG;
     params.userId = p->user;
     params.userMsgParam = &message;
     message.msg = prompt;
-    message.buttonType = SCE_MSG_DIALOG_BUTTON_TYPE_YESNO;
+    /* one ROM: a single button, so nothing can land on No by mistake */
+    message.buttonType = SCE_MSG_DIALOG_BUTTON_TYPE_OK;   /* X = OK = Yes, O = back = No */
     rc = sceMsgDialogInitialize();
     if (rc < 0) {
         snprintf(p->out, p->size, "sceMsgDialogInitialize failed (0x%08x).", (unsigned)rc);
@@ -50,9 +65,26 @@ static int pick_entry(void *ctx, const char *name, int kind)
     }
     rc = sceMsgDialogOpen(&params);
     if (rc >= 0) {
-        while (sceMsgDialogUpdateStatus() == SCE_COMMON_DIALOG_STATUS_RUNNING)
+        /* the dialog is another process: its status is NONE until it starts */
+        int waited_ms = 0, seen = 0, last = -1;
+        while (waited_ms < 300000) {
+            int status = sceMsgDialogUpdateStatus();
+            if (status != last) {
+                fprintf(stderr, "PS4: ROM dialog status %d at %d ms\n", status, waited_ms);
+                last = status;
+            }
+            if (status == SCE_COMMON_DIALOG_STATUS_FINISHED) break;
+            if (status == SCE_COMMON_DIALOG_STATUS_INITIALIZED ||
+                status == SCE_COMMON_DIALOG_STATUS_RUNNING) seen = 1;
+            else if (seen || waited_ms >= 10000) break;
             sceKernelUsleep(16000);
+            waited_ms += 16;
+        }
         rc = sceMsgDialogGetResult(&result);
+        fprintf(stderr, "PS4: ROM dialog result rc=0x%08x mode=%d result=%d buttonId=%d\n",
+                (unsigned)rc, (int)result.mode, (int)result.result, (int)result.buttonId);
+    } else {
+        fprintf(stderr, "PS4: sceMsgDialogOpen for the ROM failed (0x%08x)\n", (unsigned)rc);
     }
     sceMsgDialogTerminate();
     if (rc < 0) {
@@ -61,9 +93,10 @@ static int pick_entry(void *ctx, const char *name, int kind)
         return 1;
     }
     p->status = BW_PICK_CANCELLED;
-    if (result.result != SCE_COMMON_DIALOG_RESULT_OK)
-        return 1;
-    if (result.buttonId != SCE_MSG_DIALOG_BUTTON_ID_YES)
+    /* X answers with the OK button; O closes the dialog with no button,
+     * which is No: the next file, and after the last one the picker ends
+     * with nothing chosen (BW_PICK_CANCELLED) */
+    if (result.buttonId != SCE_MSG_DIALOG_BUTTON_ID_OK)
         return 0;
     rc = snprintf(p->out, p->size, "%s/%s", p->root, name);
     if (rc >= 0 && (size_t)rc < p->size) {
@@ -77,7 +110,12 @@ static int pick_entry(void *ctx, const char *name, int kind)
 
 int bw_pick_rom(void *parent, const char *title, char *out, size_t n)
 {
-    static const char *const roots[] = {"/mnt/usb0", "/mnt/usb1"};
+    /* every USB slot the console has, then a folder on internal storage that
+ * can be filled over FTP (the console has no USB drive in some setups) */
+    static const char *const roots[] = {
+        "/mnt/usb0", "/mnt/usb1", "/mnt/usb2", "/mnt/usb3",
+        "/mnt/usb4", "/mnt/usb5", "/mnt/usb6", "/mnt/usb7",
+        "/data/eidos/rom"};
     UsbPicker picker = {0};
     int loaded_here, rc;
     size_t i;
@@ -88,7 +126,8 @@ int bw_pick_rom(void *parent, const char *title, char *out, size_t n)
     picker.out = out;
     picker.size = n;
     picker.status = BW_PICK_UNAVAILABLE;
-    snprintf(out, n, "No readable .nds file found. Place your ROM in the root of a USB drive.");
+    snprintf(out, n, "No Pokemon .nds file found. Put your ROM in the root of a USB drive (none is mounted if the console shows no drive), or copy it over FTP to /data/eidos/rom/.");
+    (void)bw_mkdirs_utf8("/data/eidos/rom");    /* a place to put the ROM over FTP */
     rc = sceUserServiceGetInitialUser(&picker.user);
     if (rc < 0) goto failed;
     loaded_here = sceSysmoduleIsLoaded(SCE_SYSMODULE_MESSAGE_DIALOG) != 0;
@@ -97,6 +136,11 @@ int bw_pick_rom(void *parent, const char *title, char *out, size_t n)
     rc = sceCommonDialogInitialize();
     if (rc == SCE_COMMON_DIALOG_ERROR_ALREADY_INITIALIZED) rc = 0;
     if (rc >= 0) {
+        for (i = 0; i < sizeof(roots) / sizeof(roots[0]); ++i) {
+            if (bw_path_kind_utf8(roots[i]) == BW_PATH_DIR)
+                (void)bw_list_dir_utf8(roots[i], count_entry, &picker);
+        }
+        fprintf(stderr, "PS4: %d ROM file(s) found\n", picker.count);
         for (i = 0; i < sizeof(roots) / sizeof(roots[0]); ++i) {
             picker.root = roots[i];
             if (bw_path_kind_utf8(picker.root) != BW_PATH_DIR)

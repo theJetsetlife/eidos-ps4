@@ -149,9 +149,17 @@ int eidos_ps4_audio_create(EidosPs4Audio **out, SceUserServiceUserId user_id)
     }
     audio->port = -1;
     eidos_ps4_resampler_init(&audio->resampler);
-    result = sceAudioOutOpen(user_id, SCE_AUDIO_OUT_PORT_TYPE_MAIN, 0,
+    /* The main port belongs to the system user: opened for a player it is
+     * refused with SCE_DEVICE_SERVICE_ERROR_INVALID_USER (0x809B0001).  A
+     * player's id is tried after, for a port type that wants one. */
+    result = sceAudioOutOpen(SCE_USER_SERVICE_USER_ID_SYSTEM, SCE_AUDIO_OUT_PORT_TYPE_MAIN, 0,
                              EIDOS_PS4_AUDIO_GRAIN, EIDOS_PS4_AUDIO_RATE,
                              SCE_AUDIO_OUT_PARAM_FORMAT_S16_STEREO);
+    if (result < 0) {
+        result = sceAudioOutOpen(user_id, SCE_AUDIO_OUT_PORT_TYPE_MAIN, 0,
+                                 EIDOS_PS4_AUDIO_GRAIN, EIDOS_PS4_AUDIO_RATE,
+                                 SCE_AUDIO_OUT_PARAM_FORMAT_S16_STEREO);
+    }
     if (result < 0) {
         free(audio);
         return result;

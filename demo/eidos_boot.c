@@ -113,6 +113,7 @@ extern void bw_text_from_apply(void);    /* sdk/text_from.c */
 #include "audio_ps4.h"
 #include "input_ps4.h"
 #include "save_ps4.h"
+#include "log_ps4.h"
 #include "picker.h"
 #include "video_ps4.h"
 #include "setup.h"
@@ -179,13 +180,27 @@ static int g_ps4_input_ready;
 static int g_ps4_video_ready;
 static int g_ps4_video_failure_reported;
 static int g_ps4_audio_failure_reported;
+/* The libc heap of an Orbis application is capped by default; the ROM import
+ * and the game's own allocations need more.  Unlimited, and allowed to grow
+ * past its first extent (SDK 12.508 stdlib.h). */
+size_t sceLibcHeapSize = SCE_LIBC_HEAP_SIZE_EXTENDED_ALLOC_NO_LIMIT;
+unsigned int sceLibcHeapExtendedAlloc = 1;
+
+static void boot_ps4_log_memory(const char *when)
+{
+    size_t flexible = 0;
+    int rc = sceKernelAvailableFlexibleMemorySize(&flexible);
+    fprintf(stderr, "PS4: memory %s: flexible free %lu MiB (rc 0x%08x)\n", when,
+            (unsigned long)(flexible >> 20), (unsigned)rc);
+}
+
 static int g_ps4_save_path_ready;
 static int g_ps4_data_path_ready;
 static char g_ps4_storage_error[160];
 static int g_ps4_background;
 static int g_ps4_system_service_warning_reported;
-static char g_ps4_save_path[SCE_SAVE_DATA_MOUNT_POINT_DATA_MAXSIZE];
-static char g_ps4_data_path[SCE_SAVE_DATA_MOUNT_POINT_DATA_MAXSIZE];
+static char g_ps4_save_path[96];   /* a SaveData mount point, or a file-storage folder */
+static char g_ps4_data_path[96];
 #endif
 /* --g3d-trace N: the 3D command trace of frame N (hw3d.c g3d_hw_trace). */
 static u64         g_trace_frame;
@@ -838,6 +853,33 @@ static void boot_print_resident(void)
 }
 
 #if EIDOS_BOOT_PS4
+/* Storage when the SaveData service refuses the mount (a package the system
+ * does not treat as an installed title gets an error from sceSaveDataMount2).
+ * Plain folders instead: internal storage first, a USB drive after.  They
+ * outlive an update of the package, as the SaveData directories do. */
+static int boot_ps4_fallback_dir(const char *sub, char *out, size_t size)
+{
+    static const char *const roots[] = {"/data/eidos", "/mnt/usb0/eidos", "/mnt/usb1/eidos"};
+    size_t i;
+
+    for (i = 0; i < sizeof(roots) / sizeof(roots[0]); ++i) {
+        char probe[128];
+        FILE *f;
+        int n = snprintf(out, size, "%s/%s", roots[i], sub);
+
+        if (n < 0 || (size_t)n >= size || bw_mkdirs_utf8(out) != 0) continue;
+        snprintf(probe, sizeof(probe), "%s/.probe", out);
+        f = fopen(probe, "wb");
+        if (f == NULL) continue;
+        fclose(f);
+        remove(probe);
+        fprintf(stderr, "PS4: file storage for %s at %s\n", sub, out);
+        return 0;
+    }
+    out[0] = '\0';
+    return -1;
+}
+
 static void boot_ps4_storage_start(void)
 {
     int result;
@@ -859,17 +901,40 @@ static void boot_ps4_storage_start(void)
     }
     result = eidos_ps4_save_mount(g_ps4_user_id, g_ps4_save_path,
                                   sizeof(g_ps4_save_path), &operation);
-    if (result < 0) goto failed;
+    if (result < 0) {
+        fprintf(stderr, "PS4: SaveData unavailable at %s (0x%08x, user 0x%08x); "
+                "using file storage\n", operation, (unsigned)result,
+                (unsigned)g_ps4_user_id);
+        if (boot_ps4_fallback_dir("saves", g_ps4_save_path, sizeof(g_ps4_save_path)) != 0 ||
+            boot_ps4_fallback_dir("game-data", g_ps4_data_path, sizeof(g_ps4_data_path)) != 0) {
+            operation = "file storage (/data/eidos and USB)";
+            goto failed;
+        }
+        bw_set_save_dir(g_ps4_save_path);
+        g_ps4_save_path_ready = 1;
+        g_ps4_data_path_ready = 1;
+        bw_setup_set_home(g_ps4_data_path);
+        printf("INFO ps4: file storage in use\n");
+        goto input;
+    }
     bw_set_save_dir(g_ps4_save_path);
     g_ps4_save_path_ready = 1;
     printf("INFO ps4: per-user save data mounted\n");
 
     result = eidos_ps4_data_mount(g_ps4_user_id, g_ps4_data_path,
                                   sizeof(g_ps4_data_path), &operation);
-    if (result < 0) goto failed;
+    if (result < 0) {
+        fprintf(stderr, "PS4: game-data SaveData unavailable at %s (0x%08x); "
+                "using file storage\n", operation, (unsigned)result);
+        if (boot_ps4_fallback_dir("game-data", g_ps4_data_path, sizeof(g_ps4_data_path)) != 0) {
+            operation = "file storage (/data/eidos and USB)";
+            goto failed;
+        }
+    }
     g_ps4_data_path_ready = 1;
     bw_setup_set_home(g_ps4_data_path);
-    printf("INFO ps4: user game-data storage mounted\n");
+    printf("INFO ps4: user game-data storage ready\n");
+input:
     result = eidos_ps4_input_open(&g_ps4_input, g_ps4_user_id);
     g_ps4_input_ready = g_ps4_input.initialized != 0;
     if (result < 0 && g_ps4_input_ready) {
@@ -1117,6 +1182,43 @@ static int boot_ps4_import_progress(void *ctx, u32 done, u32 total,
     return 0;
 }
 
+/* Leave the way a PS4 application does.  The system reports a non-zero exit
+ * status as an application crash (a core dump and the error screen), so the
+ * process ends with 0 and the real status goes to the log.  (SDK 12.508:
+ * sceSystemServiceLoadExec takes only an /app0/ program; it is no exit.) */
+static void boot_ps4_exit(int status)
+{
+    fprintf(stderr, "PS4: exiting (status %d)\n", status);
+    eidos_ps4_log_finish(status);
+    exit(0);
+}
+
+/* Wait for a message dialog to finish.  The dialog is a separate process, so
+ * right after sceMsgDialogOpen the status can still be NONE; leaving then
+ * ends the program under it.  Wait for FINISHED, give the start up ten
+ * seconds, and stop at five minutes whatever happens. */
+static void boot_ps4_wait_dialog(void)
+{
+    int waited_ms = 0;
+    int seen = 0;
+
+    while (waited_ms < 300000) {
+        int status = sceMsgDialogUpdateStatus();
+
+        if (status == SCE_COMMON_DIALOG_STATUS_FINISHED) {
+            break;
+        }
+        if (status == SCE_COMMON_DIALOG_STATUS_INITIALIZED ||
+            status == SCE_COMMON_DIALOG_STATUS_RUNNING) {
+            seen = 1;
+        } else if (seen || waited_ms >= 10000) {
+            break;
+        }
+        sceKernelUsleep(16000);
+        waited_ms += 16;
+    }
+}
+
 static void boot_ps4_report_setup_error(const char *message)
 {
     SceMsgDialogParam params;
@@ -1125,6 +1227,7 @@ static void boot_ps4_report_setup_error(const char *message)
     int result;
 
     fprintf(stderr, "PS4: %s\n", message);
+    eidos_ps4_log_export();
     if (g_ps4_user_id < 0) {
         return;
     }
@@ -1143,9 +1246,7 @@ static void boot_ps4_report_setup_error(const char *message)
             params.userMsgParam = &user_message;
             params.userId = g_ps4_user_id;
             if (sceMsgDialogOpen(&params) == 0) {
-                while (sceMsgDialogUpdateStatus() == SCE_COMMON_DIALOG_STATUS_RUNNING) {
-                    sceKernelUsleep(16000);
-                }
+                boot_ps4_wait_dialog();
             }
             sceMsgDialogTerminate();
         }
@@ -1209,6 +1310,7 @@ static int boot_ps4_prepare_game_data(const BwSetupRequest *request,
         rom = default_rom;
     }
 
+    boot_ps4_log_memory("before the ROM import");
     printf("PS4: importing user-provided ROM into application storage.\n");
     if (bw_setup_install(rom, extract_dir, 0, 1, boot_ps4_import_progress,
                          &last_progress, NULL, message, sizeof(message)) != 0) {
@@ -1313,6 +1415,7 @@ static void boot_finish(int status, const char *why)
 #endif
 #if EIDOS_BOOT_PS4
     boot_ps4_services_stop();
+    boot_ps4_exit(status);
 #endif
     /* The game's threads are host threads blocked in the OS layer; the
      * process ends with them, as the console's power switch would. */
@@ -4972,6 +5075,19 @@ int main(int argc, char **argv)
     argv = vita_args(&argc);
 #endif
 
+#if EIDOS_BOOT_PS4 && EIDOS_BOOT
+    eidos_ps4_log_start("EIDP90002", "01.00");
+    boot_ps4_log_memory("at start");
+    /* The launch screen (sce_sys/pic1.png) stays over everything until the
+     * application hides it; the ROM picker and the error messages are
+     * system dialogs, which would otherwise wait behind it unseen. */
+    {
+        int hide = sceSystemServiceHideSplashScreen();
+        if (hide < 0) {
+            fprintf(stderr, "PS4: sceSystemServiceHideSplashScreen failed (0x%08x)\n", (unsigned)hide);
+        }
+    }
+#endif
 #if EIDOS_BOOT
     {
         /* The DS address space at its own addresses (docs/boot.md,
@@ -5171,7 +5287,7 @@ int main(int argc, char **argv)
 #if EIDOS_BOOT_PS4 && EIDOS_BOOT
     if (setup.reset || setup.move_to != NULL) {
         fprintf(stderr, "PS4: --reset-data and --move-data are not supported.\n");
-        return 2;
+        boot_ps4_exit(2);
     }
     boot_ps4_storage_start();
     if (setup.data_root != NULL && setup.data_root[0] != '\0') {
@@ -5241,7 +5357,7 @@ int main(int argc, char **argv)
         if (boot_ps4_prepare_game_data(&setup, ps4_data_dir,
                                        sizeof(ps4_data_dir)) != 0) {
             boot_ps4_services_stop();
-            return 1;
+            boot_ps4_exit(1);
         }
         data_root = ps4_data_dir;
     }
@@ -5256,6 +5372,7 @@ int main(int argc, char **argv)
     {
         int result = run_boot((u64)frames, window, (unsigned)watchdog);
         boot_ps4_services_stop();
+        boot_ps4_exit(result);
         return result;
     }
 #else

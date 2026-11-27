@@ -827,6 +827,19 @@ if(PS4)
         SceNet_stub_weak)
     eidos_ps4_link_platform(eidos_boot)
     set_target_properties(eidos_boot PROPERTIES SUFFIX ".elf")
+    # The installable game FPKG (tools/ps4/make_game_pkg.sh):
+    #   cmake --build <dir> --target eidos_ps4_release_fpkg
+    # Output: <dir>/pkg/release/IV0000-EIDP90002_00-EIDOSGAME0000001.pkg
+    # Update: -DEIDOS_PS4_PKG_VERSION=01.01 (same Title ID, newer version).
+    find_program(EIDOS_BASH bash)
+    set(EIDOS_PS4_PKG_VERSION "01.00" CACHE STRING "Game package version (NN.NN)")
+    add_custom_target(eidos_ps4_release_fpkg
+        COMMAND ${CMAKE_COMMAND} -E env SCE_ORBIS_SDK_DIR=${ORBIS_SDK_ROOT}
+            ${EIDOS_BASH} ${CMAKE_CURRENT_SOURCE_DIR}/tools/ps4/make_game_pkg.sh
+            --elf $<TARGET_FILE:eidos_boot> --version ${EIDOS_PS4_PKG_VERSION}
+            --out ${CMAKE_BINARY_DIR}/pkg/release
+        DEPENDS eidos_boot
+        VERBATIM USES_TERMINAL)
 endif()
 
 # The boot, run headless for a number of frames, judged by where it stops

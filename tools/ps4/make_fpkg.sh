@@ -10,7 +10,7 @@
 # Usage:
 #   tools/ps4/make_fpkg.sh --elf build/ps4-diagnostics/eidos_ps4_minimal.elf \
 #       --title "Eidos Platform Diagnostic" --title-id EIDP90001 --label DIAGNOSTIC000001 \
-#       [--version 01.00] [--icon icon.png] [--module libc.prx ...] \
+#       [--version 01.00] [--icon icon.png] [--pic1 background.png] [--module libc.prx ...] \
 #       [--sdk-version 0x09008001] [--out out/pkg]
 #
 # Environment:
@@ -24,7 +24,7 @@ set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 die() { echo "make_fpkg: $*" >&2; exit 1; }
 
-ELF= TITLE= TITLE_ID= LABEL= VERSION=01.00 ICON= OUT= SDKVER= PAID=0x3800000000000011
+ELF= TITLE= TITLE_ID= LABEL= VERSION=01.00 ICON= PIC1= OUT= SDKVER= PAID=0x3800000000000011
 MODULES=()
 while [ $# -gt 0 ]; do
   case $1 in
@@ -34,6 +34,7 @@ while [ $# -gt 0 ]; do
     --label) LABEL=$2; shift 2;;
     --version) VERSION=$2; shift 2;;
     --icon) ICON=$2; shift 2;;
+    --pic1) PIC1=$2; shift 2;;
     --module) MODULES+=("$2"); shift 2;;
     --sdk-version) SDKVER=$2; shift 2;;
     --paid) PAID=$2; shift 2;;
@@ -98,6 +99,11 @@ else
     -annotate +0+110 'Diagnostic' -depth 8 -type TrueColor -define png:color-type=2 "$ST/sce_sys/icon0.png"
 fi
 
+# --- background artwork (1920x1080 24-bit PNG), optional
+if [ -n "$PIC1" ]; then
+  magick "$PIC1" -resize 1920x1080! -depth 8 -type TrueColor -define png:color-type=2 "$ST/sce_sys/pic1.png"
+fi
+
 # --- param.sfo
 S=$ST/sce_sys/param.sfo
 "$PKGTOOL" sfo_new "$S"
@@ -116,6 +122,7 @@ set_sfo VERSION Utf8 8 "$VERSION"
 # --- gp4 + pkg
 cd "$ST"
 FILES="eboot.bin sce_sys/param.sfo sce_sys/icon0.png"
+[ -f sce_sys/pic1.png ] && FILES="$FILES sce_sys/pic1.png"
 for f in sce_module/*; do [ -e "$f" ] && FILES="$FILES $f"; done
 "$CREATE_GP4" -out pkg.gp4 --content-id="$CONTENT_ID" --files "$FILES" >/dev/null
 "$PKGTOOL" pkg_build pkg.gp4 "$OUT" >/dev/null

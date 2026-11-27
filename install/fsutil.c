@@ -577,11 +577,23 @@ int bw_remove_tree_utf8(const char *path)
 int bw_file_size(FILE *fp, u64 *size)
 {
     struct stat st;
+    long here, end;   /* 64 bits on Orbis; the libc has no fseeko/ftello */
 
-    if (fstat(fileno(fp), &st) != 0 || st.st_size < 0) {
+    if (fstat(fileno(fp), &st) == 0 && st.st_size >= 0) {
+        *size = (u64)st.st_size;
+        return 0;
+    }
+    /* fstat is refused inside the application sandbox for some volumes
+     * (/data among them); the end of the file is where a seek says */
+    here = ftell(fp);
+    if (here < 0 || fseek(fp, 0, SEEK_END) != 0) {
         return -1;
     }
-    *size = (u64)st.st_size;
+    end = ftell(fp);
+    if (fseek(fp, here, SEEK_SET) != 0 || end < 0) {
+        return -1;
+    }
+    *size = (u64)end;
     return 0;
 }
 

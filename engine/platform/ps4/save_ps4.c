@@ -7,8 +7,8 @@
 /* Private application save directory, independent of a commercial title ID.
  * SaveData associates it with the running application's assigned identity.
  */
-#define EIDOS_PS4_SAVE_DIRECTORY "eidos_ps4_saves"
-#define EIDOS_PS4_DATA_DIRECTORY "eidos_ps4_game_data"
+#define EIDOS_PS4_SAVE_DIRECTORY "eidos-ps4-saves"   /* SceSaveDataDirName: a-z A-Z 0-9 - . @ only; "_" is refused (0x809f0000) */
+#define EIDOS_PS4_DATA_DIRECTORY "eidos-ps4-game-data"
 /* Eight cartridge-sized slots plus atomic replacement and port metadata. */
 #define EIDOS_PS4_SAVE_BLOCKS 256u
 
