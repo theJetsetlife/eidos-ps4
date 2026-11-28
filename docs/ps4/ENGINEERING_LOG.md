@@ -1583,3 +1583,36 @@ this release checkpoint. The temporary source tree was restored clean after
 the build. Host `test_ps4_snapshot_vertices` passes 1/1, and `test_dsaddr.py`
 passes 82 tests (13 skipped). No hardware draw or physical image capture is
 claimed.
+
+# 2026-11-28 — Musical camera missing-actor control flow
+
+Bounded investigation: remove the Orbis `-Wsometimes-uninitialized` read of
+`target` in `STA_ACTING_UpdateCamera` without assigning a made-up camera
+position. The recovered function only computes `target` when the selected
+actor has a position, but previously clamped and consumed it after the actor
+lookup failed. The established missing-actor guard supports leaving automatic
+tracking unchanged for that update; manual left/right scroll handling remains
+active.
+
+The generated native copy now tracks whether either valid actor-position path
+computed the target and clamps/consumes it only in that case. Aletheia remains
+unchanged. The focused transformation test and complete `test_dsaddr.py`
+corpus passed (84 tests, one skipped; 33,572 matched sources). The complete
+optimized official Orbis target regenerated and linked. A strict compile of
+the generated `sta_acting.c` object passed with
+`-Werror=sometimes-uninitialized` and
+`-ftrivial-auto-var-init=uninitialized`.
+
+Two isolated GoldHEN FPKGs from the resulting ELF, using
+`SOURCE_DATE_EPOCH=1764201600`, are byte-identical (23,920,640 bytes; SHA-256
+`e35fd6d1463b1c73ae53a235b3514d1bd7c11365120094f56f8e63ce5b512d96`). Both
+passed all 29 `pkg_validate` checks and `verify_fpkg`. The ELF SHA-256 is
+`403473cfc77ddfc179ad27551eeba2ef267c7f2b2b97c18b837afdfb8c10c9ff`.
+Packaging and compilation do not establish musical interaction or console
+runtime correctness; physical validation remains open.
+
+Next bounded investigation: review `PMSIV_WORDWIN_GetThumbRow` in `ov110`,
+establish the valid thumb-coordinate and row-count domains from its callers,
+then preserve its documented row mapping while eliminating any undefined
+fallback. Do not initialize the result until those domains establish the
+appropriate behavior.

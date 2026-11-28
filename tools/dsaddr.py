@@ -1971,6 +1971,48 @@ def native_defined_locals(source: str, path: str) -> str:
     return source
 
 
+def native_musical_camera_target(source: str, path: str) -> str:
+    """Only update the musical camera from an actor with a valid position.
+
+    The recovered function deliberately checks whether the selected actor
+    exists, but then consumes the position-derived target even when it does
+    not. Preserve manual scrolling and the existing valid-actor mapping while
+    skipping automatic tracking for an absent actor.
+    """
+    if not path.replace("\\", "/").endswith(
+            "/src/game/ov132/sta_acting.c"):
+        return source
+    source = _need(
+        source,
+        "    signed short target;\n    u8 index;",
+        "    signed short target;\n    int targetValid = 0;\n    u8 index;")
+    source = _need(
+        source,
+        "                target = (float)v.x / 4096.0f - 128.0f;\n"
+        "            }\n"
+        "        } else {\n"
+        "            STA_ACT_LIGHT_GetElemPos((void *)(((struct ActingScene *)p)->charSystem), (char *)(((struct ActingScene *)p)->charSlots[((struct ActingScene *)p)->highlightActor]), (StaActLightVec3 *)&v);\n"
+        "            target = (float)v.x / 4096.0f - 128.0f;\n"
+        "        }\n"
+        "        if (target > 256) target = 256;\n"
+        "        else if (target < 0) target = 0;\n"
+        "        if (target != ((struct ActingScene *)p)->scrollX) ((struct ActingScene *)p)->scrollTargetX = target;",
+        "                target = (float)v.x / 4096.0f - 128.0f;\n"
+        "                targetValid = 1;\n"
+        "            }\n"
+        "        } else {\n"
+        "            STA_ACT_LIGHT_GetElemPos((void *)(((struct ActingScene *)p)->charSystem), (char *)(((struct ActingScene *)p)->charSlots[((struct ActingScene *)p)->highlightActor]), (StaActLightVec3 *)&v);\n"
+        "            target = (float)v.x / 4096.0f - 128.0f;\n"
+        "            targetValid = 1;\n"
+        "        }\n"
+        "        if (targetValid) {\n"
+        "            if (target > 256) target = 256;\n"
+        "            else if (target < 0) target = 0;\n"
+        "            if (target != ((struct ActingScene *)p)->scrollX) ((struct ActingScene *)p)->scrollTargetX = target;\n"
+        "        }")
+    return source
+
+
 def native_itemmenu_control_domains(source: str, path: str) -> str:
     """Give item-menu loop, button, and resource-selection paths defined behavior.
 
@@ -2356,6 +2398,7 @@ def main(argv=None) -> int:
     source = native_game_allocations(source, src_path)
     source = native_variadic_abi(source, src_path)
     source = native_defined_locals(source, src_path)
+    source = native_musical_camera_target(source, src_path)
     source = native_itemmenu_control_domains(source, src_path)
     source = native_mystery_gift_pid_domain(source, src_path)
     source = native_bg_screen_dimensions(source, src_path)

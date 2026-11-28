@@ -219,6 +219,21 @@ class NativeTypes(unittest.TestCase):
         self.assertIn("int saved = 0", native)
         self.assertEqual(dsaddr.native_defined_locals(sound, "/other.c"), sound)
 
+    def test_native_musical_camera_skips_missing_actor_target(self):
+        if not CFG.aletheia_root:
+            self.skipTest("requires the Aletheia source checkout")
+        path = os.path.join(CFG.aletheia_root, "src/game/ov132/sta_acting.c")
+        with open(path, encoding="utf-8") as stream:
+            source = stream.read()
+        native = dsaddr.native_musical_camera_target(source, path)
+        self.assertIn("int targetValid = 0;", native)
+        self.assertIn("if (targetValid) {", native)
+        self.assertEqual(
+            native.count("targetValid = 1;"), 2,
+            "both actor-position sources must validate the computed target")
+        self.assertEqual(
+            dsaddr.native_musical_camera_target(source, "/other.c"), source)
+
     def test_native_mystery_gift_rejects_unknown_derived_pid_type(self):
         source = (
             "    if (gift->formatVersion != 1) {\n"

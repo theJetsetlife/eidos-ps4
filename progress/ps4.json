@@ -1,5 +1,5 @@
 {
-  "date": "2026-11-27",
+  "date": "2026-11-28",
   "eidos_upstream": "6d8a7a95c4c199828ae059dba51f882fa8388703",
   "aletheia": "995615a30f1b1d47109d435a7cb355983ec32e18",
   "milestones": [
@@ -169,6 +169,13 @@
       "evidence": "Two independent GoldHEN FPKGs from the optimized ELF compare byte-for-byte (23,920,640 bytes; SHA-256 1a4bda971a3537465c703ab5a7ca7f78a0a6b2e2799dabd5b63b105180220341); both passed 29 pkg_validate checks and verify_fpkg.",
       "commit": "189edef",
       "remaining": "Physical installation and end-to-end gameplay validation on the identified build."
+    },
+    {
+      "id": "musical-camera-control-flow",
+      "subsystem": "overlay uninitialized-state correction",
+      "status": "verified-build",
+      "evidence": "Generated ov132/sta_acting.c passes official Orbis compile with -Werror=sometimes-uninitialized and -ftrivial-auto-var-init=uninitialized. Full test_dsaddr corpus: 84 tests, 1 skipped. Full optimized Orbis target linked; ELF SHA-256 403473cfc77ddfc179ad27551eeba2ef267c7f2b2b97c18b837afdfb8c10c9ff. Two fixed-epoch FPKGs are byte-identical (SHA-256 e35fd6d1463b1c73ae53a235b3514d1bd7c11365120094f56f8e63ce5b512d96); both pass 29 pkg_validate checks and verify_fpkg.",
+      "remaining": "Musical camera interaction and all console runtime behavior remain unverified; review ov110 PMSIV_WORDWIN_GetThumbRow next."
     }
   ],
   "campaign": [
