@@ -1,4 +1,5 @@
 #include "snapshot_vertices_ps4.h"
+#include "hw3d.h"
 
 #include <assert.h>
 #include <string.h>

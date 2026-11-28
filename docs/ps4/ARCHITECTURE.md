@@ -72,11 +72,13 @@ Vita behavior must remain unchanged when the PS4 toolchain is not selected.
 `engine/platform/ps4/video_ps4.cpp` owns a reusable 16:9 VideoOut scanout
 surface: it allocates and registers double buffers, waits before returning a
 CPU-writable back buffer, submits paced flips, and releases resources in
-reverse order. The standalone `tests/ps4/minimal` target records a GNMX
-fullscreen-quad draw with an embedded PSSL color-bar shader into the GNM
-targets before flipping. This diagnostic source passes SDK-header syntax
-checks but has not been compiled by Sony's compiler or run on hardware. The
-game's PS4-only boot path now allocates DS screen
+reverse order. The standalone `tests/ps4/minimal` target links an official
+GNMX vertex/pixel shader path that draws a flat-color triangle using the PS4
+snapshot vertex format into the 1920×1080 scanout target. The official SDK
+build compiles and links this diagnostic plus all seven offline PSSL programs;
+it has not been run on hardware. This diagnostic draw does not implement the
+game's polygon state, depth, textures, or composition. The game's PS4-only boot
+path now allocates DS screen
 buffers, installs a render hook, composes each frame through Eidos's existing
 software DS compositor, and sends both screens to the scanout buffers. Its
 CPU-side nearest-neighbour copy is explicitly a diagnostic view, not the

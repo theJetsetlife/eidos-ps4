@@ -61,19 +61,19 @@
       "id": "shaders",
       "subsystem": "offline shaders",
       "acceptance": "Compile and index every program currently bound by the PS4 backend",
-      "status": "partial",
-      "commit": "dd2ebc5",
-      "evidence": "Five-shader production ELF/package artifacts remain verified at dd2ebc5. Two new snapshot prototype shaders compiled with SDK 12.508; the isolated seven-program manifest has verified source/binary hashes and sizes, and blob accessors compile with Orbis C++.",
-      "remaining": "Bind snapshot prototype shaders in GNMX and complete production geometry, texture, depth, and composition shader passes."
+      "status": "verified-build",
+      "commit": "76efb0f",
+      "evidence": "Official CMake compiled and embedded seven PSSL programs and linked the minimal diagnostic. Two snapshot stages are used by its flat triangle diagnostic; production game geometry/material passes remain absent.",
+      "remaining": "Implement and validate production game snapshot, texture, depth, and composition passes."
     },
     {
       "id": "graphics",
       "subsystem": "graphics",
       "acceptance": "Present native game layers at 1920x1080",
       "status": "partial",
-      "commit": "189edef",
-      "evidence": "GNMX presents the CPU-composited DS-resolution frame. G3dSnapshot and GL/SDL GPU backends exist, but the PS4 boot path bypasses EidosPlatform and has no snapshot renderer. Native-detail game rendering is absent.",
-      "remaining": "Prototype a GNMX snapshot adapter with explicit feature detection and CPU fallback; validate target draw and physical capture."
+      "commit": "76efb0f",
+      "evidence": "Official GNMX triangle-list draw using the snapshot vertex format links in the isolated minimal diagnostic. The game still presents CPU-composited DS-resolution content; no G3dSnapshot is connected.",
+      "remaining": "Obtain a physical diagnostic capture, then integrate a feature-classified game snapshot path with differential checks and CPU fallback."
     },
     {
       "id": "pad",
@@ -264,15 +264,15 @@
       "The official SDK sample archive includes GNMX vertex-buffer, vertex-shader, depth-target, indexed-draw, and submit examples; the current PS4 backend only binds pixel shaders for fullscreen compatibility passes."
     ],
     "decision": "Keep the PS4 frame path and CPU rasterizer intact while prototyping a dedicated GNMX snapshot adapter. Do not advertise snapshot features as GPU-supported or enable raster skipping until feature coverage and fallback boundaries are proven.",
-    "implemented_slice": "Added checked triangle/quad-fan conversion from G3dSnapshot clip-space fixed-point vertices and RGB bytes into a linear float vertex stream in engine/platform/ps4/snapshot_vertices_ps4.c. The helper rejects malformed indices/counts and insufficient capacity before writing. It is compiled into the PS4 platform target and covered by a host CTest regression. Added two official PSSL shader sources for the converted flat-color vertex format, registered offline compilation and embedding, and added shader-blob accessors. They are prototypes and are not yet bound to GNMX.",
-    "validation": "Strict host C99 test passes; CMake configured the full 427-unit boot and 976-source overlay graph and built test_ps4_snapshot_vertices (1/1 passed); official Orbis clang compiled the new helper with -Wall -Wextra -Werror. Official PSSL compiler generated 404-byte VS and 312-byte PS; an isolated seven-program manifest verified source/binary hashes and sizes; Orbis C++ compiled shader_blobs_ps4.cpp with generated headers.",
+    "implemented_slice": "Added checked triangle/quad-fan conversion from G3dSnapshot clip-space fixed-point vertices and RGB bytes into a linear float vertex stream in engine/platform/ps4/snapshot_vertices_ps4.c. The helper rejects malformed indices/counts and insufficient capacity before writing. It is compiled into the PS4 platform target and covered by a host CTest regression. Added two official PSSL shader sources for the converted flat-color vertex format, registered offline compilation and embedding, and added shader-blob accessors. They are prototypes and are not yet bound to GNMX. Added GNMX vertex shader parsing/relocation, fetch shader and input-offset setup, interleaved vertex-buffer binding, and a flat triangle-list scanout draw. The standalone minimal diagnostic now exercises it; the game path remains unchanged.",
+    "validation": "Strict host C99 test passes; CMake configured the full 427-unit boot and 976-source overlay graph and built test_ps4_snapshot_vertices (1/1 passed); official Orbis clang compiled the new helper with -Wall -Wextra -Werror. Official PSSL compiler generated 404-byte VS and 312-byte PS; an isolated seven-program manifest verified source/binary hashes and sizes; Orbis C++ compiled shader_blobs_ps4.cpp with generated headers. Official CMake built eidos_platform_ps4 and linked eidos_ps4_minimal.elf with all seven PSSL programs. ELF SHA-256 ab2199325c28b3d77532d9daf25ab9218aa6b440d2b7e39a33bba80aad4a45d7. Seven manifest source/binary hashes and sizes match. No hardware capture.",
     "missing_evidence": [
-      "Official PSSL vertex shader plus fetch/input layout compiled and linked in the PS4 target.",
-      "GNMX depth and per-polygon state translation with an explicit supported-feature classifier.",
-      "Physical-console capture confirming the native draw and correct DS composition."
+      "Physical-console execution and image capture of the diagnostic triangle.",
+      "Game boot path connection to actual G3dSnapshot frames.",
+      "Texture/material/depth/blend semantics, explicit capability classifier, and CPU fallback behavior for partially supported frames."
     ],
-    "next_experiment": "Implement GNMX fetch-shader generation, vertex-buffer binding, and a feature-isolated snapshot draw. Keep it diagnostic/offscreen and preserve CPU output as authoritative.",
+    "next_experiment": "After a physical capture confirms the diagnostic pipeline, connect a bounded set of real snapshot primitives behind an explicit diagnostic switch, and compare their raster output against the CPU renderer before enabling any GPU feature flags.",
     "effort_budget": "One bounded implementation checkpoint; stop after the isolated target build and conversion evidence, or record the exact SDK/API blocker and next discriminating check.",
-    "stopping_condition": "Do not connect the prototype to game presentation or enable g3d_hw_skip_raster until target compile/link succeeds, converted vertices are covered by tests, unsupported content is detected, and physical capture validates the draw."
+    "stopping_condition": "Do not enable g3d_hw_skip_raster or claim production renderer coverage without physical image evidence, semantic differential checks, feature classification, and a whole-frame fallback for unsupported content."
   }
 }

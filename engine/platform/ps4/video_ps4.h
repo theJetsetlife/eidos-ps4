@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "presentation_ps4.h"
+#include "snapshot_vertices_ps4.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,6 +28,13 @@ int eidos_ps4_video_begin_frame(EidosPs4Video *video, void **pixels,
 /* Record a GNM/GNMX fullscreen color-bar draw into the active back buffer.
  * This is a GPU pipeline diagnostic; it does not display the game's frame. */
 int eidos_ps4_video_draw_color_bars(EidosPs4Video *video);
+
+/* Diagnostic GNMX draw for already converted flat-color snapshot triangles.
+ * It writes into the active scanout target with a centered 4:3 viewport; it
+ * does not implement polygon materials, depth, blending, or 2D composition. */
+int eidos_ps4_video_draw_snapshot_flat(EidosPs4Video *video,
+                                       const EidosPs4SnapshotVertex *vertices,
+                                       uint32_t vertex_count);
 
 /* Upload two software-composed 256x192 RGBA DS screens to per-back-buffer
  * GPU textures and draw the compatibility view through GNMX. If the cursor

@@ -1,4 +1,5 @@
 #include "snapshot_vertices_ps4.h"
+#include "hw3d.h"
 
 #include <limits.h>
 #include <stddef.h>
@@ -6,10 +7,11 @@
 #define EIDOS_PS4_FX32_ONE 4096.0f
 #define EIDOS_PS4_COLOR_ONE (1.0f / 255.0f)
 
-static int snapshot_vertex_count(const G3dSnapshot *snapshot, u32 *count)
+static int snapshot_vertex_count(const struct G3dSnapshot *snapshot,
+                                 uint32_t *count)
 {
-    u32 total = 0;
-    u32 i;
+    uint32_t total = 0;
+    uint32_t i;
 
     if (snapshot == NULL || count == NULL ||
         (snapshot->n_polys != 0 && snapshot->polys == NULL) ||
@@ -20,8 +22,8 @@ static int snapshot_vertex_count(const G3dSnapshot *snapshot, u32 *count)
 
     for (i = 0; i < snapshot->n_polys; ++i) {
         const G3dPoly *poly = &snapshot->polys[i];
-        u32 j;
-        u32 triangle_vertices;
+        uint32_t j;
+        uint32_t triangle_vertices;
 
         if ((poly->count != 3u && poly->count != 4u) ||
             poly->first > snapshot->n_idx ||
@@ -56,14 +58,14 @@ static void write_vertex(EidosPs4SnapshotVertex *output,
     output->color[2] = (float)input->b * EIDOS_PS4_COLOR_ONE;
 }
 
-int eidos_ps4_snapshot_vertices(const G3dSnapshot *snapshot,
+int eidos_ps4_snapshot_vertices(const struct G3dSnapshot *snapshot,
                                 EidosPs4SnapshotVertex *output,
-                                u32 capacity, u32 *vertex_count)
+    uint32_t capacity, uint32_t *vertex_count)
 {
-    static const u8 fan[6] = { 0, 1, 2, 0, 2, 3 };
-    u32 required = 0;
-    u32 written = 0;
-    u32 i;
+    static const uint8_t fan[6] = { 0, 1, 2, 0, 2, 3 };
+    uint32_t required = 0;
+    uint32_t written = 0;
+    uint32_t i;
 
     if (vertex_count == NULL) {
         return -1;
@@ -78,7 +80,7 @@ int eidos_ps4_snapshot_vertices(const G3dSnapshot *snapshot,
 
     for (i = 0; i < snapshot->n_polys; ++i) {
         const G3dPoly *poly = &snapshot->polys[i];
-        u32 j;
+        uint32_t j;
         for (j = 0; j < (poly->count - 2u) * 3u; ++j) {
             const u32 index = snapshot->idx[poly->first + fan[j]];
             write_vertex(&output[written++], &snapshot->verts[index]);

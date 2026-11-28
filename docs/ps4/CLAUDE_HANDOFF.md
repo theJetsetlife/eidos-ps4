@@ -17,10 +17,11 @@ passes 82 tests (13 skipped). The last linked production build has five PSSL sha
 hashes match `/tmp/eidos-merged-orbis-o2/ps4-shaders/manifest.json`. Two new
 snapshot prototype shaders now compile with PSSL and pass an isolated
 seven-program manifest hash check; their build graph and GNMX draw are pending.
-The PS4 output
-still presents CPU-composited DS-resolution content through GNMX; native
-snapshot rendering, hardware behavior, gameplay coverage, and performance
-acceptance remain open.
+The game output still presents CPU-composited DS-resolution content through
+GNMX. An isolated minimal diagnostic now links a flat-color triangle pipeline
+using the snapshot vertex format, but no game snapshot is connected to it and
+no hardware capture exists. Native game snapshot rendering, hardware behavior,
+gameplay coverage, and performance acceptance remain open.
 
 Machine-readable subsystem status is `progress/ps4.json`; verified ABI
 defects and scanner candidates are separate in `tools/lp64/inventory.jsonl`.

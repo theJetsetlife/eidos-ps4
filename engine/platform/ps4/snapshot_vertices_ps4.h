@@ -1,11 +1,13 @@
 #ifndef EIDOS_PLATFORM_PS4_SNAPSHOT_VERTICES_H
 #define EIDOS_PLATFORM_PS4_SNAPSHOT_VERTICES_H
 
-#include "hw3d.h"
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+struct G3dSnapshot;
 
 /* GNMX prototype vertex format for clip-space, untextured geometry. Positions
  * are converted from the DS 20.12 fixed-point snapshot to float clip space;
@@ -19,9 +21,9 @@ typedef struct EidosPs4SnapshotVertex {
 /* Convert snapshot triangle and quad fans into a linear triangle list.
  * Returns 0 on success, -1 for malformed input, and -2 when capacity is too
  * small. On failure, *vertex_count is zero and output is left untouched. */
-int eidos_ps4_snapshot_vertices(const G3dSnapshot *snapshot,
+int eidos_ps4_snapshot_vertices(const struct G3dSnapshot *snapshot,
                                 EidosPs4SnapshotVertex *output,
-                                u32 capacity, u32 *vertex_count);
+                                uint32_t capacity, uint32_t *vertex_count);
 
 #ifdef __cplusplus
 }

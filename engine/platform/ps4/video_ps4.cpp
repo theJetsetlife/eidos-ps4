@@ -1,6 +1,7 @@
 #include "video_ps4.h"
 
 #include <new>
+#include <cstddef>
 #include <cstring>
 #include <limits>
 
@@ -45,7 +46,9 @@ int destroy_gpu_arena(GpuArena *arena);
 int initialize_gnm(EidosPs4Video *video,
                    const EidosPs4ShaderBlob *diagnostic_shader,
                    const EidosPs4ShaderBlob *ds_compatibility_shader,
-                   const EidosPs4ShaderBlob *single_screen_shader);
+                   const EidosPs4ShaderBlob *single_screen_shader,
+                   const EidosPs4ShaderBlob *snapshot_vertex_blob,
+                   const EidosPs4ShaderBlob *snapshot_pixel_blob);
 
 } // namespace
 
@@ -71,6 +74,12 @@ struct EidosPs4Video {
     sce::Gnmx::PsShader *diagnostic_pixel_shader = nullptr;
     sce::Gnmx::PsShader *ds_compatibility_pixel_shader = nullptr;
     sce::Gnmx::PsShader *single_screen_pixel_shader = nullptr;
+    sce::Gnmx::VsShader *snapshot_vertex_shader = nullptr;
+    sce::Gnmx::PsShader *snapshot_pixel_shader = nullptr;
+    void *snapshot_fetch_shader = nullptr;
+    uint32_t snapshot_shader_modifier = 0;
+    sce::Gnmx::InputOffsetsCache snapshot_vs_offsets = {};
+    sce::Gnmx::InputOffsetsCache snapshot_ps_offsets = {};
     void *ds_texture_memory[kBufferCount] = {};
     uint32_t ds_texture_pitch = 0;
     off_t direct_offset = 0;
@@ -219,10 +228,48 @@ sce::Gnmx::PsShader *copy_shader(GpuArena *arena,
     return shader;
 }
 
+bool vertex_shader_layout(const sce::Gnmx::ShaderInfo &info,
+                          size_t *struct_size, size_t *code_offset,
+                          size_t *storage_size)
+{
+    if (info.m_vsShader == nullptr || info.m_gpuShaderCode == nullptr ||
+        info.m_gpuShaderCodeSize == 0) {
+        return false;
+    }
+    *struct_size = info.m_vsShader->computeSize();
+    *code_offset = static_cast<size_t>(align_up(
+        *struct_size, sce::Gnm::kAlignmentOfShaderInBytes));
+    if (*code_offset > std::numeric_limits<size_t>::max() -
+                           info.m_gpuShaderCodeSize) {
+        return false;
+    }
+    *storage_size = *code_offset + info.m_gpuShaderCodeSize;
+    return true;
+}
+
+sce::Gnmx::VsShader *copy_vertex_shader(
+    GpuArena *arena, const sce::Gnmx::ShaderInfo &info, size_t struct_size,
+    size_t code_offset, size_t storage_size)
+{
+    void *memory = gpu_arena_allocate(
+        arena, storage_size, sce::Gnm::kAlignmentOfShaderInBytes);
+    if (memory == nullptr) {
+        return nullptr;
+    }
+    __builtin_memcpy(memory, info.m_vsShader, struct_size);
+    void *code = static_cast<uint8_t *>(memory) + code_offset;
+    __builtin_memcpy(code, info.m_gpuShaderCode, info.m_gpuShaderCodeSize);
+    sce::Gnmx::VsShader *shader = static_cast<sce::Gnmx::VsShader *>(memory);
+    shader->patchShaderGpuAddress(code);
+    return shader;
+}
+
 int initialize_gnm(EidosPs4Video *video,
                    const EidosPs4ShaderBlob *diagnostic_shader,
                    const EidosPs4ShaderBlob *ds_compatibility_shader,
-                   const EidosPs4ShaderBlob *single_screen_shader)
+                   const EidosPs4ShaderBlob *single_screen_shader,
+                   const EidosPs4ShaderBlob *snapshot_vertex_blob,
+                   const EidosPs4ShaderBlob *snapshot_pixel_blob)
 {
     if (video == nullptr || diagnostic_shader == nullptr ||
         diagnostic_shader->data == nullptr || diagnostic_shader->size == 0 ||
@@ -231,16 +278,23 @@ int initialize_gnm(EidosPs4Video *video,
         ds_compatibility_shader->size == 0 ||
         single_screen_shader == nullptr ||
         single_screen_shader->data == nullptr ||
-        single_screen_shader->size == 0) {
+        single_screen_shader->size == 0 ||
+        snapshot_vertex_blob == nullptr || snapshot_vertex_blob->data == nullptr ||
+        snapshot_vertex_blob->size == 0 || snapshot_pixel_blob == nullptr ||
+        snapshot_pixel_blob->data == nullptr || snapshot_pixel_blob->size == 0) {
         return -1;
     }
 
     sce::Gnmx::ShaderInfo diagnostic_info = {};
     sce::Gnmx::ShaderInfo ds_info = {};
     sce::Gnmx::ShaderInfo single_info = {};
+    sce::Gnmx::ShaderInfo snapshot_vs_info = {};
+    sce::Gnmx::ShaderInfo snapshot_ps_info = {};
     sce::Gnmx::parseShader(&diagnostic_info, diagnostic_shader->data);
     sce::Gnmx::parseShader(&ds_info, ds_compatibility_shader->data);
     sce::Gnmx::parseShader(&single_info, single_screen_shader->data);
+    sce::Gnmx::parseShader(&snapshot_vs_info, snapshot_vertex_blob->data);
+    sce::Gnmx::parseShader(&snapshot_ps_info, snapshot_pixel_blob->data);
     size_t diagnostic_struct_size = 0;
     size_t diagnostic_code_offset = 0;
     size_t diagnostic_storage_size = 0;
@@ -250,12 +304,24 @@ int initialize_gnm(EidosPs4Video *video,
     size_t single_struct_size = 0;
     size_t single_code_offset = 0;
     size_t single_storage_size = 0;
+    size_t snapshot_vs_struct_size = 0;
+    size_t snapshot_vs_code_offset = 0;
+    size_t snapshot_vs_storage_size = 0;
+    size_t snapshot_ps_struct_size = 0;
+    size_t snapshot_ps_code_offset = 0;
+    size_t snapshot_ps_storage_size = 0;
     if (!shader_layout(diagnostic_info, &diagnostic_struct_size,
                        &diagnostic_code_offset, &diagnostic_storage_size) ||
         !shader_layout(ds_info, &ds_struct_size, &ds_code_offset,
                        &ds_storage_size) ||
         !shader_layout(single_info, &single_struct_size, &single_code_offset,
-                       &single_storage_size)) {
+                       &single_storage_size) ||
+        !vertex_shader_layout(snapshot_vs_info, &snapshot_vs_struct_size,
+                              &snapshot_vs_code_offset,
+                              &snapshot_vs_storage_size) ||
+        !shader_layout(snapshot_ps_info, &snapshot_ps_struct_size,
+                       &snapshot_ps_code_offset,
+                       &snapshot_ps_storage_size)) {
         return -1;
     }
 
@@ -297,13 +363,18 @@ int initialize_gnm(EidosPs4Video *video,
 
     const size_t cue_heap_size = sce::Gnmx::ConstantUpdateEngine::computeHeapSize(
         kCueRingEntries);
-    if (cue_heap_size == 0) {
+    const uint32_t snapshot_fetch_shader_size =
+        sce::Gnmx::computeVsFetchShaderSize(snapshot_vs_info.m_vsShader);
+    if (cue_heap_size == 0 || snapshot_fetch_shader_size == 0) {
         return -1;
     }
     size_t garlic_size = kDirectAlignment;
     if (!add_size(&garlic_size, diagnostic_storage_size) ||
         !add_size(&garlic_size, ds_storage_size) ||
         !add_size(&garlic_size, single_storage_size) ||
+        !add_size(&garlic_size, snapshot_vs_storage_size) ||
+        !add_size(&garlic_size, snapshot_ps_storage_size) ||
+        !add_size(&garlic_size, snapshot_fetch_shader_size) ||
         cue_heap_size > std::numeric_limits<size_t>::max() / kBufferCount ||
         !add_size(&garlic_size, cue_heap_size * kBufferCount) ||
         !add_size(&garlic_size,
@@ -333,11 +404,35 @@ int initialize_gnm(EidosPs4Video *video,
     video->single_screen_pixel_shader = copy_shader(
         &video->garlic_arena, single_info, single_struct_size,
         single_code_offset, single_storage_size);
+    video->snapshot_vertex_shader = copy_vertex_shader(
+        &video->garlic_arena, snapshot_vs_info, snapshot_vs_struct_size,
+        snapshot_vs_code_offset, snapshot_vs_storage_size);
+    video->snapshot_pixel_shader = copy_shader(
+        &video->garlic_arena, snapshot_ps_info, snapshot_ps_struct_size,
+        snapshot_ps_code_offset, snapshot_ps_storage_size);
     if (video->diagnostic_pixel_shader == nullptr ||
         video->ds_compatibility_pixel_shader == nullptr ||
-        video->single_screen_pixel_shader == nullptr) {
+        video->single_screen_pixel_shader == nullptr ||
+        video->snapshot_vertex_shader == nullptr ||
+        video->snapshot_pixel_shader == nullptr) {
         return -1;
     }
+
+    video->snapshot_fetch_shader = gpu_arena_allocate(
+        &video->garlic_arena, snapshot_fetch_shader_size,
+        sce::Gnm::kAlignmentOfFetchShaderInBytes);
+    if (video->snapshot_fetch_shader == nullptr) {
+        return -1;
+    }
+    sce::Gnmx::generateVsFetchShader(
+        video->snapshot_fetch_shader, &video->snapshot_shader_modifier,
+        video->snapshot_vertex_shader);
+    sce::Gnmx::generateInputOffsetsCache(
+        &video->snapshot_vs_offsets, sce::Gnm::kShaderStageVs,
+        video->snapshot_vertex_shader);
+    sce::Gnmx::generateInputOffsetsCache(
+        &video->snapshot_ps_offsets, sce::Gnm::kShaderStagePs,
+        video->snapshot_pixel_shader);
 
     for (int i = 0; i < kBufferCount; ++i) {
         video->ds_texture_memory[i] = gpu_arena_allocate(
@@ -487,7 +582,9 @@ extern "C" int eidos_ps4_video_create(EidosPs4Video **out, uint32_t width,
 
     result = initialize_gnm(video, eidos_ps4_diagnostic_pixel_shader(),
                             eidos_ps4_diagnostic_ds_shader(),
-                            eidos_ps4_single_ds_shader());
+                            eidos_ps4_single_ds_shader(),
+                            eidos_ps4_snapshot_flat_vertex_shader(),
+                            eidos_ps4_snapshot_flat_pixel_shader());
     if (result < 0) {
         return result;
     }
@@ -596,6 +693,81 @@ extern "C" int eidos_ps4_video_draw_color_bars(EidosPs4Video *video)
     context->setBlendControl(0, blend_control);
 
     sce::Gnmx::renderFullScreenQuad(context);
+    video->gpu_frame_ready = true;
+    return 0;
+}
+
+extern "C" int eidos_ps4_video_draw_snapshot_flat(
+    EidosPs4Video *video, const EidosPs4SnapshotVertex *vertices,
+    uint32_t vertex_count)
+{
+    if (video == nullptr || vertices == nullptr || vertex_count == 0 ||
+        vertex_count % 3u != 0 || video->current_index < 0 ||
+        !video->gpu_contexts_ready || video->gpu_frame_ready ||
+        video->width != 1920u || video->height != 1080u ||
+        video->snapshot_vertex_shader == nullptr ||
+        video->snapshot_pixel_shader == nullptr ||
+        video->snapshot_fetch_shader == nullptr ||
+        vertex_count > std::numeric_limits<uint32_t>::max() /
+                           sizeof(EidosPs4SnapshotVertex)) {
+        return -1;
+    }
+    const uint32_t bytes = vertex_count * sizeof(EidosPs4SnapshotVertex);
+    if (bytes >= 64u * 1024u) {
+        return -1;
+    }
+
+    const int index = video->current_index;
+    sce::Gnmx::GfxContext *context = &video->gfx_contexts[index];
+    context->reset();
+    context->initializeDefaultHardwareState();
+    void *vertex_data = context->allocateFromCommandBuffer(
+        bytes, sce::Gnm::kEmbeddedDataAlignment4);
+    if (vertex_data == nullptr) {
+        return -1;
+    }
+    __builtin_memcpy(vertex_data, vertices, bytes);
+
+    sce::Gnm::Buffer vertex_buffers[2];
+    vertex_buffers[0].initAsVertexBuffer(
+        vertex_data, sce::Gnm::kDataFormatR32G32B32A32Float,
+        sizeof(EidosPs4SnapshotVertex), vertex_count);
+    vertex_buffers[1].initAsVertexBuffer(
+        static_cast<uint8_t *>(vertex_data) +
+            offsetof(EidosPs4SnapshotVertex, color),
+        sce::Gnm::kDataFormatR32G32B32Float,
+        sizeof(EidosPs4SnapshotVertex), vertex_count);
+
+    context->setupScreenViewport(240, 0, 1440, 1080, 0.5f, 0.5f);
+    context->setRenderTarget(0, &video->render_targets[index]);
+    context->setDepthRenderTarget(nullptr);
+    context->setCbControl(sce::Gnm::kCbModeNormal, sce::Gnm::kRasterOpCopy);
+    context->setRenderTargetMask(0x0fu);
+    context->setActiveShaderStages(sce::Gnm::kActiveShaderStagesVsPs);
+    context->setVsShader(video->snapshot_vertex_shader,
+                         video->snapshot_shader_modifier,
+                         video->snapshot_fetch_shader,
+                         &video->snapshot_vs_offsets);
+    context->setPsShader(video->snapshot_pixel_shader,
+                         &video->snapshot_ps_offsets);
+    context->setVertexBuffers(sce::Gnm::kShaderStageVs, 0, 2,
+                              vertex_buffers);
+
+    sce::Gnm::DepthStencilControl depth_control;
+    depth_control.init();
+    depth_control.setDepthEnable(false);
+    context->setDepthStencilControl(depth_control);
+    sce::Gnm::BlendControl blend_control;
+    blend_control.init();
+    blend_control.setBlendEnable(false);
+    context->setBlendControl(0, blend_control);
+    sce::Gnm::PrimitiveSetup primitive_setup;
+    primitive_setup.init();
+    primitive_setup.setCullFace(sce::Gnm::kPrimitiveSetupCullFaceNone);
+    context->setPrimitiveSetup(primitive_setup);
+    context->setPrimitiveType(sce::Gnm::kPrimitiveTypeTriList);
+    context->drawIndexAuto(vertex_count);
+
     video->gpu_frame_ready = true;
     return 0;
 }

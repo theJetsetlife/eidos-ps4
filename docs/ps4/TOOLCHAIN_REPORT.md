@@ -36,8 +36,8 @@ The CMake toolchain therefore:
 Game Debug, and Game Release presets, plus Host Tools. The diagnostic presets
 select `eidos_ps4_minimal`; the two game presets select `eidos_boot` with the
 game source tree and all overlays. Set `SCE_ORBIS_SDK_DIR` before configuring
-a PS4 preset. The game preset configure/build remains unverified because this
-Linux host cannot execute the SDK's Windows compiler.
+a PS4 preset. The configured Linux environment invokes the SDK's Windows tools
+through wrappers.
 
 ## Installed sample and API evidence
 
@@ -62,6 +62,14 @@ Linux host cannot execute the SDK's Windows compiler.
   projects; those tools are not currently installed.
 
 ## Current build result
+
+The table below records an earlier toolchain investigation and is retained as
+historical evidence. A later 2026-11-28 isolated build used the configured
+wrappers with SDK 12.508: official CMake compiled and embedded all seven PSSL
+programs, built `eidos_platform_ps4`, and linked the minimal diagnostic ELF.
+The ELF was 618,324 bytes (SHA-256
+`ab2199325c28b3d77532d9daf25ab9218aa6b440d2b7e39a33bba80aad4a45d7`). This
+does not establish a full game ELF, FSELF/package build, or hardware runtime.
 
 | Stage | State |
 |---|---|

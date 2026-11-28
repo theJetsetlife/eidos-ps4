@@ -1556,9 +1556,30 @@ all source hashes, binary hashes, and byte sizes matched. The two binaries
 were embedded with the existing generator, and
 `shader_blobs_ps4.cpp` compiled with the official Orbis C++ compiler.
 
-The new shader stages are registered in `cmake/ps4-shaders.cmake` and exposed
-through the shader-blob accessors, but they are not yet bound by a GNM draw.
-The current production build manifest and FPKG still describe the previous
-five-shader build. The next bounded slice is GNMX fetch-shader setup, buffer
-binding, and an isolated draw using the conversion helper; no GPU rendering or
-hardware behavior is claimed here.
+At this point in the investigation, the snapshot shader stages were registered
+but not yet bound. The next entry records the follow-up GNMX integration.
+
+
+# 2026-11-28 — GNMX snapshot-format triangle diagnostic
+
+Extended the isolated PS4 video diagnostic to exercise the new snapshot vertex
+format through GNMX. `video_ps4.cpp` loads the prototype VS/PS programs, builds
+a fetch shader and input-offset caches, copies a bounded flat-color triangle
+into command-buffer memory, binds interleaved POSITION/COLOR vertex descriptors,
+and submits a triangle-list draw to the center 4:3 viewport. The minimal
+diagnostic clears its scanout buffer and uses this draw instead of the earlier
+color-bar pass. This verifies compile/link integration for the vertex-fetch
+and draw command path in the platform library; runtime behavior is unverified.
+It is not the game's renderer. Depth, textures, materials, blending, 2D
+composition, and game snapshot wiring remain absent.
+
+Official SDK 12.508 CMake configured the isolated minimal target, compiled and
+embedded all seven PSSL programs, built `eidos_platform_ps4`, and linked
+`eidos_ps4_minimal.elf`. The ELF is 618,324 bytes with SHA-256
+`ab2199325c28b3d77532d9daf25ab9218aa6b440d2b7e39a33bba80aad4a45d7`. The seven
+manifest source hashes, binary hashes, and sizes match. The generated build used
+the isolated source tree at `b8f9fed`; selected PS4 renderer files came from
+this release checkpoint. The temporary source tree was restored clean after
+the build. Host `test_ps4_snapshot_vertices` passes 1/1, and `test_dsaddr.py`
+passes 82 tests (13 skipped). No hardware draw or physical image capture is
+claimed.

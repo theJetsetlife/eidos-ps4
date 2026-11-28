@@ -2,15 +2,19 @@
 
 Ordered by the dependency chain, not by perceived difficulty.
 
-1. **SDK host mismatch.** The installed 12.508.041 compiler and tools are
-   Windows PE programs; the active host is Linux. No official target compile
-   can be claimed here. The distribution bundle includes official GNM/GNMX,
-   PSSL, AudioOut, and user-service samples for implementation reference, but
-   their presence does not provide a runnable Linux toolchain.
+1. **Full game target build and hardware validation.** The installed
+   12.508.041 compiler and tools are Windows PE programs, invoked here through
+   the configured compatibility wrappers. Official CMake has built the PS4
+   platform archive and linked the isolated `eidos_ps4_minimal.elf`, including
+   its seven PSSL programs. The full game ELF has not been linked at this
+   renderer checkpoint, and no hardware draw has been verified. The SDK bundle
+   includes GNM/GNMX, PSSL, AudioOut, and user-service samples for reference.
 2. **Publishing Tools unavailable on this host.** The SDK bundle includes the
    official Publishing Tools 4.12 Windows installer, but the tools are not
-   installed or available on `PATH` here. GP4 validation and package creation
-   remain unavailable in this environment.
+   installed or available on `PATH` here. Official Publishing Tools GP4
+   validation/package creation remain unavailable. Separately, GoldHEN FPKG
+   packaging through OpenOrbis tooling has been verified at an earlier build
+   checkpoint; it does not validate the official Publishing Tools path.
 3. **LP64 game-data and renderer behavior remain incomplete.** The reconstructed
    game builds and links as x86-64 on the host and the latest headless run
    completes 6,500 simulation frames/VBlank interrupts with title overlays
@@ -49,12 +53,12 @@ Ordered by the dependency chain, not by perceived difficulty.
    renderer/settings abstractions.
    Upstream's SDL-off all-overlay build also omits settings/menu/avatar
    implementations required by overlay patches.
-6. **Production renderer absent.** The standalone diagnostic now contains a
-   GNM/GNMX command path that draws an embedded PSSL color-bar shader into the
-   per-buffer 1920×1080 render targets and submits them with VideoOut flips.
-   SDK-header syntax checks and the CMake shader dependency graph pass, but the
-   PSSL compiler and Sony target compiler have not run and the path has not been
-   hardware tested. The PS4 game callback now uploads each CPU-composed DS
+6. **Production renderer absent.** The standalone diagnostic now links an
+   official PSSL/GNMX vertex pipeline and draws a flat-color triangle from the
+   snapshot vertex format into the per-buffer 1920×1080 render targets before
+   VideoOut flips. The seven-shader CMake graph, PS4 platform archive, and
+   minimal diagnostic ELF build with the official SDK. The path has not been
+   run on hardware. The PS4 game callback still uploads each CPU-composed DS
    frame into a per-back-buffer texture and draws a centered 3× side-by-side
    compatibility view through PSSL/GNMX. This remains DS-resolution content,
    not native-detail 1080p game rendering, and does not satisfy the acceptance

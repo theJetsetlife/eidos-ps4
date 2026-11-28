@@ -2,9 +2,8 @@
  * PS4 SDK video-output, controller-input, and optional audio diagnostic.
  *
  * The reusable VideoOut/GNM scanout owner lives in engine/platform/ps4. This
- * diagnostic draws color bars with a PSSL pixel shader and GNMX fullscreen
- * quad into a native 1920x1080 target; it is not the production renderer or a
- * DS framebuffer upscale.
+ * diagnostic draws a native PSSL/GNMX triangle through the PS4 snapshot
+ * vertex format; it is not the production renderer or a DS framebuffer upscale.
  */
 
 #include <stdint.h>
@@ -22,6 +21,11 @@ namespace {
 constexpr uint32_t kWidth = 1920;
 constexpr uint32_t kHeight = 1080;
 constexpr int kDiagnosticFrames = 600;
+const EidosPs4SnapshotVertex kSnapshotTriangle[] = {
+    {{-0.8f, -0.8f, 0.0f, 1.0f}, {1.0f, 0.1f, 0.1f}},
+    {{ 0.0f,  0.8f, 0.0f, 1.0f}, {0.1f, 1.0f, 0.1f}},
+    {{ 0.8f, -0.8f, 0.0f, 1.0f}, {0.1f, 0.1f, 1.0f}},
+};
 
 struct State {
     bool user_service_initialized = false;
@@ -163,13 +167,16 @@ int run(bool test_audio)
             }
             return fail("eidos_ps4_video_begin_frame", result);
         }
-        result = eidos_ps4_video_draw_color_bars(state.video);
+        __builtin_memset(pixels, 0, static_cast<size_t>(pitch) * kHeight * 4u);
+        result = eidos_ps4_video_draw_snapshot_flat(
+            state.video, kSnapshotTriangle,
+            sizeof(kSnapshotTriangle) / sizeof(kSnapshotTriangle[0]));
         if (result < 0) {
             const int cleanup_result = shutdown(&state);
             if (cleanup_result < 0) {
-                (void)fail("cleanup after GPU draw", cleanup_result);
+                (void)fail("cleanup after snapshot draw", cleanup_result);
             }
-            return fail("eidos_ps4_video_draw_color_bars", result);
+            return fail("eidos_ps4_video_draw_snapshot_flat", result);
         }
         result = eidos_ps4_video_present(state.video);
         if (result < 0) {
