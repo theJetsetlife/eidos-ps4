@@ -1,0 +1,4 @@
+float4 main(float3 color : TEXCOORD0) : S_TARGET_OUTPUT
+{
+    return float4(color, 1.0f);
+}

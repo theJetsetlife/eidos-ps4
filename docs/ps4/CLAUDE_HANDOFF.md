@@ -13,8 +13,11 @@ untouched. Aletheia remains at
 The latest code checkpoint closes reviewed uninitialized control-flow paths
 in the native item menu. Its optimized Orbis ELF and two reproducible GoldHEN
 FPKGs are documented in `ENGINEERING_LOG.md`. The latest `test_dsaddr.py` run
-passes 82 tests (13 skipped). All five current PSSL source and binary hashes
-match `/tmp/eidos-merged-orbis-o2/ps4-shaders/manifest.json`. The PS4 output
+passes 82 tests (13 skipped). The last linked production build has five PSSL shaders whose source/binary
+hashes match `/tmp/eidos-merged-orbis-o2/ps4-shaders/manifest.json`. Two new
+snapshot prototype shaders now compile with PSSL and pass an isolated
+seven-program manifest hash check; their build graph and GNMX draw are pending.
+The PS4 output
 still presents CPU-composited DS-resolution content through GNMX; native
 snapshot rendering, hardware behavior, gameplay coverage, and performance
 acceptance remain open.

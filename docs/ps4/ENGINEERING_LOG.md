@@ -1544,3 +1544,21 @@ Orbis clang compiled the helper with `-Wall -Wextra -Werror`. No GPU draw or
 hardware capture is claimed. The next slice is the offline PSSL vertex/pixel
 pair, fetch-shader creation, vertex-buffer binding, and isolated offscreen
 draw; the CPU path remains authoritative.
+
+# 2026-11-28 — Offline snapshot shader prototype
+
+Added `snapshot_flat_vs.pssl` and `snapshot_flat_ps.pssl` for the checked
+snapshot vertex format. The vertex stage maps DS clip z from [-w, w] into the
+GNM viewport's [0, w] depth range and passes normalized vertex RGB to a flat
+pixel stage. The official SDK 12.508 PSSL compiler produced a 404-byte vertex
+binary and a 312-byte pixel binary. A seven-program manifest was generated;
+all source hashes, binary hashes, and byte sizes matched. The two binaries
+were embedded with the existing generator, and
+`shader_blobs_ps4.cpp` compiled with the official Orbis C++ compiler.
+
+The new shader stages are registered in `cmake/ps4-shaders.cmake` and exposed
+through the shader-blob accessors, but they are not yet bound by a GNM draw.
+The current production build manifest and FPKG still describe the previous
+five-shader build. The next bounded slice is GNMX fetch-shader setup, buffer
+binding, and an isolated draw using the conversion helper; no GPU rendering or
+hardware behavior is claimed here.

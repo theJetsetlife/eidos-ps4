@@ -1,0 +1,21 @@
+struct SnapshotVertexInput
+{
+    float4 clip : POSITION;
+    float3 color : COLOR;
+};
+
+struct SnapshotVertexOutput
+{
+    float4 position : S_POSITION;
+    float3 color : TEXCOORD0;
+};
+
+SnapshotVertexOutput main(SnapshotVertexInput input)
+{
+    SnapshotVertexOutput output;
+    output.position = float4(input.clip.x, input.clip.y,
+                             0.5f * (input.clip.z + input.clip.w),
+                             input.clip.w);
+    output.color = input.color;
+    return output;
+}
