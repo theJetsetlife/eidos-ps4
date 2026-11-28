@@ -1,0 +1,21 @@
+ConstantBuffer ClearUniforms : register(b0)
+{
+    float4 color;
+    float4 idDepth;
+};
+struct ClearOutput
+{
+    float4 color : S_TARGET_OUTPUT0;
+    float id : S_TARGET_OUTPUT1;
+    float depthCopy : S_TARGET_OUTPUT2;
+    float depth : S_DEPTH_OUTPUT;
+};
+ClearOutput main()
+{
+    ClearOutput output;
+    output.color = color;
+    output.id = idDepth.x;
+    output.depthCopy = idDepth.y;
+    output.depth = idDepth.y;
+    return output;
+}

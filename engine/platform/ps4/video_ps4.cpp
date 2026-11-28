@@ -74,6 +74,8 @@ struct GameProgram {
     void *fetch = nullptr;
     uint32_t modifier = 0;
     sce::Gnmx::InputOffsetsCache vs_offsets = {}, ps_offsets = {};
+    sce::Gnmx::PsShader *clear_ps = nullptr;
+    sce::Gnmx::InputOffsetsCache clear_offsets = {};
     bool ready = false;
 };
 
@@ -97,6 +99,7 @@ struct EidosPs4Video {
     bool flip_event_registered = false;
     bool buffers_registered = false;
     bool gpu_frame_ready = false;
+    bool game_frame_recorded = false;
     bool gpu_contexts_ready = false;
     GpuArena garlic_arena;
     GpuArena onion_arena;
@@ -659,6 +662,7 @@ extern "C" int eidos_ps4_video_begin_frame(EidosPs4Video *video,
         return result;
     }
     video->current_index = index;
+    video->game_frame_recorded = false;
     *pixels = video->buffers[index];
     *pitch_pixels = video->pitch;
     return 0;
@@ -686,10 +690,18 @@ int initialize_game_program(GameProgram *program)
         !shader_layout(ps_info, &ps_struct, &ps_offset, &ps_size)) {
         return -1;
     }
+    const EidosPs4ShaderBlob *clear_blob = eidos_ps4_game_clear_pixel_shader();
+    sce::Gnmx::ShaderInfo clear_info = {};
+    sce::Gnmx::parseShader(&clear_info, clear_blob->data);
+    size_t clear_struct, clear_offset, clear_size;
+    if (!shader_layout(clear_info, &clear_struct, &clear_offset, &clear_size)) {
+        return -1;
+    }
     const uint32_t fetch_size = sce::Gnmx::computeVsFetchShaderSize(vs_info.m_vsShader);
     size_t required = kDirectAlignment;
     if (fetch_size == 0 || !add_size(&required, vs_size) ||
-        !add_size(&required, ps_size) || !add_size(&required, fetch_size)) {
+        !add_size(&required, ps_size) || !add_size(&required, clear_size) ||
+        !add_size(&required, fetch_size)) {
         return -1;
     }
     result = create_gpu_arena(&program->arena, required, SCE_KERNEL_WC_GARLIC);
@@ -708,6 +720,13 @@ int initialize_game_program(GameProgram *program)
         sce::Gnm::kShaderStageVs, program->vs);
     sce::Gnmx::generateInputOffsetsCache(&program->ps_offsets,
         sce::Gnm::kShaderStagePs, program->ps);
+    program->clear_ps = copy_shader(&program->arena, clear_info,
+        clear_struct, clear_offset, clear_size);
+    if (program->clear_ps == nullptr) {
+        return -1;
+    }
+    sce::Gnmx::generateInputOffsetsCache(&program->clear_offsets,
+        sce::Gnm::kShaderStagePs, program->clear_ps);
     program->ready = true;
     return 0;
 }
@@ -844,7 +863,7 @@ extern "C" int eidos_ps4_video_prepare_game_textures(
 {
     if (video == nullptr || snapshot == nullptr || stats == nullptr ||
         video->current_index < 0 || !video->gpu_contexts_ready ||
-        video->gpu_frame_ready || (snapshot->n_tex != 0 && snapshot->tex == nullptr)) {
+        video->gpu_frame_ready || video->game_frame_recorded || (snapshot->n_tex != 0 && snapshot->tex == nullptr)) {
         return -1;
     }
     *stats = {};
@@ -960,7 +979,7 @@ extern "C" int eidos_ps4_video_prepare_game_frame(
 {
     if (video == nullptr || snapshot == nullptr || stats == nullptr ||
         video->current_index < 0 || !video->gpu_contexts_ready ||
-        video->gpu_frame_ready || width == 0 || height == 0 ||
+        video->gpu_frame_ready || video->game_frame_recorded || width == 0 || height == 0 ||
         width > 16384u || height > 16384u) {
         return -1;
     }
@@ -975,9 +994,146 @@ extern "C" int eidos_ps4_video_prepare_game_frame(
     return eidos_ps4_video_prepare_game_textures(video, snapshot, stats);
 }
 
+extern "C" int eidos_ps4_video_record_game_frame(
+    EidosPs4Video *video, const G3dSnapshot *snapshot, uint32_t width,
+    uint32_t height, EidosPs4TextureUploadStats *stats)
+{
+    if (snapshot == nullptr || snapshot->unsupported != 0 || snapshot->backdrop.valid ||
+        (snapshot->n_polys != 0 && snapshot->polys == nullptr)) {
+        return -1;
+    }
+    uint64_t vertices = 0, storage = 4096;
+    for (uint32_t i = 0; i < snapshot->n_polys; ++i) {
+        EidosPs4GameDraw draw;
+        const int result = eidos_ps4_game_draw(snapshot, i, &draw);
+        if (result < 0) return result;
+        vertices += (snapshot->polys[i].count - 2u) * 3u;
+        /* Constants, alignment, and conservative per-polygon command space. */
+        storage += 2u * (sizeof(EidosPs4GameUniforms) + 16u) + 1024u;
+    }
+    storage += vertices * sizeof(EidosPs4GameVertex);
+    if (storage > kDrawCommandBufferSize || vertices > UINT32_MAX) return -1;
+    int result = eidos_ps4_video_prepare_game_frame(video, snapshot, width, height, stats);
+    if (result < 0) return result;
+    const int index = video->current_index;
+    GameTargets &targets = video->game_targets[index];
+    GameProgram &program = video->game_program;
+    sce::Gnmx::GfxContext *context = &video->gfx_contexts[index];
+    context->reset();
+    video->game_frame_recorded = false;
+    EidosPs4GameVertex *data = nullptr;
+    if (vertices != 0) {
+        data = static_cast<EidosPs4GameVertex *>(context->allocateFromCommandBuffer(
+            static_cast<uint32_t>(vertices * sizeof(*data)), sce::Gnm::kEmbeddedDataAlignment4));
+        if (data == nullptr) return -1;
+    }
+    uint32_t count = 0;
+    result = eidos_ps4_game_vertices(snapshot, data, static_cast<uint32_t>(vertices), &count);
+    if (result != 0) return result;
+    context->initializeDefaultHardwareState();
+    context->flushShaderCachesAndWait(sce::Gnm::kCacheActionWriteBackAndInvalidateL1andL2,
+        0, sce::Gnm::kStallCommandBufferParserEnable);
+    context->setupScreenViewport(0, 0, width, height, 0.5f, 0.5f);
+    for (int i = 0; i < 3; ++i) context->setRenderTarget(i, &targets.color[i]);
+    context->setDepthRenderTarget(&targets.depth);
+    context->setCbControl(sce::Gnm::kCbModeNormal, sce::Gnm::kRasterOpCopy);
+    context->setActiveShaderStages(sce::Gnm::kActiveShaderStagesVsPs);
+    sce::Gnm::PrimitiveSetup primitive;
+    primitive.init();
+    primitive.setCullFace(sce::Gnm::kPrimitiveSetupCullFaceNone);
+    primitive.setFrontFace(sce::Gnm::kPrimitiveSetupFrontFaceCcw);
+    context->setPrimitiveSetup(primitive);
+    sce::Gnm::StencilOpControl ops;
+    ops.init();
+    ops.setStencilOps(sce::Gnm::kStencilOpKeep, sce::Gnm::kStencilOpReplaceTest, sce::Gnm::kStencilOpKeep);
+    ops.setStencilOpsBack(sce::Gnm::kStencilOpKeep, sce::Gnm::kStencilOpReplaceTest, sce::Gnm::kStencilOpKeep);
+    context->setStencilOpControl(ops);
+    sce::Gnm::StencilControl stencil;
+    stencil.init(); stencil.m_mask = stencil.m_writeMask = 255;
+    context->setStencil(stencil);
+    sce::Gnm::DepthStencilControl depth;
+    depth.init(); depth.setDepthEnable(true); depth.setStencilEnable(true);
+    depth.setDepthControl(sce::Gnm::kDepthControlZWriteEnable, sce::Gnm::kCompareFuncAlways);
+    depth.setStencilFunction(sce::Gnm::kCompareFuncAlways);
+    context->setDepthStencilControl(depth);
+    sce::Gnm::BlendControl blend;
+    blend.init(); blend.setBlendEnable(false);
+    for (int i = 0; i < 3; ++i) context->setBlendControl(i, blend);
+    context->setRenderTargetMask(0x11fu);
+    float *clear = static_cast<float *>(context->allocateFromCommandBuffer(32, sce::Gnm::kEmbeddedDataAlignment16));
+    if (clear == nullptr) return -1;
+    const uint32_t cc = snapshot->clear_color;
+    const float alpha = static_cast<float>(((cc >> 16) & 31u) * 255u / 31u) / 255.0f;
+    for (int i = 0; i < 3; ++i) {
+        const uint32_t c = (cc >> (i * 5)) & 31u;
+        clear[i] = static_cast<float>((c << 3) | (c >> 2)) / 255.0f * alpha;
+    }
+    clear[3] = alpha;
+    clear[4] = static_cast<float>(((cc >> 24) & 63u) | ((cc & 0x8000u) ? 64u : 0u)) / 255.0f;
+    clear[5] = static_cast<float>(snapshot->clear_depth & 0x7fffu) /
+               (snapshot->wbuffer ? 32768.0f : 32767.0f);
+    clear[6] = clear[7] = 0;
+    sce::Gnm::Buffer constants;
+    constants.initAsConstantBuffer(clear, 32);
+    context->setPsShader(program.clear_ps, &program.clear_offsets);
+    context->setConstantBuffers(sce::Gnm::kShaderStagePs, 0, 1, &constants);
+    sce::Gnmx::renderFullScreenQuad(context);
+    context->setVsShader(program.vs, program.modifier, program.fetch, &program.vs_offsets);
+    context->setPsShader(program.ps, &program.ps_offsets);
+    context->setPrimitiveType(sce::Gnm::kPrimitiveTypeTriList);
+    blend.setBlendEnable(true);
+    blend.setColorEquation(sce::Gnm::kBlendMultiplierOne, sce::Gnm::kBlendFuncAdd,
+                           sce::Gnm::kBlendMultiplierOneMinusSrcAlpha);
+    blend.setSeparateAlphaEnable(false);
+    context->setBlendControl(0, blend);
+    uint32_t first = 0;
+    for (uint32_t i = 0; i < snapshot->n_polys; ++i) {
+        EidosPs4GameDraw draw;
+        result = eidos_ps4_game_draw(snapshot, i, &draw);
+        const uint32_t n = (snapshot->polys[i].count - 2u) * 3u;
+        if (result == 1) { first += n; continue; }
+        if (result < 0) return result;
+        sce::Gnm::Buffer streams[3];
+        streams[0].initAsVertexBuffer(&data[first].clip, sce::Gnm::kDataFormatR32G32B32A32Float, sizeof(*data), n);
+        streams[1].initAsVertexBuffer(&data[first].st, sce::Gnm::kDataFormatR32G32Float, sizeof(*data), n);
+        streams[2].initAsVertexBuffer(&data[first].color, sce::Gnm::kDataFormatR32G32B32Float, sizeof(*data), n);
+        context->setVertexBuffers(sce::Gnm::kShaderStageVs, 0, 3, streams);
+        const sce::Gnm::Texture *texture = draw.texture_slot >= 0
+            ? &video->game_textures[index].textures[draw.texture_slot].descriptor : &video->ds_textures[index];
+        context->setTextures(sce::Gnm::kShaderStagePs, 0, 1, texture);
+        for (uint32_t pass = 0; pass < draw.pass_count; ++pass) {
+            const bool translucent = draw.pass_count == 2 ? pass == 1 : draw.uniforms.a[1] < 31;
+            const bool write_depth = translucent ? draw.translucent_depth_write != 0 : draw.depth_write != 0;
+            draw.uniforms.a[3] = draw.pass_count == 2 ? static_cast<int32_t>(pass + 1) : 0;
+            void *u = context->allocateFromCommandBuffer(sizeof(draw.uniforms), sce::Gnm::kEmbeddedDataAlignment16);
+            if (u == nullptr) return -1;
+            __builtin_memcpy(u, &draw.uniforms, sizeof(draw.uniforms));
+            constants.initAsConstantBuffer(u, sizeof(draw.uniforms));
+            context->setConstantBuffers(sce::Gnm::kShaderStagePs, 0, 1, &constants);
+            depth.setDepthControl(write_depth ? sce::Gnm::kDepthControlZWriteEnable : sce::Gnm::kDepthControlZWriteDisable,
+                draw.depth_equal ? sce::Gnm::kCompareFuncLessEqual : sce::Gnm::kCompareFuncLess);
+            depth.setStencilFunction(translucent ? sce::Gnm::kCompareFuncNotEqual : sce::Gnm::kCompareFuncAlways);
+            context->setDepthStencilControl(depth);
+            stencil.m_mask = translucent ? 0x7f : 0xff;
+            stencil.m_testVal = translucent ? static_cast<uint8_t>(0xc0 | (draw.uniforms.b[3] & 63)) : 0x80;
+            context->setStencil(stencil);
+            context->setRenderTargetMask(0xfu | (translucent ? 0u : 0x10u) | (write_depth ? 0x100u : 0u));
+            context->drawIndexAuto(n);
+        }
+        first += n;
+    }
+    context->flushShaderCachesAndWait(sce::Gnm::kCacheActionWriteBackAndInvalidateL1andL2,
+        sce::Gnm::kExtendedCacheActionFlushAndInvalidateCbCache |
+        sce::Gnm::kExtendedCacheActionFlushAndInvalidateDbCache,
+        sce::Gnm::kStallCommandBufferParserEnable);
+    video->game_frame_recorded = true;
+    return 0;
+}
+
 extern "C" int eidos_ps4_video_present(EidosPs4Video *video)
 {
-    if (video == nullptr || video->current_index < 0) {
+    if (video == nullptr || video->current_index < 0 ||
+        (video->game_frame_recorded && !video->gpu_frame_ready)) {
         return -1;
     }
     const int index = video->current_index;
@@ -1021,6 +1177,7 @@ extern "C" int eidos_ps4_video_draw_color_bars(EidosPs4Video *video)
     const int index = video->current_index;
     sce::Gnmx::GfxContext *context = &video->gfx_contexts[index];
     context->reset();
+    video->game_frame_recorded = false;
     context->initializeDefaultHardwareState();
     context->setupScreenViewport(0, 0, video->width, video->height, 0.5f, 0.5f);
     context->setRenderTarget(0, &video->render_targets[index]);
@@ -1128,6 +1285,7 @@ extern "C" int eidos_ps4_video_draw_snapshot_flat(
     const int index = video->current_index;
     sce::Gnmx::GfxContext *context = &video->gfx_contexts[index];
     context->reset();
+    video->game_frame_recorded = false;
     context->initializeDefaultHardwareState();
     if (draw_snapshot_flat_commands(video, context, index, vertices,
                                     vertex_count) != 0) {
@@ -1206,6 +1364,7 @@ extern "C" int eidos_ps4_video_draw_ds_compatibility_snapshot_flat(
 
     sce::Gnmx::GfxContext *context = &video->gfx_contexts[index];
     context->reset();
+    video->game_frame_recorded = false;
     context->initializeDefaultHardwareState();
     context->setupScreenViewport(0, 0, video->width, video->height, 0.5f, 0.5f);
     context->setRenderTarget(0, &video->render_targets[index]);

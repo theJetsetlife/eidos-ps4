@@ -76,6 +76,14 @@ int eidos_ps4_video_prepare_game_frame(EidosPs4Video *video,
     const struct G3dSnapshot *snapshot, uint32_t width, uint32_t height,
     EidosPs4TextureUploadStats *stats);
 
+/* Experimental offscreen polygon recorder. Rejects unsupported snapshot
+ * effects/backdrops; callers must fall back. Records into the current
+ * context without submitting or presenting. A compositor must consume the
+ * targets in this context before present; compatibility drawing resets it. */
+int eidos_ps4_video_record_game_frame(EidosPs4Video *video,
+    const struct G3dSnapshot *snapshot, uint32_t width, uint32_t height,
+    EidosPs4TextureUploadStats *stats);
+
 /* Make CPU writes visible to the GPU/display path and submit a vsync flip. */
 int eidos_ps4_video_present(EidosPs4Video *video);
 

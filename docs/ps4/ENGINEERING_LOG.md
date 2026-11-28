@@ -1932,3 +1932,31 @@ The next implementation dependency is command recording: target clears,
 three vertex streams, polygon constants/textures, depth/stencil/blend state,
 and resource barriers before downstream composition. No full game link,
 physical-console evidence, or package was produced in this batch.
+
+
+## 2026-11-28 — Offscreen polygon command recorder
+
+Added an experimental GNMX recorder consuming real G3dSnapshot geometry,
+production vertex streams, snapshot textures, and shared polygon uniforms.
+It records a fullscreen clear of color/ID/depth-copy/depth/stencil, then
+polygon draws with upstream premultiplied blending, depth compares/writes,
+two-pass partial-alpha filtering, ID/depth target masks, and translucent
+same-polygon-ID rejection via stencil. Cache barriers surround recording.
+The native clear pixel shader is included in the offline shader pipeline.
+Command-space preflight bounds embedded vertices/constants and draw overhead.
+Unsupported snapshot effects and enhanced backdrops are rejected so the
+caller can use its reference fallback.
+
+The recorder leaves its output offscreen. It is not connected to gameplay;
+a subsequent compositor must consume those targets in the same context.
+Present rejects a recorded offscreen-only frame. Compatibility drawing
+explicitly resets/discards offscreen recording, keeping its fallback behavior.
+The official compiler accepts the recorder's SDK APIs and the clear shader;
+no pixel comparison or physical-console behavior has been established.
+No FPKG was produced.
+
+The regenerated official SDK platform-library build passes, including clear
+shader compilation/embedding and the new recorder. The complete optimized
+`eidos_boot.elf` incremental link also passes (8 build steps). Existing
+snapshot CTest and 18 PS4 source checks pass; they do not validate GPU pixels
+or runtime command behavior. Gameplay still uses its compatibility renderer.
