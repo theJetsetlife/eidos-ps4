@@ -1429,3 +1429,21 @@ The optimized host build linked, and `test_dsaddr`, `test_boot_run`, and
 `test_boot_new_game_intro` passed against this checkpoint. The neighboring
 `found` warning remains unresolved and requires separate control-flow review.
 Physical-console behavior is not established by these host tests.
+
+# 2026-11-28 — No-event direction search
+
+Bounded investigation: decide the behavior of
+`SCRCMD_FLDMMDL_TurnPlayerToFrontEvent` when all four direction searches fail.
+`EVENTDATA_SYSTEM_SearchPosEvent` explicitly returns null when no eligible
+position event exists, including absent event tables. The turn command then
+read `found` without assigning it. The supported decision is to return 0
+without creating or waiting for an animation after the search is exhausted.
+The generated native copy now checks `i == 4` before consuming `found`.
+
+An optimized compiled regression extracts the transformed production function
+and checks a complete miss, the turn list and wait result for each of four
+matching directions, and no animation when already facing each direction.
+The regression passes with warnings treated as errors; `git diff --check`
+passes. This closes the function's uninitialized direction path at source
+level. Official Orbis regeneration/link and host gameplay validation remain
+pending for this checkpoint; no updated package or hardware result is claimed.

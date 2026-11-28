@@ -2094,6 +2094,20 @@ def native_script_talk_target(source: str, path: str) -> str:
     return source
 
 
+def native_script_event_direction(source: str, path: str) -> str:
+    """Do not turn or wait for animation when the direction search misses."""
+    if path.replace("\\", "/").endswith("/src/game/ov021/scrcmd_fldmmdl.c"):
+        source = _need(
+            source,
+            "    playerFacing = FIELD_PLAYER_GetDirDisp(player);\n"
+            "    if (playerFacing != found) {",
+            "    if (i == 4) {\n        return 0;\n    }\n"
+            "    playerFacing = FIELD_PLAYER_GetDirDisp(player);\n"
+            "    if (playerFacing != found) {",
+        )
+    return source
+
+
 def native_matched_types(source: str, path: str, pointer_width: int) -> str:
     """Keep recovered DS scalar names fixed-width in generated host copies."""
     if pointer_width >= 8:
@@ -2228,6 +2242,7 @@ def main(argv=None) -> int:
     source = native_field_player_attributes(source, src_path)
     source = native_field_model_lookup(source, src_path)
     source = native_script_talk_target(source, src_path)
+    source = native_script_event_direction(source, src_path)
     if "/src/matched/" in os.path.abspath(src_path).replace("\\", "/"):
         source = native_matched_types(source, src_path, a.pointer_width)
     # convert.c defines GAME_TYPES_U32_LONG, which makes u32/s32 = unsigned/

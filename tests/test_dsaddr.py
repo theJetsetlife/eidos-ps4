@@ -514,6 +514,64 @@ class NativeTypes(unittest.TestCase):
                             source_file, "-o", binary_file], check=True)
             subprocess.run([binary_file], check=True)
 
+    def test_native_script_event_direction_execute(self):
+        if not CFG.aletheia_root:
+            self.skipTest("requires the Aletheia source checkout")
+        path = os.path.join(CFG.aletheia_root, "src/game/ov021/scrcmd_fldmmdl.c")
+        with open(path, encoding="utf-8") as stream:
+            source = dsaddr.native_script_event_direction(stream.read(), path)
+        signature = "int SCRCMD_FLDMMDL_TurnPlayerToFrontEvent(ScriptVm *vm, ScrcmdWork *cmdWork)\n{"
+        start = source.index(signature)
+        function = source[start:source.index("\n}\n", start) + 2]
+        harness = r'''
+typedef int ScriptVm, ScrcmdWork, ScriptWork, FieldMap, GameData, GameSystem;
+typedef int EventDataSystem, EventWork, FieldPlayer;
+typedef unsigned char u8;
+typedef struct { int x, y, z; } VecFx32;
+typedef struct { int codes[4]; } FacingCodes;
+static FacingCodes gScrcmdFldmmdlFacingCodes = {{2, 0, 3, 1}};
+static u8 gScrcmdFldmmdlTurnUpAcmdList[1], gScrcmdFldmmdlTurnDownAcmdList[1];
+static u8 gScrcmdFldmmdlTurnLeftAcmdList[1], gScrcmdFldmmdlTurnRightAcmdList[1];
+static struct { FieldMap *fieldSystem; } field;
+static int match = -1, current, searches, calls, created;
+static char *selected;
+#define SCRCMD_WORK_GetScriptWork(w) ((void)(w), (ScriptWork *)0)
+#define SCRIPT_WORK_ResetFieldParam(w) ((void)(w), &field)
+#define SCRCMD_WORK_GetGameData(w) ((void)(w), (GameData *)0)
+#define SCRCMD_WORK_GetGameSystem(w) ((void)(w), (GameSystem *)0)
+#define GAME_DATA_GetEventData(w) ((void)(w), (EventDataSystem *)0)
+#define GAME_DATA_GetEventWork(w) ((void)(w), (EventWork *)0)
+#define FIELDMAP_GetFieldPlayer(w) ((void)(w), (FieldPlayer *)0)
+#define FIELD_PLAYER_GetPos(p,v) ((void)(p), *(v) = (VecFx32){0})
+#define EVENTDATA_SYSTEM_SearchPosEvent(d,w,p,f) ((void)(d), (void)(w), (void)(p), ++searches, (f) == match)
+#define FIELD_PLAYER_GetDirDisp(p) ((void)(p), current)
+#define EVENT_FIELD_PROCLINK_CreateObjAnimEvent(g,f,id,list) ((void)(g), (void)(f), (void)(id), selected = (list), ++created)
+#define SCRIPT_SYS_CallEvent(w,e) ((void)(w), (void)(e), ++calls)
+''' + function + r'''
+int main(void) {
+    ScriptVm vm = 0; ScrcmdWork work = 0;
+    if (SCRCMD_FLDMMDL_TurnPlayerToFrontEvent(&vm, &work) != 0 || searches != 4 || calls || created) return 1;
+    u8 *lists[] = {gScrcmdFldmmdlTurnUpAcmdList, gScrcmdFldmmdlTurnDownAcmdList,
+                   gScrcmdFldmmdlTurnLeftAcmdList, gScrcmdFldmmdlTurnRightAcmdList};
+    for (match = 0; match < 4; ++match) {
+        current = (match + 1) % 4; calls = created = 0;
+        if (SCRCMD_FLDMMDL_TurnPlayerToFrontEvent(&vm, &work) != 1 || calls != 1 || created != 1 || selected != (char *)lists[match]) return 2;
+        current = match; calls = created = 0;
+        if (SCRCMD_FLDMMDL_TurnPlayerToFrontEvent(&vm, &work) != 0 || calls || created) return 3;
+    }
+    return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as tmp:
+            source_file = os.path.join(tmp, "event_direction.c")
+            binary_file = os.path.join(tmp, "event_direction")
+            with open(source_file, "w", encoding="utf-8") as stream:
+                stream.write(harness)
+            subprocess.run(["cc", "-std=c99", "-O2", "-Wall", "-Wextra",
+                            "-Wno-unused-parameter", "-Werror", source_file,
+                            "-o", binary_file], check=True)
+            subprocess.run([binary_file], check=True)
+
     def test_arc_runtime_prefix_tracks_pointer_width(self):
         source = "struct ArcFile {\n    u8 file[0x48];\n    u32 imageBase;\n};\n"
         path = "/upstream/src/matched/arm9/example.c"
