@@ -9,7 +9,7 @@
 #         [-DWATCHDOG=<seconds>] -P boot_scenario.cmake
 #
 # Without the player's game data (DATA/a and DATA/../arm9_dec.bin) the test
-# prints SKIPPED.  It passes when the run reaches all FRAMES frames
+# prints SKIPPED.  It passes when the run exits successfully after FRAMES frames
 # ("eidos_boot: ran after FRAMES frames") with no crash, panic or watchdog,
 # and, when asked, the overlays resident at the end include RESIDENT_HAS and
 # the game's audio is not silent after AUDIO_AFTER seconds of output
@@ -40,10 +40,15 @@ if(DEFINED PRESS_FROM)
     endforeach()
 endif()
 
-set(env "BW_SAVE_DIR=${work}/save" "EIDOS_USER_DIR=${work}")
+set(env)
 if(DEFINED ENV)
     list(APPEND env ${ENV})
 endif()
+# Do not inherit the player's configuration, mods, or saves, even if the
+# environment that launched CTest already names those locations.
+list(APPEND env "EIDOS_HOME=${work}" "EIDOS_USER_DIR=${work}"
+    "BW_SAVE_DIR=${work}/save" "EIDOS_SETTINGS=${work}/settings.ini"
+    "EIDOS_MODS_DIR=${work}/mods")
 if(DEFINED AUDIO_AFTER)
     list(APPEND env "EIDOS_AUDIO_WAV=${work}/audio.wav")
 endif()
@@ -53,10 +58,13 @@ execute_process(
     RESULT_VARIABLE rc OUTPUT_VARIABLE out ERROR_VARIABLE err)
 set(all "${out}${err}")
 
+if(NOT "${rc}" STREQUAL "0")
+    message(FATAL_ERROR "the run exited unsuccessfully (${rc}):\n${all}")
+endif()
 if(NOT all MATCHES "eidos_boot: ran after ${FRAMES} frames")
     message(FATAL_ERROR "the run did not reach ${FRAMES} frames (exit ${rc}):\n${all}")
 endif()
-if(all MATCHES "(CRASH:|PANIC|WATCHDOG:|AddressSanitizer)")
+if(all MATCHES "(CRASH:|PANIC|WATCHDOG:|AddressSanitizer|UndefinedBehaviorSanitizer|runtime error:)")
     message(FATAL_ERROR "the run reported a fault:\n${all}")
 endif()
 if(DEFINED RESIDENT_HAS)

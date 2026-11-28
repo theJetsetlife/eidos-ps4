@@ -1960,3 +1960,104 @@ shader compilation/embedding and the new recorder. The complete optimized
 `eidos_boot.elf` incremental link also passes (8 build steps). Existing
 snapshot CTest and 18 PS4 source checks pass; they do not validate GPU pixels
 or runtime command behavior. Gameplay still uses its compatibility renderer.
+
+## 2026-11-28 — Experimental native 3D through upstream 2D composition
+
+Connected the recorded GNMX 3D snapshot to the upstream GPU 2D layer shader.
+The baseline shader and uniform packing were checked against upstream Eidos
+`119c27e63d226259f94cd6c193d9364664bbac97`. The PSSL stage includes the
+shared shader; the desktop stage produces identical SPIR-V to the baseline
+after stripping debug metadata. The former SDL-only uniform packer now lives
+in shared code and matched its original output for 1,000 generated frames.
+
+Per-back-buffer linear GPU textures hold main BG VRAM, palettes, OBJ data,
+and raster layers; source rows are copied with the SDK's actual pitch and
+checked against the allocation extent. Changed VRAM generations trigger
+uploads, while unchanged generations reuse storage. The main 3D target is
+sampled by the upstream 2D layer stack at the displayed resolution. The
+other screen still uses the CPU reference. A verified same-layout UNORM view
+of the scanout buffer avoids applying an extra sRGB transfer to the 2D
+shader's already-encoded output. The bottom-screen touch marker remains on
+that screen. The 2D pass supports single-screen and side-by-side layouts.
+
+Fixed two earlier GNMX issues while tracing the path: both vertex shaders
+already map clip Z to 0..W, so their viewport now uses scale 1, offset 0;
+and vertex arrays use the SDK command-buffer end allocator, avoiding the
+64 KiB limit on inline command packets. The old flat diagnostic viewport's
+right edge is corrected from 1440 to 1680. The command recorder still needs
+physical GPU correctness and command-capacity validation.
+
+The path is experimental and opt-in via launch argument `--ps4-native-3d`
+or a local `/data/eidos/native-3d.enable` file whose first byte is `1`.
+It retains CPU 3D rasterization and both CPU 2D screens for fallback and
+capture. Capture frames, unsupported 3D features/backdrops, hidden main
+screens, unavailable resources, and recording failures use CPU presentation.
+CPU command preparation is recorded separately as `ps4rec3d` and
+`ps4rec2d`; these are not GPU execution or displayed-FPS measurements.
+
+Host validation: optimized and ASan/UBSan upload checks cover padded pitches,
+row tails, palette channels, raster slots, VRAM reuse, and pre-write failure;
+four deliberate upload mutations were rejected. The engine export regression
+checks unchanged CPU pixels and capture, VRAM generation, and screen swaps;
+`test_hwcompose` passed 168 checks with the locally supplied game data. An
+SDL Vulkan comparison of the shared 2D shader against the CPU compositor
+matched all 49,152 pixels in each of four scenes: 3D/text priority, alpha,
+OBJ/window/blend/brightness, and screen swap. It uses a CPU 3D layer at DS
+resolution and does not execute the PS4 PSSL shader. The host OpenGL 3D test
+passed 80 checks; two composition cases were skipped because the drawable
+remained 256x192. The official SDK compiled the PSSL stage and linked the
+optimized game ELF. No package, console test, GPU pixel comparison, or
+physical performance measurement was performed in this batch.
+
+A reset audit found that `g3d_hw_reset()` left the last snapshot marked
+valid, so a restarted game could expose geometry from its previous run
+before the next swap. The new reset regression failed against the original
+code and passes after clearing snapshot validity while retaining allocated
+storage for reuse. The 121-check `test_g3dhw` passes; the same reset behavior
+was present in the inspected upstream revision.
+
+## 2026-11-28 — Regression-check audit
+
+The scripted boot harness previously accepted a frame-count line even when
+the process then exited with an error, and its LP64 diagnostic accepted an
+early refusal. Both now fail. Boot checks isolate settings, mods and user
+directories as well as saves. CTest skip rules no longer classify an error
+as skipped merely because a child printed `SKIPPED:`; synthetic failures,
+including a sanitizer report, exercise those verdicts. Three deliberately
+reintroduced harness faults were rejected by the tests.
+
+The OpenGL 3D test previously returned success without a usable GPU, and its
+asynchronous window resize left the presenter at 256x192 while two composite
+cases were omitted. It now reports missing GPU or drawable coverage as a
+skip, rejects a broken Eidos backend, and synchronizes and swaps after resize.
+On the current host, all three intended sizes and both composite cases run:
+86 checks pass. Synthetic compositor tests and optional game-asset tests are
+separate; an unavailable asset extract is a skip, not a passed asset check.
+
+The 64-bit windowed boot test had been disabled. A real windowed host run
+reproduced an immediate panic: a system D-Bus library called `socket` but
+resolved the game's same-named overlay trampoline. The overlay generator
+now gives colliding socket-family trampolines distinct native names, and the
+boot and stored-code-pointer generators preserve the DS references to them.
+A synthetic overlay test reproduced the panic before the change and now
+checks direct host calls, a separate host shared library, and calls through
+two resident game overlays. This is host evidence; PS4 runtime behavior
+still needs physical validation.
+
+The boot scenarios assert frame completion, absence of reported faults and
+selected overlay residency. They do not prove keyboard interaction, menu
+contents, starter sprites, battle completion, or saving. The shared 2D GPU
+test compares host shader output using a CPU 3D layer; it does not execute
+PS4 PSSL, the native high-resolution 3D sampling mode, or GPU synchronization.
+
+With Aletheia `995615a30f1b1d47109d435a7cb355983ec32e18`, the optimized
+host boot, newly enabled windowed boot, trainer script and intro script all
+pass. A separate hidden Vulkan startup completed 300 frames; its 240-frame
+report recorded 473 CPU/GPU screen comparisons with no RGB differences and
+seven skipped screens. The actual 3D GPU content and PS4 output were not
+established by that run. The optimized Orbis ELF links with the new game
+symbol names, and the shader manifest matches its shared source. The 16-test
+focused host run executed 15 and skipped the optional asset test in the
+no-game-data configuration; the latter separately passed 12 checks when
+given the local extract. An existing host warning in `ov114/dwci_nd.c`
+reports a potentially uninitialized `result`; it was not changed here.

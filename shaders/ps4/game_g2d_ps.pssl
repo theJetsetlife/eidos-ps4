@@ -1,0 +1,4 @@
+// The production 2D layer composer shares the upstream shader.
+#define EIDOS_PSSL 1
+#define fs_main main
+#include "../../engine/platform/shaders/g2d.hlsl"

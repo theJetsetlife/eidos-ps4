@@ -10,6 +10,15 @@
    "source": "src/matched/ov/ov002_func_02300000.c",
    "isa": "thumb",
    "status": "EXACT"
+  },
+  {
+   "name": "func_02300010",
+   "address": "0x02300010",
+   "kind": "game",
+   "region": "ov002",
+   "source": "src/matched/ov/ov002_func_02300010.c",
+   "isa": "thumb",
+   "status": "EXACT"
   }
  ]
 }

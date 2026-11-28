@@ -116,6 +116,7 @@ extern void bw_text_from_apply(void);    /* sdk/text_from.c */
 #include "log_ps4.h"
 #include "picker.h"
 #include "video_ps4.h"
+#include "g2d_gpu.h"
 #include "setup.h"
 #include <stdbool.h>
 #include <common_dialog.h>
@@ -181,6 +182,8 @@ static int g_ps4_video_ready;
 static int g_ps4_video_failure_reported;
 static int g_ps4_audio_failure_reported;
 static int g_ps4_gpu_snapshot_flat;
+static int g_ps4_gpu_native;
+static unsigned g_ps4_gpu_native_reported;
 static int g_ps4_gpu_snapshot_reported;
 #define PS4_GPU_SNAPSHOT_VERTEX_CAPACITY 32768u
 static EidosPs4SnapshotVertex
@@ -1341,6 +1344,8 @@ static void boot_render_ps4(void *user, u8 *top, u8 *bottom)
     const G3dSnapshot *snapshot;
     uint32_t snapshot_vertex_count = 0;
     int have_snapshot_vertices = 0;
+    int gpu_composed = 0;
+    const int capture_active = (bw_io_read32(G2D_HW_DISPCAPCNT) & 0x80000000u) != 0;
     int result;
 
     if (!g_ps4_video_ready || top == NULL || bottom == NULL) {
@@ -1351,8 +1356,8 @@ static void boot_render_ps4(void *user, u8 *top, u8 *bottom)
         boot_ps4_video_failure("DS composition", result);
         return;
     }
-    snapshot = g_ps4_gpu_snapshot_flat ? g3d_hw_snapshot() : NULL;
-    if (snapshot != NULL) {
+    snapshot = (g_ps4_gpu_snapshot_flat || g_ps4_gpu_native) ? g3d_hw_snapshot() : NULL;
+    if (g_ps4_gpu_snapshot_flat && snapshot != NULL) {
         result = eidos_ps4_snapshot_vertices(
             snapshot, g_ps4_gpu_snapshot_vertices,
             PS4_GPU_SNAPSHOT_VERTEX_CAPACITY, &snapshot_vertex_count);
@@ -1385,7 +1390,46 @@ static void boot_render_ps4(void *user, u8 *top, u8 *bottom)
         cursor_x = g_ps4_input.cursor_x;
         cursor_y = g_ps4_input.cursor_y;
     }
-    if (have_snapshot_vertices) {
+    if (g_ps4_gpu_native && snapshot != NULL && !capture_active &&
+        snapshot->unsupported == 0 && !snapshot->backdrop.valid) {
+        const G2dGpuFrame *frame = g2d_gpu_frame(0);
+        const int visible = frame != NULL && frame->valid && frame->l3_on &&
+            ((g_ps4_input.presentation_mode == EIDOS_PS4_PRESENT_BOTH) ||
+             ((int)g_ps4_input.presentation_mode == frame->screen));
+        if (visible) {
+            EidosPs4TextureUploadStats upload;
+            unsigned long long start;
+            const u32 width = g_ps4_input.presentation_mode == EIDOS_PS4_PRESENT_BOTH ? 768u : 1440u;
+            const u32 height = g_ps4_input.presentation_mode == EIDOS_PS4_PRESENT_BOTH ? 576u : 1080u;
+            start = eidos_prof_begin();
+            result = eidos_ps4_video_record_game_frame(g_ps4_video, snapshot, width, height, &upload);
+            eidos_prof_end(EIDOS_PROF_PS4_REC3D, start);
+            if (result == 0) {
+                start = eidos_prof_begin();
+                result = eidos_ps4_video_draw_game_composite(
+                    g_ps4_video, frame, top, bottom, cursor_x, cursor_y,
+                    g_ps4_input.presentation_mode);
+                eidos_prof_end(EIDOS_PROF_PS4_REC2D, start);
+            }
+            if (result == 0) {
+                gpu_composed = 1;
+                if ((g_ps4_gpu_native_reported & 1u) == 0) {
+                    fprintf(stderr, "PS4: experimental native 3D/2D commands recorded: "
+                            "polygons=%u target=%ux%u textures=%u uploaded=%llu bytes; "
+                            "CPU reference and capture retained\n",
+                            snapshot->n_polys, width, height, upload.uploaded_textures,
+                            (unsigned long long)upload.uploaded_bytes);
+                    g_ps4_gpu_native_reported |= 1u;
+                }
+            } else if ((g_ps4_gpu_native_reported & 2u) == 0) {
+                fprintf(stderr, "PS4: native 3D/2D composition failed (%d); using CPU reference\n", result);
+                g_ps4_gpu_native_reported |= 2u;
+            }
+        }
+    }
+    if (gpu_composed) {
+        result = 0;
+    } else if (have_snapshot_vertices) {
         result = eidos_ps4_video_draw_ds_compatibility_snapshot_flat(
             g_ps4_video, top, bottom, cursor_x, cursor_y,
             g_ps4_input.presentation_mode, g_ps4_gpu_snapshot_vertices,
@@ -3966,7 +4010,7 @@ static int boot_run_start(EidosFrameHooks *hooks, int own_thread)
         return -1;
     }
 #if EIDOS_BOOT_PS4
-    if (g_ps4_gpu_snapshot_flat || boot_getenv("EIDOS_G3D_DUMP") != NULL) {
+    if (g_ps4_gpu_snapshot_flat || g_ps4_gpu_native || boot_getenv("EIDOS_G3D_DUMP") != NULL) {
 #else
     if (boot_getenv("EIDOS_G3D_DUMP") != NULL) {
 #endif
@@ -3976,6 +4020,13 @@ static int boot_run_start(EidosFrameHooks *hooks, int own_thread)
      * game's geometry FIFO and SWAP_BUFFERS land there, and its frame is
      * the 3D layer the screens are composed with (engine/g3d/hw3d.h). */
     g3d_hw_reset();
+#if EIDOS_BOOT_PS4
+    /* Keep CPU pixels for capture, fallback, and later comparison while the
+     * native GPU path is being validated. */
+    g2d_gpu_export(g_ps4_gpu_native);
+    g2d_gpu_skip_cpu(0);
+    g2d_gpu_main_3d(g_ps4_gpu_native);
+#endif
     printf("eidos_boot: DS address space %s; %lu code pointers the metadata "
            "does not list relocated by the scan\n",
            bw_ds_identity() ? "identity-mapped" : "on movable host blocks",
@@ -4209,7 +4260,8 @@ static void usage(void)
 #if EIDOS_BOOT_PS4 && EIDOS_BOOT
     fputs("  --rom PATH         import a user-supplied Pokémon Black/White ROM\n"
           "  --data-root PATH   use an existing extracted game data folder\n"
-          "  --g3d-snapshot-flat  overlay bounded flat-color game geometry for GNMX diagnostics\n",
+          "  --g3d-snapshot-flat  overlay bounded flat-color game geometry for GNMX diagnostics\n"
+          "  --ps4-native-3d      experimental native 3D and 2D composition (CPU reference retained)\n",
           stderr);
 #endif
 }
@@ -5270,6 +5322,8 @@ int main(int argc, char **argv)
 #if EIDOS_BOOT_PS4
         } else if (strcmp(argv[i], "--g3d-snapshot-flat") == 0) {
             g_ps4_gpu_snapshot_flat = 1;
+        } else if (strcmp(argv[i], "--ps4-native-3d") == 0) {
+            g_ps4_gpu_native = 1;
 #endif
         } else if (strcmp(argv[i], "--screenshot-dir") == 0 && i + 1 < argc) {
             g_shot_dir = argv[++i];
@@ -5318,9 +5372,23 @@ int main(int argc, char **argv)
     }
 
 #if EIDOS_BOOT_PS4
+    /* Retail launches do not normally supply argv. A developer can opt in
+     * locally without rebuilding the package; absence or any other value
+     * keeps the existing renderer. No game or save data is modified. */
+    if (!g_ps4_gpu_native) {
+        FILE *flag = fopen("/data/eidos/native-3d.enable", "rb");
+        if (flag != NULL) {
+            g_ps4_gpu_native = fgetc(flag) == '1';
+            fclose(flag);
+        }
+    }
     if (g_ps4_gpu_snapshot_flat) {
         fprintf(stderr,
                 "runtime option: --g3d-snapshot-flat enabled (diagnostic overlay; CPU raster remains active)\n");
+    }
+    if (g_ps4_gpu_native) {
+        fprintf(stderr,
+                "runtime option: --ps4-native-3d enabled (experimental; CPU raster remains active)\n");
     }
 #endif
     if (g_mod_log != NULL) {

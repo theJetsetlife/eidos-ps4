@@ -32,6 +32,8 @@ enum {
     EIDOS_PROF_UNPREM,    /* un-premultiply and flip after the read     */
     EIDOS_PROF_UI,        /* the one-screen interface's frame           */
     EIDOS_PROF_GAME,      /* the game's own threads, between two frames */
+    EIDOS_PROF_PS4_REC3D, /* CPU time preparing PS4 3D GPU commands     */
+    EIDOS_PROF_PS4_REC2D, /* CPU time preparing PS4 2D GPU commands     */
     EIDOS_PROF_COUNT
 };
 

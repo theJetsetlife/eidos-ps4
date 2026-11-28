@@ -10,6 +10,27 @@
 // format is needed on any of SDL's drivers.  Everything is top-down: target
 // row 0, texture row 0 and DS row 0 are the same row (GL's were bottom-up).
 
+#ifdef EIDOS_PSSL
+struct VSOut
+{
+    float4 pos : S_POSITION;
+    float2 uv : TEXCOORD0;
+};
+
+Texture2D<float4> vram : register(t0);   // the BG window, 1024 bytes a row
+SamplerState s0 : register(s0);
+Texture2D<float4> pal : register(t1);    // 256 x 18: BG, OBJ, OBJ ext 0..15
+SamplerState s1 : register(s1);
+Texture2D<float4> objt : register(t2);   // index, priority, source, flags
+SamplerState s2 : register(s2);
+Texture2D<float4> l3t : register(t3);
+SamplerState s3 : register(s3);
+Texture2D<float4> rast : register(t4);   // 256 x 768: the four rasters
+SamplerState s4 : register(s4);
+Texture2D<float4> g3d : register(t5);    // the GPU's 3D, premultiplied
+SamplerState s5 : register(s5);
+
+#else
 struct VSOut
 {
     float4 pos : SV_Position;
@@ -29,6 +50,8 @@ struct VSOut
 [[vk::combinedImageSampler]] Texture2D<float4> g3d : register(t5, space2);    // the GPU's 3D, premultiplied
 [[vk::combinedImageSampler]] SamplerState s5 : register(s5, space2);
 
+#endif
+
 // The frame's parameters as one int array (plat_sdlgpu2d.c fills it):
 //   0 pal_count[18], 18 text[40] (4 x en prio hofs vofs tw th code map char
 //   bpp8), 58 aff[26] (2 x en prio bgi tiles map char wrap rx ry pa pb pc
@@ -36,7 +59,11 @@ struct VSOut
 //   win[15] (w0 en x1 x2 y1 y2 layers, w1 the same, obj en, obj layers,
 //   outside), 115 bld[6] (effect first second eva evb evy), 121 vram_size,
 //   122 obj_on, 123 mb, 124 g3m, 125 g3sz.xy, 127 osz.xy.
+#ifdef EIDOS_PSSL
+ConstantBuffer FragmentUniforms : register(b0)
+#else
 cbuffer FragmentUniforms : register(b0, space3)
+#endif
 {
     int4 U[33];
 };
@@ -56,6 +83,10 @@ int u(int i) { return U[i >> 2][i & 3]; }
 #define G3M 124
 #define G3SZ 125
 #define OSZ 127
+#ifdef EIDOS_PSSL
+#define ORIGIN 129
+#define CURSOR 131
+#endif
 
 static int ox, oy;
 
@@ -259,10 +290,20 @@ int3 blend_alpha(int3 a, int3 b)
     return o;
 }
 
+#ifdef EIDOS_PSSL
+float4 fs_main(VSOut i) : S_TARGET_OUTPUT
+#else
 float4 fs_main(VSOut i) : SV_Target0
+#endif
 {
+#ifdef EIDOS_PSSL
+    // A PS4 viewport may be a rectangle of the display render target.
+    ox = int(i.pos.x) - u(ORIGIN);
+    oy = int(i.pos.y) - u(ORIGIN + 1);
+#else
     ox = int(i.pos.x);
     oy = int(i.pos.y);
+#endif
     int g3m = u(G3M);
     int x = g3m == 2 ? ox * 256 / u(OSZ) : ox, y = g3m == 2 ? oy * 192 / u(OSZ + 1) : oy;
     uint4 o = rd4(objt, int2(x, y));
@@ -325,5 +366,19 @@ float4 fs_main(VSOut i) : SV_Target0
             outc[k] = c6to8(c);
         }
     }
+#ifdef EIDOS_PSSL
+    // The platform's touch marker occupies DS pixels on the bottom screen.
+    // U[131] is zero when absent; x+1 and y+1 are packed into 16-bit halves.
+    int cursor = u(CURSOR);
+    if (cursor != 0) {
+        int dx = x - ((cursor & 65535) - 1);
+        int dy = y - ((cursor >> 16) - 1);
+        int ax = abs(dx), ay = abs(dy);
+        if (ax <= 5 && ay <= 5 && (ax <= 1 || ay <= 1)) {
+            float tone = ((dx == 0 && ay < 5) || (dy == 0 && ax < 5)) ? 1.0 : 0.0;
+            return float4(tone, tone, tone, 1.0);
+        }
+    }
+#endif
     return float4(float3(outc) / 255.0, 1.0);
 }

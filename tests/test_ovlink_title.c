@@ -34,7 +34,7 @@ int main(int argc, char **argv)
         if (bw_ovl_file_bytes(bw_ovl_set_boot.images[i]->id, 0, 4) == NULL) {
             printf("SKIPPED: overlay %lu's file is not in the extract\n",
                    (unsigned long)bw_ovl_set_boot.images[i]->id);
-            return 0;
+            return 77;
         }
     }
     bw_ds_reset();

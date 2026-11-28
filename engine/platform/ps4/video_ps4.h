@@ -10,6 +10,7 @@ extern "C" {
 #endif
 
 typedef struct EidosPs4Video EidosPs4Video;
+struct G2dGpuFrame;
 
 /* Open a 16:9 VideoOut main-bus display and allocate two SDK-compatible
  * scanout buffers. Width and height describe the actual output mode; the
@@ -83,6 +84,14 @@ int eidos_ps4_video_prepare_game_frame(EidosPs4Video *video,
 int eidos_ps4_video_record_game_frame(EidosPs4Video *video,
     const struct G3dSnapshot *snapshot, uint32_t width, uint32_t height,
     EidosPs4TextureUploadStats *stats);
+
+/* Compose the exported main-engine layer stack over the recorded native 3D
+ * target, then place it in the existing screen layout. The other screen is
+ * supplied by the CPU reference. Returns an error before changing ownership
+ * if a required resource or presentation mode is unavailable. */
+int eidos_ps4_video_draw_game_composite(EidosPs4Video *video,
+    const struct G2dGpuFrame *frame, const void *top_rgba, const void *bottom_rgba,
+    int cursor_x, int cursor_y, uint8_t presentation_mode);
 
 /* Make CPU writes visible to the GPU/display path and submit a vsync flip. */
 int eidos_ps4_video_present(EidosPs4Video *video);

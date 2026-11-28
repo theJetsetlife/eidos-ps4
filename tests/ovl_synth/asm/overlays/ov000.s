@@ -5,6 +5,7 @@
 	.global	func_02200030
 	.global	func_02200040
 	.global	func_02200050
+	.global	socket
 	.word	0x02200011                  /* 02200180  -> func_02200010 (thumb) */
 	.word	0x02200100                  /* 02200184  -> pool_02200100 */
 	.word	0x02100000                  /* 02200188  -> func_02100000 */

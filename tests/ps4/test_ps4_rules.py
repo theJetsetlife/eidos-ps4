@@ -134,6 +134,32 @@ class Diagnostics(unittest.TestCase):
         self.assertLess(src.index("eidos_ps4_log_start("), src.index("eidos_prof_enable(600u)"))
 
 
+class GpuDepth(unittest.TestCase):
+    def test_clip_depth_is_not_converted_twice(self):
+        # SDK helpers.h: Direct3D-style clip depth uses viewport zScale=1,
+        # zOffset=0. Both PSSL vertex shaders already convert [-w,w] to [0,w].
+        gpu = read("engine/platform/ps4/video_ps4.cpp")
+        game = gpu.split('extern "C" int eidos_ps4_video_record_game_frame(', 1)[1]
+        game = game.split('extern "C" int eidos_ps4_video_present(', 1)[0]
+        flat = gpu.split('static int draw_snapshot_flat_commands(', 1)[1]
+        flat = flat.split('extern "C" int eidos_ps4_video_draw_snapshot_flat(', 1)[0]
+        self.assertRegex(game, r'setupScreenViewport\(0,\s*0,\s*width,\s*height,\s*1\.0f,\s*0\.0f\)')
+        self.assertRegex(flat, r'setupScreenViewport\(240,\s*0,\s*1680,\s*1080,\s*1\.0f,\s*0\.0f\)')
+        self.assertIn('0.5 * (i.pos.z + i.pos.w)', read('engine/platform/shaders/g3d.hlsl'))
+        self.assertIn('0.5f * (input.clip.z + input.clip.w)', read('shaders/ps4/snapshot_flat_vs.pssl'))
+
+    def test_snapshot_vertices_do_not_use_the_64_kib_inline_packet(self):
+        # SDK gfxcontext_methods.h caps allocateFromCommandBuffer at 64 KiB.
+        # Full game scenes and the diagnostic can need larger vertex data.
+        gpu = read("engine/platform/ps4/video_ps4.cpp")
+        game = gpu.split('extern "C" int eidos_ps4_video_record_game_frame(', 1)[1]
+        game = game.split('extern "C" int eidos_ps4_video_present(', 1)[0]
+        flat = gpu.split('static int draw_snapshot_flat_commands(', 1)[1]
+        flat = flat.split('extern "C" int eidos_ps4_video_draw_snapshot_flat(', 1)[0]
+        self.assertRegex(game, r'data\s*=.*?m_dcb\.allocateFromTheEndOfTheBuffer\s*\(')
+        self.assertRegex(flat, r'vertex_data\s*=.*?m_dcb\.allocateFromTheEndOfTheBuffer\s*\(')
+
+
 class UsbClaims(unittest.TestCase):
     def test_messages_do_not_promise_usb_logging(self):
         # The SDK documents no application access to USB storage, and the

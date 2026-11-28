@@ -83,8 +83,10 @@ def build_tree(root):
                 # a pointer to data the externs list says is data, in code
                 {"addr": "0x02004220", "size": 4, "kind": "pointer_table",
                  "name": "g_02004220", "count": 1, "targets": ["0x02004150"]},
-                {"addr": "0x02004224", "size": 0x1DC, "kind": "raw",
-                 "name": "g_02004224"},
+                {"addr": "0x02004224", "size": 4, "kind": "pointer_table",
+                 "name": "g_02004224", "count": 1, "targets": ["0x02100021"]},
+                {"addr": "0x02004228", "size": 0x1D8, "kind": "raw",
+                 "name": "g_02004228"},
             ],
             "externs": [
                 {"addr": "0x02004150", "name": "g_02004150", "kind": "data"},
@@ -94,7 +96,8 @@ def build_tree(root):
     }
     write(os.path.join(root, "layout", "data_objects.json"), json.dumps(objects))
     write(os.path.join(root, "layout", "symbols_sdk.txt"),
-          "# test\n02004180  SDK_Thing  lib(x.o)  arm9\n")
+          "# test\n02004180  SDK_Thing  lib(x.o)  arm9\n"
+          "02100020  socket  lib(x.o)  ov005\n")
     # The listing: annotations only matter; word values are placeholders.
     write(os.path.join(root, "asm", "arm9", "main.s"), "\n".join([
         "\t.word\t0x00000000                  /* 02004010  -> func_02004100 (thumb) */",
@@ -162,6 +165,7 @@ void func_02004100(void (*cb)(int task), int done)
 /* a port object, listed in the exclusions, and one that is not */
 unsigned int g_port[4];
 unsigned int d_02004820;
+int bw_ovl_game_socket(int a, int b, int c) { return a + b + c; }
 static int not_exported;
 """)
     write(os.path.join(root, "exclusions.txt"), """\
@@ -295,6 +299,10 @@ def main():
               rel.get(0x0200421C, (0, ""))[:2] == (0x02004A04, "HOST"))
         check("pointer to data in the code region",
               rel.get(0x02004220, (0, ""))[:2] == (0x02004150, "DATA"))
+        check("overlay socket pointer is code",
+              rel.get(0x02004224, (0, ""))[:2] == (0x02100021, "CODE"))
+        check("overlay socket pointer reaches the namespaced trampoline",
+              funcs[fidx[0x02100021]][1:] == ("bw_ovl_game_socket", "socket"), str(funcs))
         check("listing word in the data range", rel.get(0x02004304, (0, ""))[:2] == (0x02004308, "DATA"))
         check("listing section+offset", rel.get(0x02004308, (0, ""))[:2] == (0x02004110, "CODE"),
               str(rel.get(0x02004308)))

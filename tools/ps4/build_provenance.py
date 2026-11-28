@@ -55,11 +55,11 @@ def main():
         "release": args.release == "1",
         "sdk": "Orbis-" + (sdk_release.group(1) if sdk_release else "unknown")
         + " (" + (sdk_macro or "version-macro-unknown") + ")",
-        "renderer": "GNMX-DS-composite;G3D=CPU-raster;optional-flat-snapshot-overlay",
+        "renderer": "GNMX-DS-composite;G3D=CPU-raster;optional-experimental-native-3D-2D",
         "shader_manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
         "shader_count": len(manifest.get("shaders", [])),
         "game_data": "user-selected-at-runtime",
-        "runtime_options": "console-launch-arguments;--g3d-snapshot-flat-is-diagnostic",
+        "runtime_options": "--g3d-snapshot-flat;--ps4-native-3d;/data/eidos/native-3d.enable",
     }
     c_string = json.dumps(json.dumps(provenance, sort_keys=True), ensure_ascii=True)
     args.out.parent.mkdir(parents=True, exist_ok=True)

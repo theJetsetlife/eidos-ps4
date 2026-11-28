@@ -17,7 +17,8 @@ static unsigned long long g_win_start;
 
 static const char *const k_names[EIDOS_PROF_COUNT] = {
     "step", "g3d", "main2d", "sub2d", "present", "audio", "wait",
-    "geom", "raster", "snap", "texdec", "gldraw", "glup", "render", "boot3d", "glread", "unprem", "ui", "game"
+    "geom", "raster", "snap", "texdec", "gldraw", "glup", "render", "boot3d", "glread", "unprem", "ui", "game",
+    "ps4rec3d", "ps4rec2d"
 };
 
 void eidos_prof_enable(unsigned every)

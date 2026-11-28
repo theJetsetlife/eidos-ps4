@@ -36,6 +36,7 @@
 
 #include "dsmem.h"
 #include "g2d.h"
+#include "g2d_gpu.h"
 #include "port.h"
 #include "port_test.h"
 
@@ -922,6 +923,84 @@ static void test_capture(void)
     BW_CHECK_EQ("FIFO source reads 0", bank16(bank_d, 2u), 0u);
 }
 
+/* Exporting the production GPU layer descriptions must not change the CPU
+ * frame or its display capture. The native path deliberately keeps those
+ * outputs as its reference until GPU rendering has been validated. */
+static void test_gpu_export_reference(void)
+{
+    static u8 image3d[W * H * 4], reference_top[W * H * 4], reference_bottom[W * H * 4];
+    u32 i, generation;
+    const G2dGpuFrame *frame;
+    u8 *bank_d = bw_vram_bank(BW_VRAM_D, NULL);
+    u16 captured[2];
+
+    for (i = 0; i < W * H; i++) {
+        image3d[i * 4u] = 10;
+        image3d[i * 4u + 1u] = 20;
+        image3d[i * 4u + 2u] = 30;
+        image3d[i * 4u + 3u] = 255;
+    }
+    reset();
+    tile4(0x06000000u + 32u, 1);
+    pal_set(0, 0, 1, RED);
+    vram16(0x06004800u, 0x0001);
+    io16(0x04000008u, 1);
+    io16(0x0400000Au, (u16)(9u << 8));
+    io32(0x04000000u, 0x10000u | 0x8u | 0x0300u);
+    io32(0x04001000u, 0x10000u);
+    io16(0x0400006Cu, 0x4004u);
+    g2d_gpu_export(0);
+    g2d_gpu_skip_cpu(0);
+    g2d_gpu_main_3d(0);
+    BW_CHECK_EQ("GPU export reference render", render(image3d), 0);
+    memcpy(reference_top, g_top, sizeof g_top);
+    memcpy(reference_bottom, g_bottom, sizeof g_bottom);
+
+    g2d_gpu_export(1);
+    g2d_gpu_main_3d(1);
+    BW_CHECK_EQ("GPU export enabled render", render(image3d), 0);
+    BW_CHECK_EQ("GPU export preserves main pixels", memcmp(g_top, reference_top, sizeof g_top), 0);
+    BW_CHECK_EQ("GPU export preserves sub pixels", memcmp(g_bottom, reference_bottom, sizeof g_bottom), 0);
+    frame = g2d_gpu_frame(0);
+    BW_CHECK_EQ("GPU main frame exported", frame != NULL && frame->valid, 1);
+    if (frame != NULL && frame->valid) {
+        BW_CHECK_EQ("GPU main screen top", frame->screen, 0);
+        BW_CHECK_EQ("GPU main 3D enabled", frame->l3_on, 1);
+        BW_CHECK_EQ("GPU 3D priority", frame->l3_priority, 1);
+        BW_CHECK_EQ("GPU text BG1 enabled", frame->text[1].enabled, 1);
+        BW_CHECK_EQ("GPU brightness captured", frame->master_bright, 0x4004);
+        BW_CHECK_EQ("GPU palette captured red", frame->pal[0][1][0], 255);
+        generation = frame->bgv_gen;
+        render(image3d);
+        BW_CHECK_EQ("unchanged VRAM keeps generation", frame->bgv_gen, generation);
+        vram16(0x06004800u, 0x0002);
+        render(image3d);
+        BW_CHECK_EQ("changed VRAM advances generation", frame->bgv_gen != generation, 1);
+    }
+    io16(0x04000304u, 0); /* main on bottom */
+    render(image3d);
+    frame = g2d_gpu_frame(0);
+    BW_CHECK_EQ("GPU main screen follows swap", frame != NULL && frame->screen == 1, 1);
+
+    io8(0x04000243u, 0x80); /* D in LCDC mode */
+    g2d_gpu_export(0);
+    g2d_gpu_main_3d(0);
+    io32(0x04000064u, 0x81330010u);
+    render(image3d);
+    captured[0] = bw_rd16(bank_d);
+    captured[1] = bw_rd16(bank_d + 2);
+    memset(bank_d, 0, 128u * 1024u);
+    g2d_gpu_export(1);
+    g2d_gpu_main_3d(1);
+    io32(0x04000064u, 0x81330010u);
+    render(image3d);
+    BW_CHECK_EQ("GPU export preserves capture first pixel", bw_rd16(bank_d), captured[0]);
+    BW_CHECK_EQ("GPU export preserves capture second pixel", bw_rd16(bank_d + 2), captured[1]);
+    BW_CHECK_EQ("GPU export preserves capture completion", bw_io_read32(0x04000064u), 0x01330010u);
+    g2d_gpu_export(0);
+    g2d_gpu_main_3d(0);
+}
+
 /* ================================================================== */
 /* Against the asset path, with game data                              */
 /* ================================================================== */
@@ -1109,10 +1188,11 @@ static int test_against_assets(void)
     G2dWindows win;
     G2dBlend blend;
     int n_oam;
+    int skipped = 0;
 
     if (bw_arc_open(&title_arc, "titledemo.narc") != 0) {
         printf("  skipped: no game data (titledemo.narc) under %s\n", bw_data_root());
-        return 0;
+        return 77;
     }
     memset(&nscr, 0, sizeof(nscr));
     memset(&ncgr, 0, sizeof(ncgr));
@@ -1157,6 +1237,7 @@ static int test_against_assets(void)
     /* 2. The rig pose alone on the sub engine. */
     if (bw_arc_open(&rig_arc, "a/0/0/4") != 0) {
         printf("  skipped: no a/0/0/4\n");
+        skipped = 1;
         goto out_title;
     }
     memset(&rig, 0, sizeof(rig));
@@ -1242,27 +1323,31 @@ out_title:
     free(ncgr_buf);
     free(nclr_buf);
     bw_arc_close(&title_arc);
-    return 0;
+    return skipped ? 77 : 0;
 }
 
 int main(int argc, char **argv)
 {
+    int assets_only = argc > 2 && strcmp(argv[2], "--assets-only") == 0;
+    int synthetic_only = argc > 2 && strcmp(argv[2], "--synthetic-only") == 0;
+    int asset_result = 0;
     BW_TEST_SETUP(argc, argv);
 
-    test_display();
-    test_text_priority();
-    test_objs();
-    test_windows();
-    test_blend();
-    test_affine_bg();
-    test_extpal();
-    test_3d();
-    test_3d_alpha();
-    test_mosaic();
-    test_capture();
-    if (test_against_assets() != 0) {
-        BW_REPORT("test_hwcompose");
+    if (!assets_only) {
+        test_display();
+        test_text_priority();
+        test_objs();
+        test_windows();
+        test_blend();
+        test_affine_bg();
+        test_extpal();
+        test_3d();
+        test_3d_alpha();
+        test_mosaic();
+        test_capture();
+        test_gpu_export_reference();
     }
-
-    BW_REPORT("test_hwcompose");
+    if (!synthetic_only) asset_result = test_against_assets();
+    printf("test_hwcompose: %d checks, %d failures\n", bw_checks, bw_failures);
+    return bw_failures || (asset_result != 0 && asset_result != 77) ? 1 : asset_result;
 }

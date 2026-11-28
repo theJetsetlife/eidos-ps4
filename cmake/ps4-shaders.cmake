@@ -56,6 +56,8 @@ eidos_ps4_compile_shader(single_ds_screen_ps.pssl sce_ps_orbis)
 eidos_ps4_compile_shader(snapshot_flat_vs.pssl sce_vs_vs_orbis)
 eidos_ps4_compile_shader(snapshot_flat_ps.pssl sce_ps_orbis)
 eidos_ps4_compile_shader(game_clear_ps.pssl sce_ps_orbis)
+eidos_ps4_compile_shader(game_g2d_ps.pssl sce_ps_orbis
+    "${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/shaders/g2d.hlsl")
 eidos_ps4_compile_shader(game_g3d_vs.pssl sce_vs_vs_orbis
     "${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/shaders/g3d.hlsl")
 eidos_ps4_compile_shader(game_g3d_ps.pssl sce_ps_orbis

@@ -25,10 +25,9 @@
 #   - without overlays compiled in (no KNOWN_STOP), it stops at the overlay
 #     layer's own boundary: "PANIC in FS_LoadOverlay ... overlay N (...) is
 #     not in this build".
-# With 8-byte pointers (-DLP64=1), the current host build may run only its
-# explicit unrelocated diagnostic mode. That is not pointer-relocation or
-# gameplay validation; it checks that the diagnostic reaches its known
-# frame/overlay milestone while retaining the data-layer warning.
+# With 8-byte pointers (-DLP64=1), the host runs its unrelocated diagnostic
+# mode. That is not pointer-relocation or gameplay validation; it checks that
+# the diagnostic reaches its frame/overlay milestone.
 # PRESS supplies scripted DS input. The LP64 diagnostic path below checks
 # only that the run reaches its expected frame/overlay milestone; it is not
 # evidence that the game consumed the input or advanced to a new scene.
@@ -63,8 +62,10 @@ string(RANDOM LENGTH 16 run_id)
 set(run_home "${CMAKE_CURRENT_BINARY_DIR}/boot-test-${run_id}")
 file(MAKE_DIRECTORY "${run_home}/saves")
 set(ENV{EIDOS_HOME} "${run_home}")
+set(ENV{EIDOS_USER_DIR} "${run_home}")
 set(ENV{BW_SAVE_DIR} "${run_home}/saves")
 set(ENV{EIDOS_SETTINGS} "${run_home}/settings.ini")
+set(ENV{EIDOS_MODS_DIR} "${run_home}/mods")
 execute_process(COMMAND "${BOOT}" --data-root "${DATA}" --frames ${FRAMES}
                         --watchdog ${WATCHDOG} ${window_arg}
     RESULT_VARIABLE rc
@@ -73,13 +74,13 @@ execute_process(COMMAND "${BOOT}" --data-root "${DATA}" --frames ${FRAMES}
     TIMEOUT 600)
 file(REMOVE_RECURSE "${run_home}")
 set(all "${out}${err}")
+if(all MATCHES "(CRASH:|WATCHDOG:|AddressSanitizer|UndefinedBehaviorSanitizer|runtime error:)")
+    message(FATAL_ERROR "the boot reported a fault (exit ${rc}):\n${all}")
+endif()
 if(LP64)
-    if(all MATCHES "the boot needs an ILP32 build")
-        message(STATUS "the LP64 boot refused as designed")
-        return()
-    endif()
-    if(rc EQUAL 0
-       AND all MATCHES "DS address space on movable host blocks"
+    if("${rc}" STREQUAL "0"
+       AND NOT all MATCHES "(CRASH:|PANIC|WATCHDOG:|AddressSanitizer)"
+       AND all MATCHES "DS address space (on movable host blocks|identity-mapped)"
        AND all MATCHES "eidos_boot: ran after ${FRAMES} frames")
         if(DEFINED RESIDENT AND NOT "${RESIDENT}" STREQUAL "")
             string(REGEX MATCH "resident overlays:([ 0-9]*)" _res "${all}")
@@ -95,14 +96,15 @@ if(LP64)
                        "pointer relocation remains unavailable")
         return()
     endif()
-    message(FATAL_ERROR "the LP64 boot did not refuse cleanly (exit ${rc}):\n${all}")
+    message(FATAL_ERROR "the LP64 diagnostic did not reach its milestone (exit ${rc}):\n${all}")
 endif()
 
 string(REGEX MATCH "resident overlays:([ 0-9]*)" _res "${all}")
 set(resident "${CMAKE_MATCH_1}")
 string(STRIP "${resident}" resident)
 
-if(rc EQUAL 0 AND all MATCHES "eidos_boot: ran after ${FRAMES} frames")
+if("${rc}" STREQUAL "0" AND all MATCHES "eidos_boot: ran after ${FRAMES} frames"
+   AND NOT all MATCHES "(CRASH:|PANIC|WATCHDOG:|AddressSanitizer)")
     if(DEFINED RESIDENT AND NOT "${RESIDENT}" STREQUAL ""
        AND NOT "${resident}" STREQUAL "${RESIDENT}")
         message(FATAL_ERROR "the boot ran ${FRAMES} frames, but the resident "

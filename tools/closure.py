@@ -119,6 +119,19 @@ HOST_RESERVED = {
     "__strtold": "bw_game___strtold",
 }
 
+# DS overlay trampolines must not occupy the host networking API namespace.
+# System libraries and the port's own networking code call those host names,
+# sometimes before any game overlay is resident.  These aliases are used only
+# for game code whose recorded target is inside an overlay window.
+OVERLAY_HOST_RESERVED = {
+    name: "bw_ovl_game_" + name for name in (
+        "accept", "bind", "connect", "gethostbyname", "getpeername",
+        "getsockname", "getsockopt", "htonl", "htons", "inet_addr",
+        "inet_ntoa", "listen", "ntohl", "ntohs", "recv", "recvfrom",
+        "select", "send", "sendto", "setsockopt", "shutdown", "socket",
+    )
+}
+
 
 def read_symbol_table(path):
     """address -> name for the two-column layout/*.txt symbol files."""

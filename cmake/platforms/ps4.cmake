@@ -31,6 +31,8 @@ target_compile_definitions(eidos_ps4_sdk INTERFACE EIDOS_PLATFORM_PS4=1)
 # Native Orbis services shared by the diagnostic and the eventual game
 # executable. Keep SDK-dependent code out of the SDL and other console builds.
 add_library(eidos_platform_ps4 STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/engine/g2d/g2d_gpu_uniforms.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/engine/g2d/g2d_gpu_upload.c
     ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4/audio_ps4.c
     ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4/resampler_ps4.c
     ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4/input_ps4.c
@@ -43,7 +45,8 @@ target_include_directories(eidos_platform_ps4 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform
     ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4)
 target_include_directories(eidos_platform_ps4 PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/engine/g3d)
+    ${CMAKE_CURRENT_SOURCE_DIR}/engine/g3d
+    ${CMAKE_CURRENT_SOURCE_DIR}/engine/g2d)
 target_link_libraries(eidos_platform_ps4 PUBLIC eidos_ps4_sdk)
 target_link_libraries(eidos_platform_ps4 PUBLIC
     ScePosix_stub_weak

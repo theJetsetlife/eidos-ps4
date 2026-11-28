@@ -14,6 +14,8 @@
 
 #include "shader_blobs_ps4.h"
 #include "hw3d.h"
+#include "g2d_gpu_uniforms.h"
+#include "g2d_gpu_upload.h"
 
 namespace {
 
@@ -75,8 +77,20 @@ struct GameProgram {
     uint32_t modifier = 0;
     sce::Gnmx::InputOffsetsCache vs_offsets = {}, ps_offsets = {};
     sce::Gnmx::PsShader *clear_ps = nullptr;
+    sce::Gnmx::PsShader *g2d_ps = nullptr;
+    sce::Gnmx::InputOffsetsCache g2d_offsets = {};
     sce::Gnmx::InputOffsetsCache clear_offsets = {};
     bool ready = false;
+};
+
+struct Game2dTextures {
+    GpuArena arena;
+    sce::Gnm::Texture vram, palette, objects, raster;
+    uint8_t *vram_data = nullptr, *palette_data = nullptr;
+    uint8_t *objects_data = nullptr, *raster_data = nullptr;
+    uint32_t vram_rows = 0, generation = 0;
+    const G2dGpuFrame *owner = nullptr;
+    bool vram_valid = false;
 };
 
 struct SnapshotTextureCache {
@@ -100,15 +114,19 @@ struct EidosPs4Video {
     bool buffers_registered = false;
     bool gpu_frame_ready = false;
     bool game_frame_recorded = false;
+    bool scanout_unorm_ready = true;
     bool gpu_contexts_ready = false;
     GpuArena garlic_arena;
     GpuArena onion_arena;
     SnapshotTextureCache game_textures[kBufferCount];
     GameProgram game_program;
     GameTargets game_targets[kBufferCount];
+    Game2dTextures game_2d[kBufferCount];
     sce::Gnm::RenderTarget render_targets[kBufferCount];
+    sce::Gnm::RenderTarget render_targets_unorm[kBufferCount];
     sce::Gnm::Texture ds_textures[kBufferCount];
     sce::Gnm::Sampler ds_sampler;
+    sce::Gnm::Sampler game_linear_sampler;
     sce::Gnmx::GfxContext gfx_contexts[kBufferCount];
     sce::Gnmx::PsShader *diagnostic_pixel_shader = nullptr;
     sce::Gnmx::PsShader *ds_compatibility_pixel_shader = nullptr;
@@ -490,6 +508,12 @@ int initialize_gnm(EidosPs4Video *video,
                                   sce::Gnm::kWrapModeClampLastTexel);
     video->ds_sampler.setXyFilterMode(sce::Gnm::kFilterModePoint,
                                       sce::Gnm::kFilterModePoint);
+    video->game_linear_sampler.init();
+    video->game_linear_sampler.setWrapMode(sce::Gnm::kWrapModeClampLastTexel,
+                                          sce::Gnm::kWrapModeClampLastTexel,
+                                          sce::Gnm::kWrapModeClampLastTexel);
+    video->game_linear_sampler.setXyFilterMode(sce::Gnm::kFilterModeBilinear,
+                                              sce::Gnm::kFilterModeBilinear);
 
     for (int i = 0; i < kBufferCount; ++i) {
         void *cue_heap = gpu_arena_allocate(
@@ -557,6 +581,21 @@ extern "C" int eidos_ps4_video_create(EidosPs4Video **out, uint32_t width,
             return result;
         }
     }
+    /* The 2D compositor produces already-encoded DS RGB values, matching
+     * upstream's UNORM target. A second view of the same scanout storage
+     * prevents the CB from applying an extra sRGB transfer on those values. */
+    spec.m_colorFormat = sce::Gnm::kDataFormatB8G8R8A8Unorm;
+    for (int i = 0; i < kBufferCount; ++i) {
+        if (video->render_targets_unorm[i].init(&spec) != SCE_GNM_OK ||
+            video->render_targets_unorm[i].getPitch() != video->render_targets[i].getPitch() ||
+            video->render_targets_unorm[i].getColorSizeAlign().m_size !=
+                video->render_targets[i].getColorSizeAlign().m_size ||
+            video->render_targets_unorm[i].getColorSizeAlign().m_align !=
+                video->render_targets[i].getColorSizeAlign().m_align) {
+            video->scanout_unorm_ready = false;
+            break;
+        }
+    }
     const sce::Gnm::SizeAlign layout =
         video->render_targets[0].getColorSizeAlign();
     video->pitch = video->render_targets[0].getPitch();
@@ -617,6 +656,10 @@ extern "C" int eidos_ps4_video_create(EidosPs4Video **out, uint32_t width,
         __builtin_memset(video->buffers[i], 0, video->buffer_size);
         video->render_targets[i].setAddresses(video->buffers[i], nullptr,
                                                nullptr);
+        if (video->scanout_unorm_ready) {
+            video->render_targets_unorm[i].setAddresses(video->buffers[i], nullptr,
+                                                         nullptr);
+        }
     }
 
     result = initialize_gnm(video, eidos_ps4_diagnostic_pixel_shader(),
@@ -697,10 +740,18 @@ int initialize_game_program(GameProgram *program)
     if (!shader_layout(clear_info, &clear_struct, &clear_offset, &clear_size)) {
         return -1;
     }
+    const EidosPs4ShaderBlob *g2d_blob = eidos_ps4_game_g2d_pixel_shader();
+    sce::Gnmx::ShaderInfo g2d_info = {};
+    sce::Gnmx::parseShader(&g2d_info, g2d_blob->data);
+    size_t g2d_struct, g2d_offset, g2d_size;
+    if (!shader_layout(g2d_info, &g2d_struct, &g2d_offset, &g2d_size)) {
+        return -1;
+    }
     const uint32_t fetch_size = sce::Gnmx::computeVsFetchShaderSize(vs_info.m_vsShader);
     size_t required = kDirectAlignment;
     if (fetch_size == 0 || !add_size(&required, vs_size) ||
         !add_size(&required, ps_size) || !add_size(&required, clear_size) ||
+        !add_size(&required, g2d_size) ||
         !add_size(&required, fetch_size)) {
         return -1;
     }
@@ -727,6 +778,13 @@ int initialize_game_program(GameProgram *program)
     }
     sce::Gnmx::generateInputOffsetsCache(&program->clear_offsets,
         sce::Gnm::kShaderStagePs, program->clear_ps);
+    program->g2d_ps = copy_shader(&program->arena, g2d_info,
+        g2d_struct, g2d_offset, g2d_size);
+    if (program->g2d_ps == nullptr) {
+        return -1;
+    }
+    sce::Gnmx::generateInputOffsetsCache(&program->g2d_offsets,
+        sce::Gnm::kShaderStagePs, program->g2d_ps);
     program->ready = true;
     return 0;
 }
@@ -814,6 +872,88 @@ int initialize_game_targets(GameTargets *targets, uint32_t width, uint32_t heigh
     targets->depth = candidate.depth;
     targets->width = width;
     targets->height = height;
+    return 0;
+}
+
+/* CPU-owned frame arrays are copied to storage protected by this back
+ * buffer's flip fence. Each descriptor is linear so rows can be uploaded
+ * using the actual pitch returned by the SDK. */
+int prepare_game_2d_textures(Game2dTextures *cache, const G2dGpuFrame *frame)
+{
+    if (cache == nullptr || frame == nullptr || !frame->valid || !frame->l3_on ||
+        frame->bgv == nullptr || frame->bgv_size == 0 || frame->obj == nullptr ||
+        frame->bgv_size > static_cast<uint32_t>(INT32_MAX)) {
+        return -1;
+    }
+    for (unsigned i = 0; i < 4; ++i) {
+        if (frame->raster[i].enabled && frame->raster[i].rgba == nullptr) return -1;
+    }
+    const uint32_t rows = (frame->bgv_size + 1023u) / 1024u;
+    if (rows == 0 || rows > 16384u) return -1;
+    if (cache->vram_rows < rows || cache->arena.mapping == nullptr) {
+        sce::Gnm::Texture textures[4];
+        const uint32_t widths[4] = {1024, 256, 256, 256};
+        const uint32_t heights[4] = {rows, 18, 192, 768};
+        const uint32_t bpp[4] = {1, 4, 4, 4};
+        sce::Gnm::SizeAlign layouts[4];
+        size_t required = 0;
+        for (unsigned i = 0; i < 4; ++i) {
+            sce::Gnm::TextureSpec spec;
+            spec.init();
+            spec.m_textureType = sce::Gnm::kTextureType2d;
+            spec.m_width = widths[i]; spec.m_height = heights[i];
+            spec.m_depth = 1; spec.m_numMipLevels = 1; spec.m_numSlices = 1;
+            spec.m_format = i == 0 ? sce::Gnm::kDataFormatR8Unorm
+                                   : sce::Gnm::kDataFormatR8G8B8A8Unorm;
+            spec.m_tileModeHint = sce::Gnm::kTileModeDisplay_LinearAligned;
+            spec.m_minGpuMode = sce::Gnm::getGpuMode();
+            spec.m_numFragments = sce::Gnm::kNumFragments1;
+            if (textures[i].init(&spec) != SCE_GNM_OK) return -1;
+            layouts[i] = textures[i].getSizeAlign();
+            if (layouts[i].m_size == 0 || layouts[i].m_align == 0 ||
+                (layouts[i].m_align & (layouts[i].m_align - 1u)) != 0 ||
+                textures[i].getPitch() < widths[i] ||
+                (static_cast<uint64_t>(heights[i] - 1u) * textures[i].getPitch()
+                    + widths[i]) * bpp[i] > layouts[i].m_size ||
+                !add_size(&required, layouts[i].m_align - 1u) ||
+                !add_size(&required, layouts[i].m_size)) return -1;
+        }
+        /* This arena belongs exclusively to the acquired back buffer. */
+        cache->vram_rows = 0;
+        cache->vram_valid = false;
+        int result = destroy_gpu_arena(&cache->arena);
+        if (result < 0) return result;
+        result = create_gpu_arena(&cache->arena, required, SCE_KERNEL_WC_GARLIC);
+        if (result < 0) return result;
+        uint8_t *memory[4];
+        for (unsigned i = 0; i < 4; ++i) {
+            memory[i] = static_cast<uint8_t *>(gpu_arena_allocate(
+                &cache->arena, layouts[i].m_size, layouts[i].m_align));
+            if (memory[i] == nullptr) return -1;
+            textures[i].setBaseAddress(memory[i]);
+            textures[i].setResourceMemoryType(sce::Gnm::kResourceMemoryTypeRO);
+        }
+        cache->vram = textures[0]; cache->palette = textures[1];
+        cache->objects = textures[2]; cache->raster = textures[3];
+        cache->vram_data = memory[0]; cache->palette_data = memory[1];
+        cache->objects_data = memory[2]; cache->raster_data = memory[3];
+        cache->vram_rows = rows;
+    }
+    const int copy_vram = !cache->vram_valid || cache->owner != frame ||
+                          cache->generation != frame->bgv_gen;
+    const G2dGpuUpload upload = {
+        {cache->vram_data, cache->vram.getPitch(), cache->vram.getSizeAlign().m_size},
+        {cache->palette_data, static_cast<size_t>(cache->palette.getPitch()) * 4u,
+         cache->palette.getSizeAlign().m_size},
+        {cache->objects_data, static_cast<size_t>(cache->objects.getPitch()) * 4u,
+         cache->objects.getSizeAlign().m_size},
+        {cache->raster_data, static_cast<size_t>(cache->raster.getPitch()) * 4u,
+         cache->raster.getSizeAlign().m_size},
+    };
+    if (g2d_gpu_upload_frame(frame, &upload, copy_vram) != 0) return -1;
+    cache->owner = frame;
+    cache->generation = frame->bgv_gen;
+    cache->vram_valid = true;
     return 0;
 }
 
@@ -1023,7 +1163,10 @@ extern "C" int eidos_ps4_video_record_game_frame(
     video->game_frame_recorded = false;
     EidosPs4GameVertex *data = nullptr;
     if (vertices != 0) {
-        data = static_cast<EidosPs4GameVertex *>(context->allocateFromCommandBuffer(
+        /* Inline command packets are capped at 64 KiB. The SDK's end-of-
+         * buffer allocator supports larger vertex streams and keeps them
+         * owned by this frame until the associated flip has completed. */
+        data = static_cast<EidosPs4GameVertex *>(context->m_dcb.allocateFromTheEndOfTheBuffer(
             static_cast<uint32_t>(vertices * sizeof(*data)), sce::Gnm::kEmbeddedDataAlignment4));
         if (data == nullptr) return -1;
     }
@@ -1033,7 +1176,9 @@ extern "C" int eidos_ps4_video_record_game_frame(
     context->initializeDefaultHardwareState();
     context->flushShaderCachesAndWait(sce::Gnm::kCacheActionWriteBackAndInvalidateL1andL2,
         0, sce::Gnm::kStallCommandBufferParserEnable);
-    context->setupScreenViewport(0, 0, width, height, 0.5f, 0.5f);
+    /* g3d.hlsl already converts clip Z from [-W,W] to [0,W]. Use the
+     * Direct3D-style viewport mapping so that conversion happens once. */
+    context->setupScreenViewport(0, 0, width, height, 1.0f, 0.0f);
     for (int i = 0; i < 3; ++i) context->setRenderTarget(i, &targets.color[i]);
     context->setDepthRenderTarget(&targets.depth);
     context->setCbControl(sce::Gnm::kCbModeNormal, sce::Gnm::kRasterOpCopy);
@@ -1218,7 +1363,7 @@ static int draw_snapshot_flat_commands(
     if (bytes > kSnapshotVertexBufferLimit) {
         return -1;
     }
-    void *vertex_data = context->allocateFromCommandBuffer(
+    void *vertex_data = context->m_dcb.allocateFromTheEndOfTheBuffer(
         bytes, sce::Gnm::kEmbeddedDataAlignment4);
     if (vertex_data == nullptr) {
         return -1;
@@ -1235,7 +1380,8 @@ static int draw_snapshot_flat_commands(
         sce::Gnm::kDataFormatR32G32B32Float,
         sizeof(EidosPs4SnapshotVertex), vertex_count);
 
-    context->setupScreenViewport(240, 0, 1440, 1080, 0.5f, 0.5f);
+    /* snapshot_flat_vs performs the same clip-Z conversion as g3d.hlsl. */
+    context->setupScreenViewport(240, 0, 1680, 1080, 1.0f, 0.0f);
     context->setRenderTarget(0, &video->render_targets[index]);
     context->setDepthRenderTarget(nullptr);
     context->setCbControl(sce::Gnm::kCbModeNormal, sce::Gnm::kRasterOpCopy);
@@ -1296,11 +1442,11 @@ extern "C" int eidos_ps4_video_draw_snapshot_flat(
     return 0;
 }
 
-extern "C" int eidos_ps4_video_draw_ds_compatibility_snapshot_flat(
+static int draw_ds_compatibility(
     EidosPs4Video *video, const void *top_rgba, const void *bottom_rgba,
     int cursor_x, int cursor_y, uint8_t presentation_mode,
     const EidosPs4SnapshotVertex *snapshot_vertices,
-    uint32_t snapshot_vertex_count)
+    uint32_t snapshot_vertex_count, bool preserve_game_frame)
 {
     if (video == nullptr || top_rgba == nullptr || bottom_rgba == nullptr ||
         video->current_index < 0 || !video->gpu_contexts_ready ||
@@ -1312,7 +1458,8 @@ extern "C" int eidos_ps4_video_draw_ds_compatibility_snapshot_flat(
         video->ds_texture_memory[0] == nullptr ||
         video->ds_texture_memory[1] == nullptr ||
         video->ds_texture_pitch < kDsAtlasWidth ||
-        ((snapshot_vertices == nullptr) != (snapshot_vertex_count == 0))) {
+        ((snapshot_vertices == nullptr) != (snapshot_vertex_count == 0)) ||
+        (preserve_game_frame && (!video->game_frame_recorded || snapshot_vertex_count != 0))) {
         return -1;
     }
 
@@ -1363,11 +1510,15 @@ extern "C" int eidos_ps4_video_draw_ds_compatibility_snapshot_flat(
     }
 
     sce::Gnmx::GfxContext *context = &video->gfx_contexts[index];
-    context->reset();
-    video->game_frame_recorded = false;
+    if (!preserve_game_frame) {
+        context->reset();
+        video->game_frame_recorded = false;
+    }
     context->initializeDefaultHardwareState();
     context->setupScreenViewport(0, 0, video->width, video->height, 0.5f, 0.5f);
     context->setRenderTarget(0, &video->render_targets[index]);
+    context->setRenderTarget(1, nullptr);
+    context->setRenderTarget(2, nullptr);
     context->setDepthRenderTarget(nullptr);
     context->setCbControl(sce::Gnm::kCbModeNormal, sce::Gnm::kRasterOpCopy);
     context->setRenderTargetMask(0x0fu);
@@ -1399,6 +1550,15 @@ extern "C" int eidos_ps4_video_draw_ds_compatibility_snapshot_flat(
     return 0;
 }
 
+extern "C" int eidos_ps4_video_draw_ds_compatibility_snapshot_flat(
+    EidosPs4Video *video, const void *top_rgba, const void *bottom_rgba,
+    int cursor_x, int cursor_y, uint8_t presentation_mode,
+    const EidosPs4SnapshotVertex *vertices, uint32_t vertex_count)
+{
+    return draw_ds_compatibility(video, top_rgba, bottom_rgba, cursor_x, cursor_y,
+                                 presentation_mode, vertices, vertex_count, false);
+}
+
 extern "C" int eidos_ps4_video_draw_ds_compatibility(
     EidosPs4Video *video, const void *top_rgba, const void *bottom_rgba,
     int cursor_x, int cursor_y, uint8_t presentation_mode)
@@ -1406,6 +1566,83 @@ extern "C" int eidos_ps4_video_draw_ds_compatibility(
     return eidos_ps4_video_draw_ds_compatibility_snapshot_flat(
         video, top_rgba, bottom_rgba, cursor_x, cursor_y,
         presentation_mode, nullptr, 0);
+}
+
+extern "C" int eidos_ps4_video_draw_game_composite(
+    EidosPs4Video *video, const G2dGpuFrame *frame,
+    const void *top_rgba, const void *bottom_rgba,
+    int cursor_x, int cursor_y, uint8_t presentation_mode)
+{
+    if (video == nullptr || frame == nullptr || !frame->valid || !frame->l3_on ||
+        video->current_index < 0 || !video->game_frame_recorded || video->gpu_frame_ready ||
+        !video->scanout_unorm_ready || video->width != 1920u || video->height != 1080u ||
+        frame->screen < 0 || frame->screen > 1 || presentation_mode > EIDOS_PS4_PRESENT_BOTH ||
+        (presentation_mode == EIDOS_PS4_PRESENT_TOP && frame->screen != 0) ||
+        (presentation_mode == EIDOS_PS4_PRESENT_BOTTOM && frame->screen != 1)) {
+        return -1;
+    }
+    const int index = video->current_index;
+    const uint32_t x = presentation_mode == EIDOS_PS4_PRESENT_BOTH
+                           ? 192u + static_cast<uint32_t>(frame->screen) * 768u : 240u;
+    const uint32_t y = presentation_mode == EIDOS_PS4_PRESENT_BOTH ? 252u : 0u;
+    const uint32_t width = presentation_mode == EIDOS_PS4_PRESENT_BOTH ? 768u : 1440u;
+    const uint32_t height = presentation_mode == EIDOS_PS4_PRESENT_BOTH ? 576u : 1080u;
+    GameTargets &targets = video->game_targets[index];
+    if (targets.width != width || targets.height != height) return -1;
+    Game2dTextures &layers = video->game_2d[index];
+    int result = prepare_game_2d_textures(&layers, frame);
+    if (result < 0) return result;
+    sce::Gnmx::GfxContext *context = &video->gfx_contexts[index];
+    int32_t *uniforms = static_cast<int32_t *>(context->allocateFromCommandBuffer(
+        U_COUNT * sizeof(*uniforms), sce::Gnm::kEmbeddedDataAlignment16));
+    if (uniforms == nullptr) return -1;
+    g2d_gpu_fill_uniforms(frame, uniforms);
+    uniforms[U_G3M] = 2;
+    uniforms[U_G3SZ] = static_cast<int32_t>(targets.width);
+    uniforms[U_G3SZ + 1] = static_cast<int32_t>(targets.height);
+    uniforms[U_OSZ] = static_cast<int32_t>(width);
+    uniforms[U_OSZ + 1] = static_cast<int32_t>(height);
+    uniforms[U_ORIGIN] = static_cast<int32_t>(x);
+    uniforms[U_ORIGIN + 1] = static_cast<int32_t>(y);
+    if (frame->screen == 1 && cursor_x >= 0 && cursor_x < 256 && cursor_y >= 0 && cursor_y < 192) {
+        uniforms[U_CURSOR] = (cursor_x + 1) | ((cursor_y + 1) << 16);
+    }
+    result = draw_ds_compatibility(video, top_rgba, bottom_rgba, cursor_x,
+                                   cursor_y, presentation_mode, nullptr, 0, true);
+    if (result < 0) return result;
+    /* End CB writes through the sRGB view before rebinding the same scanout
+     * bytes with the UNORM view. The 3D target was transitioned at the end
+     * of the polygon recording pass. */
+    context->flushShaderCachesAndWait(sce::Gnm::kCacheActionWriteBackAndInvalidateL1andL2,
+        sce::Gnm::kExtendedCacheActionFlushAndInvalidateCbCache,
+        sce::Gnm::kStallCommandBufferParserEnable);
+    context->setRenderTarget(0, &video->render_targets_unorm[index]);
+    context->setRenderTarget(1, nullptr);
+    context->setRenderTarget(2, nullptr);
+    context->setDepthRenderTarget(nullptr);
+    context->setupScreenViewport(x, y, x + width, y + height, 0.5f, 0.5f);
+    context->setScreenScissor(x, y, x + width, y + height);
+    context->setRenderTargetMask(0x0fu);
+    context->setPsShader(video->game_program.g2d_ps, &video->game_program.g2d_offsets);
+    sce::Gnm::Texture textures[6];
+    textures[0] = layers.vram;
+    textures[1] = layers.palette;
+    textures[2] = layers.objects;
+    textures[3] = layers.objects; /* bound but unused when G3M=2 */
+    textures[4] = layers.raster;
+    textures[5].initFromRenderTarget(&targets.color[0], false);
+    textures[5].setResourceMemoryType(sce::Gnm::kResourceMemoryTypeRO);
+    context->setTextures(sce::Gnm::kShaderStagePs, 0, 6, textures);
+    sce::Gnm::Sampler samplers[6];
+    for (int i = 0; i < 5; ++i) samplers[i] = video->ds_sampler;
+    samplers[5] = video->game_linear_sampler;
+    context->setSamplers(sce::Gnm::kShaderStagePs, 0, 6, samplers);
+    sce::Gnm::Buffer constants;
+    constants.initAsConstantBuffer(uniforms, U_COUNT * sizeof(*uniforms));
+    context->setConstantBuffers(sce::Gnm::kShaderStagePs, 0, 1, &constants);
+    sce::Gnmx::renderFullScreenQuad(context);
+    video->gpu_frame_ready = true;
+    return 0;
 }
 
 extern "C" int eidos_ps4_video_on_resume(EidosPs4Video *video)
@@ -1473,7 +1710,11 @@ extern "C" int eidos_ps4_video_destroy(EidosPs4Video *video)
         video->flip_queue = nullptr;
     }
     for (int i = 0; i < kBufferCount; ++i) {
-        int result = destroy_gpu_arena(&video->game_targets[i].arena);
+        int result = destroy_gpu_arena(&video->game_2d[i].arena);
+        if (result < 0) {
+            return result;
+        }
+        result = destroy_gpu_arena(&video->game_targets[i].arena);
         if (result < 0) {
             return result;
         }

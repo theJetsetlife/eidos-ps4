@@ -835,7 +835,7 @@ class Model:
     def __init__(self, args):
         self.root = os.path.abspath(args.aletheia_root)
         self.image = None
-        self.adjust = {}           # thunk address -> (imm, target name)
+        self.adjust = {}           # thunk address -> (imm, target name, target address)
         if getattr(args, "arm9_image", None) and os.path.exists(args.arm9_image):
             with open(args.arm9_image, "rb") as fh:
                 self.image = fh.read()
@@ -1234,7 +1234,7 @@ class Model:
         if all_functions:
             for addr, names in self.func_names.items():
                 for n in names:
-                    if n in self.defined_functions:
+                    if self._defined_function_symbol(n, addr) is not None:
                         self.funcs.setdefault(addr, n)
                         break
         for n, e in self.names.items():
@@ -1251,7 +1251,8 @@ class Model:
         symbols-block row in the build for a spelling of that address."""
         if addr in self.isa_by_addr:
             return self.isa_by_addr[addr]
-        sf = self.by_path.get(self.defined_functions.get(name))
+        symbol = self._defined_function_symbol(name, addr)
+        sf = self.by_path.get(self.defined_functions.get(symbol))
         if sf is not None and sf.header_isa:
             if any(a == addr for _n, a in sf.header_functions):
                 return sf.header_isa
@@ -1353,6 +1354,16 @@ class Model:
             self.funcs.setdefault(val, self._function_name(addr))
             self.declared_rows.append((addr, name, val))
 
+    def _defined_function_symbol(self, name: str, addr: int):
+        # Generated overlay trampolines that share a host API name use a
+        # private native symbol. The DS metadata retains the original name.
+        import closure
+        if (name in closure.OVERLAY_HOST_RESERVED and
+                any(start <= (addr & ~1) < end for start, end, _ in self.layout.overlay_ranges)):
+            native = closure.OVERLAY_HOST_RESERVED[name]
+            return native if native in self.defined_functions else None
+        return name if name in self.defined_functions else None
+
     def _function_name(self, addr: int):
         cands = list(self.func_names.get(addr, []))
         a = "func_%08X" % addr
@@ -1360,7 +1371,7 @@ class Model:
             if extra not in cands:
                 cands.append(extra)
         for n in cands:
-            if n in self.defined_functions:
+            if self._defined_function_symbol(n, addr) is not None:
                 return n
         # A linker veneer (the listing's veneer_ labels) is another address
         # of its target: a table that points at the veneer reaches the
@@ -1406,7 +1417,7 @@ class Model:
             target = int.from_bytes(code[12:16], "little")
             tname = self._function_name(target & ~1)
             if tname:
-                self.adjust[addr] = (word & 0xFF, tname)
+                self.adjust[addr] = (word & 0xFF, tname, target & ~1)
                 return "bw_adj_%08X" % addr
         return None
 
@@ -1471,8 +1482,20 @@ def write_c(m: Model, path: str):
     w("")
     w('#include "armdata.h"')
     w("")
-    # Functions the relocations point at.
-    defined = sorted({n for n in m.funcs.values() if n and not n.startswith("bw_adj_")})
+    import closure  # noqa: E402
+
+    def csym(name, addr):
+        if name in closure.HOST_RESERVED:
+            return closure.HOST_RESERVED[name]
+        if (name in closure.OVERLAY_HOST_RESERVED and
+                any(start <= (addr & ~1) < end for start, end, _ in m.layout.overlay_ranges)):
+            return closure.OVERLAY_HOST_RESERVED[name]
+        return name
+
+    # Functions the relocations point at. A DS name can refer to different
+    # addresses, so decide its native symbol from each address, not the name.
+    defined = sorted({csym(n, t) for t, n in m.funcs.items()
+                      if n and not n.startswith("bw_adj_")})
     traps = sorted(t for t, n in m.funcs.items() if not n)
     if m.adjust:
         w("/* Adjustor thunks in the image (`ldr ip, [pc, #4]; add r0, r0, #imm;")
@@ -1480,21 +1503,20 @@ def write_c(m: Model, path: str):
         w(" * other argument registers passed on. */")
         w("#include <stdint.h>")
         for a in sorted(m.adjust):
-            imm, tname = m.adjust[a]
-            w("extern void %s(void);" % tname)
+            imm, tname, target = m.adjust[a]
+            target_name = csym(tname, target)
+            w("extern void %s(void);" % target_name)
             w("static uintptr_t bw_adj_%08X(char *a0, uintptr_t a1, uintptr_t a2, uintptr_t a3)" % a)
             w("{")
             w("    return ((uintptr_t (*)(char *, uintptr_t, uintptr_t, uintptr_t))%s)(a0 + 0x%X, a1, a2, a3);"
-              % (tname, imm))
+              % (target_name, imm))
             w("}")
         w("")
-    import closure  # noqa: E402  (tools/closure.py: HOST_RESERVED)
-    csym = lambda n: closure.HOST_RESERVED.get(n, n)  # noqa: E731
     if defined:
         w("/* Functions the build defines that initialised data points at.  The")
         w(" * real prototypes differ; only the address is taken here. */")
         for n in defined:
-            w("extern void %s(void);" % csym(n))
+            w("extern void %s(void);" % n)
         w("")
     if traps:
         w("/* Code the data points at that the build does not define: calling it")
@@ -1566,7 +1588,7 @@ def write_c(m: Model, path: str):
         if n and n.startswith("bw_adj_"):
             w('    { 0x%08Xu, (BwDataFn)%s, "%s" },' % (t, n, n))
         elif n:
-            w('    { 0x%08Xu, %s, "%s" },' % (t, csym(n), n))
+            w('    { 0x%08Xu, %s, "%s" },' % (t, csym(n, t), n))
         else:
             w('    { 0x%08Xu, bw_trap_%08X, NULL },' % (t, t & ~1))
     if not m.funcs:

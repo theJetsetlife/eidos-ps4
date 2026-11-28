@@ -63,8 +63,8 @@
       "acceptance": "Compile and index every program currently bound by the PS4 backend",
       "status": "verified-build",
       "commit": "76efb0f",
-      "evidence": "Official CMake compiled and embedded seven PSSL programs and linked the minimal diagnostic. Two snapshot stages are used by its flat triangle diagnostic; production game geometry/material passes remain absent.",
-      "remaining": "Implement and validate production game snapshot, texture, depth, and composition passes."
+      "evidence": "Official SDK builds and embeds 11 PSSL programs, including shared upstream 3D polygon and 2D layer shaders. The optimized game ELF links; the combined native path is experimental and opt-in.",
+      "remaining": "Validate PSSL output and bindings on hardware; implement missing fog, edge marking, shadows, enhanced backdrops and remaining presentation shaders."
     },
     {
       "id": "graphics",
@@ -72,8 +72,8 @@
       "acceptance": "Present native game layers at 1920x1080",
       "status": "partial",
       "commit": "76efb0f",
-      "evidence": "Official GNMX triangle-list draw using the snapshot vertex format links in the isolated minimal diagnostic. The game still presents CPU-composited DS-resolution content; no G3dSnapshot is connected.",
-      "remaining": "Obtain a physical diagnostic capture, then integrate a feature-classified game snapshot path with differential checks and CPU fallback."
+      "evidence": "The experimental --ps4-native-3d path records game G3dSnapshot polygons to native GNMX targets and composes the main screen with the upstream 2D layer shader. CPU rasterization and CPU capture remain active; unsupported features fall back to CPU presentation. Host Vulkan GPU 2D and CPU pixels agree across four synthetic scenes; official SDK compilation and ELF linking pass.",
+      "remaining": "Validate actual PS4 pixels and command/resource lifetime, support missing 3D effects and remastered presentation, optimize CPU and GPU work, and measure displayed cadence on physical hardware."
     },
     {
       "id": "pad",

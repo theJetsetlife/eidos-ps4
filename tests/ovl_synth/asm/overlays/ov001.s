@@ -2,4 +2,5 @@
 	.global	func_02200000
 	.global	func_02200010
 	.global	func_02200040
+	.global	socket
 	.word	0x02200001                  /* 02200180  -> func_02200000 (thumb) */

@@ -2242,6 +2242,8 @@ class Link:
                         and self.al.in_any_window(addr):
                     if code:
                         self.tramps.setdefault(n, addr & ~1)
+                        if n in closure.OVERLAY_HOST_RESERVED:
+                            st.renames[n] = closure.OVERLAY_HOST_RESERVED[n]
                         if n in implicit:
                             u.protos[n] = "int"
                     else:
@@ -3335,8 +3337,9 @@ def write_dispatch(link, path, set_name):
 
         body.append("/* %s at 0x%08X: %s */" % (
             name, addr, ", ".join("ov%03d" % c for c in cands) or "no overlay"))
-        body.append("%s;" % proto(ret, name, params))
-        body.append(proto(ret, name, params))
+        symbol = closure.OVERLAY_HOST_RESERVED.get(name, name)
+        body.append("%s;" % proto(ret, symbol, params))
+        body.append(proto(ret, symbol, params))
         body.append("{")
         if ev:
             body.append("    BwEventCall    call = %s;" % event_call_init(params))

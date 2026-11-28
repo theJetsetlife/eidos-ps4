@@ -11,7 +11,7 @@
  * the depth test in either draw order, culling and the alpha test.
  *
  * It needs a real window system (a hidden OpenGL 3.3 window); with none, or
- * under SDL_VIDEODRIVER=dummy, it reports a skip and passes.
+ * under SDL_VIDEODRIVER=dummy, CTest reports the graphics cases as skipped.
  */
 
 #include <stdio.h>
@@ -37,6 +37,7 @@ static G3dPoly g_polys[16];
 static s32 g_ptex[16];
 static G3dSnapTex g_tex[3];
 static u32 g_nv, g_ni, g_np;
+static int g_window_cases_skipped;
 
 static void scene_reset(void)
 {
@@ -228,9 +229,13 @@ static u8 g_behind[W * H * 4];
  * display, so the tests ask for it and skip what does not apply. */
 static int window_pixels(SDL_Window *win, int w, int h, int *dw, int *dh)
 {
-    SDL_SetWindowSize(win, w, h);
-    SDL_GetWindowSizeInPixels(win, dw, dh);
-    return *dw > 0 && *dh > 0;
+    *dw = 0;
+    *dh = 0;
+    if (!SDL_SetWindowSize(win, w, h) || !SDL_SyncWindow(win)) return 0;
+    /* Some GL implementations resize the back buffer only on a swap. The
+     * readback-only path otherwise sees the previous drawable's extent. */
+    if (!SDL_GL_SwapWindow(win)) return 0;
+    return SDL_GetWindowSizeInPixels(win, dw, dh) && *dw > 0 && *dh > 0;
 }
 
 /* Exact-multiple output is pure nearest; a larger fractional scale keeps most
@@ -255,7 +260,11 @@ static void test_presenter(EidosGl *gl, SDL_Window *win)
         u8 *rgb;
         u32 same = 0, x, y;
 
-        if (!window_pixels(win, sizes[k][0], sizes[k][1], &dw, &dh)) {
+        if (!window_pixels(win, sizes[k][0], sizes[k][1], &dw, &dh) ||
+            dw != sizes[k][0] || dh != sizes[k][1]) {
+            printf("  presenter %dx%d: skipped (drawable %dx%d)\n",
+                   sizes[k][0], sizes[k][1], dw, dh);
+            g_window_cases_skipped++;
             continue;
         }
         memset(dst, 0, sizeof(dst));
@@ -306,6 +315,7 @@ static void check_composite(const char *name, const G3dSnapshot *s, EidosGl *gl,
 
     if (!window_pixels(win, 512, 384, &dw, &dh) || dw != 512 || dh != 384) {
         printf("  %s: skipped (drawable %dx%d)\n", name, dw, dh);
+        g_window_cases_skipped++;
         return;
     }
     /* behind: a gradient with an opaque 2D overlay at x >= 200; the screen
@@ -482,6 +492,7 @@ static void test_edge_marking(EidosGl *gl)
 int main(void)
 {
     SDL_Window *win;
+    SDL_GLContext probe;
     EidosGl *gl;
     G3dVertex tri[3], quad[4];
     G3dSnapshot s;
@@ -493,15 +504,26 @@ int main(void)
     SDL_SetMainReady();
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         printf("test_gpu3d: SKIP (no video: %s)\n", SDL_GetError());
-        return 0;
+        return bw_failures ? 1 : 77;
     }
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
     win = SDL_CreateWindow("test_gpu3d", W, H,
                            SDL_WINDOW_HIDDEN | SDL_WINDOW_OPENGL);
     printf("  window %p\n", (void *)win);
-    gl = win != NULL ? eidos_gl_create(win) : NULL;
+    probe = win != NULL ? SDL_GL_CreateContext(win) : NULL;
+    if (probe == NULL) {
+        printf("test_gpu3d: SKIP (no OpenGL 3.3 context: %s)\n", SDL_GetError());
+        if (win != NULL) SDL_DestroyWindow(win);
+        SDL_Quit();
+        return bw_failures ? 1 : 77;
+    }
+    SDL_GL_DestroyContext(probe);
+    gl = eidos_gl_create(win);
     printf("  gl %p\n", (void *)gl);
     if (gl == NULL || !eidos_gl_has3d(gl)) {
-        printf("test_gpu3d: SKIP (no OpenGL 3.3 here)\n");
+        fprintf(stderr, "test_gpu3d: FAIL (Eidos OpenGL 3D initialization failed)\n");
         if (gl != NULL) {
             eidos_gl_destroy(gl);
         }
@@ -509,7 +531,7 @@ int main(void)
             SDL_DestroyWindow(win);
         }
         SDL_Quit();
-        return 0;
+        return 1;
     }
 
     /* textures: an 8x8 checker (opaque) and an 8x4 with a transparent half */
@@ -770,5 +792,7 @@ int main(void)
     eidos_gl_destroy(gl);
     SDL_DestroyWindow(win);
     SDL_Quit();
-    BW_REPORT("test_gpu3d");
+    printf("test_gpu3d: %d checks, %d failures, %d window cases skipped\n",
+           bw_checks, bw_failures, g_window_cases_skipped);
+    return bw_failures ? 1 : (g_window_cases_skipped ? 77 : 0);
 }

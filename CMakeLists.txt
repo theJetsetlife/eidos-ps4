@@ -1290,6 +1290,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/sdl3.cmake)
 
 if(EIDOS_SDL_FOUND)
     add_library(eidos_platform STATIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/engine/g2d/g2d_gpu_uniforms.c
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/platform.c
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/plat_embed.c
         ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/geometry.c
@@ -2280,12 +2281,29 @@ add_test(NAME test_dsmem_overlap COMMAND ${CMAKE_COMMAND}
 # VRAM states whose expected pixels are computed on paper, and, with game
 # data, the title screen and a rig pose loaded into VRAM, palette and OAM
 # the way the SDK would and required to come out pixel-identical to the
-# asset path.  The states are written into the real address space
-# (sdk/dsmem.c); without game data the second half reports itself skipped.
+# asset path. The states are written into the real address space
+# (sdk/dsmem.c). Synthetic cases and the optional game-data cases are
+# separate CTest tests, so missing game data cannot hide which checks ran.
+add_executable(test_g2d_gpu_upload
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_g2d_gpu_upload.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/engine/g2d/g2d_gpu_upload.c)
+target_include_directories(test_g2d_gpu_upload PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk ${CMAKE_CURRENT_SOURCE_DIR}/engine/g2d)
+add_test(NAME test_g2d_gpu_upload COMMAND test_g2d_gpu_upload)
+
+add_executable(test_g2d_gpu_uniforms
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_g2d_gpu_uniforms.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/engine/g2d/g2d_gpu_uniforms.c)
+target_include_directories(test_g2d_gpu_uniforms PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk ${CMAKE_CURRENT_SOURCE_DIR}/engine/g2d)
+add_test(NAME test_g2d_gpu_uniforms COMMAND test_g2d_gpu_uniforms)
+
 add_executable(test_hwcompose ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_hwcompose.c)
 target_include_directories(test_hwcompose PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(test_hwcompose PRIVATE eidos)
-add_test(NAME test_hwcompose COMMAND test_hwcompose ${BW_DATA_ROOT_ABS})
+add_test(NAME test_hwcompose COMMAND test_hwcompose ${BW_DATA_ROOT_ABS} --synthetic-only)
+add_test(NAME test_hwcompose_assets COMMAND test_hwcompose ${BW_DATA_ROOT_ABS} --assets-only)
+set_tests_properties(test_hwcompose_assets PROPERTIES SKIP_RETURN_CODE 77)
 
 # The 3D hardware interface (engine/g3d/hw3d.c) over the real sdk/dsmem.c:
 # one display list through the FIFO, the ports and the SDK's sender shims,
@@ -2780,7 +2798,7 @@ target_include_directories(test_picker PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests
 target_link_libraries(test_picker PRIVATE eidos_setup)
 add_test(NAME test_picker
          COMMAND test_picker ${CMAKE_CURRENT_BINARY_DIR}/picker_work)
-set_tests_properties(test_picker PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:" TIMEOUT 120)
+set_tests_properties(test_picker PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
 
 # The extractor on the player's real ROM, named by BW_ROM at test time,
 # checked file for file against the extract/ tree that holds BW_DATA_ROOT
@@ -2793,7 +2811,7 @@ add_test(NAME test_extract_rom
                  -DWORK=${CMAKE_CURRENT_BINARY_DIR}/rom_extract
                  -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_rom.cmake)
 set_tests_properties(test_extract_rom PROPERTIES
-    SKIP_REGULAR_EXPRESSION "SKIPPED:" TIMEOUT 900)
+    SKIP_REGULAR_EXPRESSION "^SKIPPED: (set BW_ROM|no reference extraction)" TIMEOUT 900)
 
 # --- overlays compiled in (tools/ovlink.py, sdk/overlay_image.c) -------------
 #
@@ -2806,6 +2824,11 @@ add_executable(test_ovlink
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/ovl_synth/src/matched/arm9/func_02100000.c)
 target_include_directories(test_ovlink PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(test_ovlink PRIVATE eidos)
+if(UNIX AND NOT PS4 AND NOT CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
+    add_library(test_host_socket_probe SHARED tests/ovl_synth/socket_probe.c)
+    target_link_libraries(test_ovlink PRIVATE test_host_socket_probe)
+    target_compile_definitions(test_ovlink PRIVATE EIDOS_SYNTH_HOST_SOCKET=1)
+endif()
 eidos_overlays(synth
     TARGET test_ovlink
     ROOT ${CMAKE_CURRENT_SOURCE_DIR}/tests/ovl_synth
@@ -2844,7 +2867,7 @@ eidos_overlays(title_test
     LINK_SOURCES ${BW_OVL_LIBRARY_SOURCES}
     ARM9_STUBS)
 add_test(NAME test_ovlink_real COMMAND test_ovlink_real ${BW_DATA_ROOT_ABS})
-set_tests_properties(test_ovlink_real PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
+set_tests_properties(test_ovlink_real PROPERTIES SKIP_RETURN_CODE 77)
 add_test(NAME test_ovlink_real_stub COMMAND ${CMAKE_COMMAND}
     -DCMD=$<TARGET_FILE:test_ovlink_real> -DARG1=${BW_DATA_ROOT_ABS} -DARG2=--arm9
     "-DEXPECT=PANIC in overlay ARM9 stub at 0x0202F0B0: TIME_ICON_Update: ARM9 function an overlay calls"
@@ -2956,6 +2979,14 @@ add_test(NAME test_closure
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_closure.py)
 add_test(NAME test_ovlink_codegen
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ovlink_codegen.py)
+
+# Verify that the boot test harness rejects failures and isolates user data.
+set(EIDOS_BOOT_SKIP_REGEX "^SKIPPED: no game data at ")
+add_executable(test_boot_fixture ${CMAKE_CURRENT_SOURCE_DIR}/tests/boot_fixture.c)
+add_test(NAME test_boot_harness
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_boot_harness.py
+            --cmake=${CMAKE_COMMAND} --ctest=${CMAKE_CTEST_COMMAND}
+            --boot=$<TARGET_FILE:test_boot_fixture> "--skip-regex=${EIDOS_BOOT_SKIP_REGEX}")
 
 # ---------------------------------------------------------------------------
 # eidos_view -- the demo, and the first visible output
@@ -3151,6 +3182,12 @@ if(EIDOS_SDL_FOUND)
     set_tests_properties(test_platform_input PROPERTIES
         ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy")
 
+    # Shared GPU 2D compositor against the CPU reference.
+    add_executable(test_gpu2d ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_gpu2d.c)
+    target_link_libraries(test_gpu2d PRIVATE eidos_platform)
+    add_test(NAME test_gpu2d COMMAND test_gpu2d)
+    set_tests_properties(test_gpu2d PROPERTIES SKIP_RETURN_CODE 77)
+
     # The GPU 3D rasteriser against the software one (a hidden OpenGL 3.3
     # window; skips where there is no window system).
     add_executable(test_gpu3d ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_gpu3d.c)
@@ -3164,6 +3201,7 @@ if(EIDOS_SDL_FOUND)
             COMMENT "Copying SDL3.dll next to test_gpu3d")
     endif()
     add_test(NAME test_gpu3d COMMAND test_gpu3d)
+    set_tests_properties(test_gpu3d PROPERTIES SKIP_RETURN_CODE 77)
 
     # The settings backend: geometry and touch mapping for every layout and
     # scale, bindings and capture, settings.ini, overrides, the volume gain.
@@ -3262,7 +3300,7 @@ if(EIDOS_SDL_FOUND)
                      -DWORK=${CMAKE_CURRENT_BINARY_DIR}/firstrun_rom
                      -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/firstrun_rom.cmake)
     set_tests_properties(test_firstrun_rom PROPERTIES
-        SKIP_REGULAR_EXPRESSION "SKIPPED:" TIMEOUT 900
+        SKIP_REGULAR_EXPRESSION "^SKIPPED: set BW_ROM" TIMEOUT 900
         ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy;BW_DATA_ROOT=")
 endif()
 
@@ -3612,7 +3650,7 @@ if(NOT _eidos_ovls STREQUAL "")
         target_include_directories(test_ovlink_title PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
         target_link_libraries(test_ovlink_title PRIVATE eidos)
         add_test(NAME test_ovlink_title COMMAND test_ovlink_title ${BW_DATA_ROOT_ABS})
-        set_tests_properties(test_ovlink_title PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
+        set_tests_properties(test_ovlink_title PROPERTIES SKIP_RETURN_CODE 77)
     endif()
 endif()
 

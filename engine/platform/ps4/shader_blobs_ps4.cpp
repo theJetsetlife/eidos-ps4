@@ -10,6 +10,7 @@
 #include "game_g3d_vs.h"
 #include "game_g3d_ps.h"
 #include "game_clear_ps.h"
+#include "game_g2d_ps.h"
 
 namespace {
 
@@ -92,5 +93,12 @@ extern "C" const EidosPs4ShaderBlob *eidos_ps4_game_clear_pixel_shader(void)
 {
     static const EidosPs4ShaderBlob blob = {
         eidos_ps4_game_clear_ps_sb, sizeof(eidos_ps4_game_clear_ps_sb)};
+    return &blob;
+}
+
+extern "C" const EidosPs4ShaderBlob *eidos_ps4_game_g2d_pixel_shader(void)
+{
+    static const EidosPs4ShaderBlob blob = {
+        eidos_ps4_game_g2d_ps_sb, sizeof(eidos_ps4_game_g2d_ps_sb)};
     return &blob;
 }

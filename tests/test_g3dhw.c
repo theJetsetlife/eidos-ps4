@@ -1303,6 +1303,23 @@ static void test_texgen_mode1(void)
     BW_CHECK_EQ("texgen 0: the texcoord is left alone", geom.verts[0].s, 32);
 }
 
+/* A restart resets the geometry engine before it has built its next frame.
+ * Exposing the previous run's snapshot would draw old scene geometry. */
+static void test_snapshot_reset(void)
+{
+    g3d_hw_snapshot_enable(1);
+    boot();
+    w32(G3D_HW_SWAP_BUFFERS, 0u);
+    g3d_hw_flush();
+    BW_CHECK_EQ("snapshot available after swap", g3d_hw_snapshot() != NULL, 1);
+    boot();
+    BW_CHECK_EQ("snapshot invalidated on reset", g3d_hw_snapshot() == NULL, 1);
+    w32(G3D_HW_SWAP_BUFFERS, 0u);
+    g3d_hw_flush();
+    BW_CHECK_EQ("snapshot available after next swap", g3d_hw_snapshot() != NULL, 1);
+    g3d_hw_snapshot_enable(0);
+}
+
 int main(void)
 {
     test_identity();
@@ -1314,6 +1331,7 @@ int main(void)
     test_perspective();
     test_no_cracks();
     test_texgen_mode1();
+    test_snapshot_reset();
     g3d_target_free(&g_ref);
     BW_REPORT("test_g3dhw");
 }

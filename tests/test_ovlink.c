@@ -43,6 +43,11 @@
 #include "overlay_image.h"
 #include "port_test.h"
 
+#if EIDOS_SYNTH_HOST_SOCKET
+#include <sys/socket.h>
+#include <unistd.h>
+int eidos_test_host_library_socket(void);
+#endif
 /* sdk/overlay.c's SDK names. */
 extern BOOL FS_LoadOverlay(u32 target, u32 id);
 extern BOOL FS_UnloadOverlay(u32 target, u32 id);
@@ -60,6 +65,7 @@ int   ov001_func_02200000(int x);
 int   ov001_func_02200010(int x);
 void *ov001_func_02200040(void);
 int   ov002_func_02300000(int x);
+int   ov002_func_02300010(void);
 int   func_02100000(int x);
 int   func_02200000(int x);
 
@@ -142,6 +148,14 @@ int main(int argc, char **argv)
 
     setup();
 
+#if EIDOS_SYNTH_HOST_SOCKET
+    {
+        int s = socket(AF_INET, SOCK_DGRAM, 0);
+        BW_REQUIRE("native socket binds host library", s >= 0);
+        close(s);
+        BW_CHECK_EQ("shared library binds host socket", eidos_test_host_library_socket(), 0);
+    }
+#endif
     if (argc > 1 && strcmp(argv[1], "--stub") == 0) {
         FS_LoadOverlay(0, 0);
         ov000_func_02200020();                   /* calls the stub 0x02200030 */
@@ -164,6 +178,7 @@ int main(int argc, char **argv)
     /* Overlay 0. */
     BW_REQUIRE("load ov0", FS_LoadOverlay(0, 0));
     BW_CHECK_EQ("ov0 resident", bw_ovl_resident_at(WIN + 0x10u), 0);
+    BW_CHECK_EQ("cross-overlay socket reaches ov0", ov002_func_02300010(), 106);
     BW_CHECK_EQ("ov0 table copied", ds_word(WIN + 0x100u), 7);
     BW_CHECK_EQ("ov0 .bss zeroed", ds_word(WIN + 0x200u), 0);
     BW_CHECK_EQ("ARM9 -> ov0 through the trampoline", func_02100000(5), 12);
@@ -193,6 +208,7 @@ int main(int argc, char **argv)
     BW_REQUIRE("load ov1", FS_LoadOverlay(0, 1));
     BW_CHECK_EQ("ov0 evicted", bw_overlay_is_loaded(0), 0);
     BW_CHECK_EQ("ov1 resident", bw_ovl_resident_at(WIN), 1);
+    BW_CHECK_EQ("cross-overlay socket reaches ov1", ov002_func_02300010(), 206);
     BW_CHECK_EQ("ov1 table copied", ds_word(WIN + 0x100u), 3);
     BW_CHECK_EQ("ARM9 -> ov1 through the trampoline", func_02100000(5), 15);
     BW_CHECK_EQ("ov2 -> ov1", ov002_func_02300000(4), 24);

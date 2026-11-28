@@ -1884,6 +1884,9 @@ void g3d_hw_reset(void)
     TexCacheEntry *cache = g_hw.cache;
     u32 cap = g_hw.cap_cache;
 
+    /* A snapshot belongs to the prior hardware run. Keep its allocations
+     * for reuse, but do not expose its polygons after the reset. */
+    g_snap_valid = 0;
     cache_clear();
     memset(&g_hw, 0, sizeof(g_hw));
     g_hw.front = front;

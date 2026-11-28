@@ -46,6 +46,15 @@
    "source": "src/matched/ov/ov000_func_02200050.c",
    "isa": "thumb",
    "status": "EXACT"
+  },
+  {
+   "name": "socket",
+   "address": "0x02200060",
+   "kind": "game",
+   "region": "ov000",
+   "source": "src/matched/ov/ov000_socket.c",
+   "isa": "thumb",
+   "status": "EXACT"
   }
  ]
 }

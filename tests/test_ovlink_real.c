@@ -64,7 +64,7 @@ int main(int argc, char **argv)
     if (bw_ovl_file_bytes(88, 0, 4) == NULL || bw_ovl_file_bytes(179, 0, 4) == NULL) {
         printf("SKIPPED: no extract/overlays_dec/y9_0088.bin or y9_0179.bin next to "
                "the data root\n");
-        return 0;
+        return 77;
     }
     bw_ds_reset();
     bw_overlay_sdk_init();

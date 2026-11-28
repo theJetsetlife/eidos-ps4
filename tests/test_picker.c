@@ -109,7 +109,7 @@ int main(int argc, char **argv)
 
     if (getenv("EIDOS_TEST_DIALOGS") == NULL || argc < 2) {
         printf("SKIPPED: set EIDOS_TEST_DIALOGS=1 to open the file dialog on the desktop\n");
-        return 0;
+        return 77;
     }
     snprintf(dir, sizeof(dir), "%s", argv[1]);
     bw_remove_tree_utf8(dir);
@@ -162,7 +162,7 @@ int main(int argc, char **argv)
 int main(void)
 {
     printf("SKIPPED: the dialog can only be driven from inside the process on Windows\n");
-    return 0;
+    return 77;
 }
 
 #endif
