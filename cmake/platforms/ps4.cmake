@@ -36,11 +36,14 @@ add_library(eidos_platform_ps4 STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4/input_ps4.c
     ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4/save_ps4.c
     ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4/log_ps4.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4/snapshot_vertices_ps4.c
     ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4/video_ps4.cpp)
 target_include_directories(eidos_platform_ps4 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk
     ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform
     ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4)
+target_include_directories(eidos_platform_ps4 PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/engine/g3d)
 target_link_libraries(eidos_platform_ps4 PUBLIC eidos_ps4_sdk)
 target_link_libraries(eidos_platform_ps4 PUBLIC
     ScePosix_stub_weak

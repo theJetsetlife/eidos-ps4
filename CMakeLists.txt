@@ -1944,6 +1944,17 @@ target_include_directories(test_ps4_resampler PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4)
 add_test(NAME test_ps4_resampler COMMAND test_ps4_resampler)
 
+# The native renderer's snapshot vertex conversion is platform-independent C;
+# exercise it on host before wiring the output into GNMX draw commands.
+add_executable(test_ps4_snapshot_vertices
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ps4_snapshot_vertices.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4/snapshot_vertices_ps4.c)
+target_include_directories(test_ps4_snapshot_vertices PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk
+    ${CMAKE_CURRENT_SOURCE_DIR}/engine/g3d
+    ${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/ps4)
+add_test(NAME test_ps4_snapshot_vertices COMMAND test_ps4_snapshot_vertices)
+
 # Source rules each learned on a real console against the SDK reference
 # (tests/ps4/test_ps4_rules.py); reads sources only.
 add_test(NAME test_ps4_rules

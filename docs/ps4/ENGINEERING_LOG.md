@@ -1526,3 +1526,21 @@ tests, and a physical-console capture. Current source review does not prove
 that any snapshot geometry has been drawn by the PS4 GPU. The scoped question,
 evidence, effort limit, and stopping condition are recorded in
 `progress/ps4.json`.
+
+# 2026-11-28 — Snapshot vertex conversion prototype
+
+Added `engine/platform/ps4/snapshot_vertices_ps4.c`, a bounded conversion from
+snapshot triangle/quad fans to an interleaved float clip-position/RGB stream.
+It validates all polygon ranges, index references, and destination capacity
+before writing, so malformed snapshots do not leave partial output. The helper
+intentionally carries no texture, material, alpha, or depth semantics. It is
+part of the PS4 platform target but is not yet consumed by a GNMX draw.
+
+`test_ps4_snapshot_vertices` checks triangle and quad order, fixed-point and
+color conversion, malformed references, insufficient capacity, and the empty
+snapshot case. The full host CMake graph regenerated: its 427-unit boot and
+976-source overlay plan completed, and the new CTest passed (1/1). Official
+Orbis clang compiled the helper with `-Wall -Wextra -Werror`. No GPU draw or
+hardware capture is claimed. The next slice is the offline PSSL vertex/pixel
+pair, fetch-shader creation, vertex-buffer binding, and isolated offscreen
+draw; the CPU path remains authoritative.

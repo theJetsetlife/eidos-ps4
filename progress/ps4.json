@@ -264,12 +264,14 @@
       "The official SDK sample archive includes GNMX vertex-buffer, vertex-shader, depth-target, indexed-draw, and submit examples; the current PS4 backend only binds pixel shaders for fullscreen compatibility passes."
     ],
     "decision": "Keep the PS4 frame path and CPU rasterizer intact while prototyping a dedicated GNMX snapshot adapter. Do not advertise snapshot features as GPU-supported or enable raster skipping until feature coverage and fallback boundaries are proven.",
+    "implemented_slice": "Added checked triangle/quad-fan conversion from G3dSnapshot clip-space fixed-point vertices and RGB bytes into a linear float vertex stream in engine/platform/ps4/snapshot_vertices_ps4.c. The helper rejects malformed indices/counts and insufficient capacity before writing. It is compiled into the PS4 platform target and covered by a host CTest regression.",
+    "validation": "Strict host C99 test passes; CMake configured the full 427-unit boot and 976-source overlay graph and built test_ps4_snapshot_vertices (1/1 passed); official Orbis clang compiled the new helper with -Wall -Wextra -Werror.",
     "missing_evidence": [
       "Official PSSL vertex shader plus fetch/input layout compiled and linked in the PS4 target.",
       "GNMX depth and per-polygon state translation with an explicit supported-feature classifier.",
       "Physical-console capture confirming the native draw and correct DS composition."
     ],
-    "next_experiment": "Build an isolated GNMX draw of snapshot-derived opaque untextured triangles into an offscreen 256x192 target, keeping CPU output authoritative. Add source-derived vertex conversion checks and compile/link with SDK 12.508 before any game-path connection.",
+    "next_experiment": "Add the offline PSSL vertex/pixel shaders, fetch-shader and vertex-buffer binding needed to draw the converted opaque untextured triangles into an offscreen 256x192 target. Keep CPU output authoritative and do not connect the prototype to game presentation.",
     "effort_budget": "One bounded implementation checkpoint; stop after the isolated target build and conversion evidence, or record the exact SDK/API blocker and next discriminating check.",
     "stopping_condition": "Do not connect the prototype to game presentation or enable g3d_hw_skip_raster until target compile/link succeeds, converted vertices are covered by tests, unsupported content is detected, and physical capture validates the draw."
   }
