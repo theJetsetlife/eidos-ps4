@@ -1456,4 +1456,13 @@ warnings in this module are absent. Aletheia remained clean at
 (three executed, none skipped or disabled). This run does not establish the
 complete host suite or console interaction coverage. The Orbis ELF SHA-256 is
 `e12d1975034aa2a359b6859e14befe2738a0fe43b97fa090c42c117ab2809e63`.
-Package rebuilding and physical-console validation remain pending.
+Two independent package staging runs from this ELF, using
+`SOURCE_DATE_EPOCH=1764201600`, produced byte-identical 22,085,632-byte FPKGs.
+Both passed all 28 `pkg_validate` checks and `verify_fpkg`. The FPKG SHA-256 is
+`10ac53c4c45d4772d7310b27640a550b6c28052eb6f31535fe9fcbc3b8ad9cea`.
+The artifacts are
+`/tmp/eidos-event-direction-fpkg-a/IV0000-EIDP90002_00-EIDOSGAME0000001.pkg`
+and the equivalent filename under `/tmp/eidos-event-direction-fpkg-b`.
+These are integration artifacts built with the established minimal package
+inputs; this check does not establish production renderer/resource coverage
+or physical-console behavior. Physical-console validation remains pending.
