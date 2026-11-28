@@ -1956,6 +1956,27 @@ def native_field_player_attributes(source: str, path: str) -> str:
     return source
 
 
+def native_field_model_lookup(source: str, path: str) -> str:
+    """Return NULL when a zone has no eligible field model with the given ID.
+
+    The recovered DS function returns an indeterminate stack value after an
+    exhaustive miss. Its sole caller passes a nonzero NPC-header count and
+    already tests the result against NULL before pausing the newly added
+    model, establishing NULL as the native not-found contract.
+    """
+    if path.replace("\\", "/").endswith("/src/game/ov010/fldmmdl.c"):
+        source = _need(
+            source,
+            "Mmdl *FLDMMDL_AddMmdlHeaderById(MmdlSys *sys, const MmdlHeader *header, int zoneId, int count, void *evWork, u32 objId)\n"
+            "{\n"
+            "    Mmdl *mmdl;",
+            "Mmdl *FLDMMDL_AddMmdlHeaderById(MmdlSys *sys, const MmdlHeader *header, int zoneId, int count, void *evWork, u32 objId)\n"
+            "{\n"
+            "    Mmdl *mmdl = 0;",
+        )
+    return source
+
+
 def native_matched_types(source: str, path: str, pointer_width: int) -> str:
     """Keep recovered DS scalar names fixed-width in generated host copies."""
     if pointer_width >= 8:
@@ -2088,6 +2109,7 @@ def main(argv=None) -> int:
     source = native_bg_screen_dimensions(source, src_path)
     source = native_namein_mode_conversion(source, src_path)
     source = native_field_player_attributes(source, src_path)
+    source = native_field_model_lookup(source, src_path)
     if "/src/matched/" in os.path.abspath(src_path).replace("\\", "/"):
         source = native_matched_types(source, src_path, a.pointer_width)
     # convert.c defines GAME_TYPES_U32_LONG, which makes u32/s32 = unsigned/
