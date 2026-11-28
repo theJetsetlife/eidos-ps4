@@ -943,7 +943,11 @@ def word_cast(t, expr):
     """`(t)expr` for a word `expr`; a WordAggregate is rebuilt from its
     bits (C has no cast to a struct or union)."""
     if isinstance(t, WordAggregate):
-        return "bw_word_%s_of((unsigned int)(%s))" % (t.name, expr)
+        # A shared overlay window may expose this word through a pointer-typed
+        # trampoline. Convert through uintptr_t first: both ABIs carry it in
+        # an integer register, and the final narrowing deliberately recovers
+        # the DS register's low 32 bits without an LP64 pointer-size warning.
+        return "bw_word_%s_of((unsigned int)(uintptr_t)(%s))" % (t.name, expr)
     return "(%s)%s" % (t, expr)
 
 

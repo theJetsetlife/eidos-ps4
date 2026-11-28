@@ -188,6 +188,32 @@ class Packaging(unittest.TestCase):
     def test_release_target_exists(self):
         self.assertIn("eidos_ps4_release_fpkg", read("cmake/boot.cmake"))
 
+    def test_official_package_uses_reproducible_timestamp(self):
+        script = read("tools/ps4/make_pkg_official.sh")
+        self.assertIn("SOURCE_DATE_EPOCH", script)
+        self.assertIn('--volume_ts "$PACKAGE_DATETIME"', script)
+        self.assertIn('--c_date "$PACKAGE_DATETIME"', script)
+        self.assertNotIn("--c_date actual_datetime", script)
+
+        fpkg = read("tools/ps4/make_fpkg.sh")
+        self.assertIn("SOURCE_DATE_EPOCH", fpkg)
+        self.assertIn('touch -d "@$PACKAGE_EPOCH"', fpkg)
+        self.assertIn('<volume_ts>$PACKAGE_DATETIME</volume_ts>', fpkg)
+        self.assertIn('built=$PACKAGE_ISO8601', fpkg)
+
+    def test_gcc_only_warning_flag_is_not_passed_to_orbis_clang(self):
+        for rel in ("cmake/boot.cmake", "cmake/overlays.cmake"):
+            source = read(rel)
+            guard = 'if(CMAKE_C_COMPILER_ID STREQUAL "GNU")'
+            flag = "-Wno-builtin-declaration-mismatch"
+            self.assertIn(guard, source, rel)
+            guarded = source[source.index(guard):]
+            self.assertIn(flag, guarded[:guarded.index("endif()")], rel)
+
+    def test_native_variadic_abi_warning_is_a_build_error(self):
+        for rel in ("cmake/boot.cmake", "cmake/overlays.cmake"):
+            self.assertIn("-Werror=varargs", read(rel), rel)
+
 
 if __name__ == "__main__":
     unittest.main()

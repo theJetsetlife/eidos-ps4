@@ -16,6 +16,7 @@
 #                         and ext/sc.exe (default: $SCE_ORBIS_SDK_DIR/../publishing-tools-4.12)
 #   EIDOS_WINE            wine binary (default: Proton Experimental)
 #   EIDOS_WINEPREFIX      prefix (default: /tmp/eidos-orbis-wine)
+#   SOURCE_DATE_EPOCH     reproducible package timestamp (default: source HEAD)
 set -euo pipefail
 die() { echo "make_pkg_official: $*" >&2; exit 1; }
 
@@ -54,6 +55,12 @@ PUB=$(readlink -f "$PUB")
 WINE=${EIDOS_WINE:-"$HOME/.steam/steam/steamapps/common/Proton - Experimental/files/bin/wine"}
 [ -x "$WINE" ] || die "wine not found at $WINE (set EIDOS_WINE)"
 export WINEPREFIX=${EIDOS_WINEPREFIX:-/tmp/eidos-orbis-wine} WINEDEBUG=-all
+
+SOURCE_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+PACKAGE_EPOCH=${SOURCE_DATE_EPOCH:-$(git -C "$SOURCE_ROOT" log -1 --format=%ct 2>/dev/null || true)}
+[[ $PACKAGE_EPOCH =~ ^[0-9]+$ ]] || die "SOURCE_DATE_EPOCH must be an integer Unix timestamp (or run from a Git checkout)"
+PACKAGE_DATETIME=$(date -u -d "@$PACKAGE_EPOCH" '+%Y-%m-%d %H:%M:%S') || die "invalid SOURCE_DATE_EPOCH: $PACKAGE_EPOCH"
+PACKAGE_ISO8601=$(date -u -d "@$PACKAGE_EPOCH" '+%Y-%m-%dT%H:%M:%SZ')
 
 CONTENT_ID="IV0000-${TITLE_ID}_00-${LABEL}"
 OUT=${OUT:-$PWD/out/pkg-official/$TITLE_ID}
@@ -109,9 +116,15 @@ EOF
 pub sfo_create param.sfx stage/sce_sys/param.sfo || die "sfo_create failed (see $LOG)"
 [ -s "$ST/sce_sys/param.sfo" ] || die "sfo_create wrote no param.sfo (see $LOG)"
 
+# The publisher records project and input timestamps in the image. Normalize all
+# staged inputs before project creation so identical source trees produce the
+# same package bytes.
+find "$ST" -type f -exec touch -d "@$PACKAGE_EPOCH" {} +
+
 # --- project
 pub gp4_proj_create --volume_type pkg_ps4_app --content_id "$CONTENT_ID" --passcode "$PASSCODE" \
-    --storage_type digital50 --app_type full --c_date actual_datetime project.gp4 || die "gp4_proj_create failed (see $LOG)"
+    --storage_type digital50 --app_type full --volume_ts "$PACKAGE_DATETIME" \
+    --c_date "$PACKAGE_DATETIME" project.gp4 || die "gp4_proj_create failed (see $LOG)"
 for f in eboot.bin sce_module/libc.prx sce_module/libSceFios2.prx sce_sys/param.sfo sce_sys/icon0.png sce_sys/pic1.png; do
   pub gp4_file_add "stage/$f" "$f" project.gp4 || die "gp4_file_add $f failed (see $LOG)"
 done
@@ -141,7 +154,7 @@ VERDICT=$(grep -o 'Result : [A-Z]*' "$VER" | tail -1)
   echo "source_elf=$ELF"
   echo "source_elf_sha256=$(sha256sum "$ELF" | cut -d' ' -f1)"
   echo "img_verify=${VERDICT:-unknown} (errors: $ERRS)"
-  echo "built=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "built=$PACKAGE_ISO8601"
 } > "$OUT/manifest.txt"
 cat "$OUT/manifest.txt"
 grep -E '^\[(Error|Warn)\]' "$VER" | grep -v -E 'online check|Number of|Result :|Process finished' | sed 's/^/  /' || true

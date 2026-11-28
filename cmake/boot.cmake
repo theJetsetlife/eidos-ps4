@@ -787,7 +787,7 @@ else()
         # The overlays' ARM9 callees (EIDOS_OVERLAYS) add: a file's own
         # memcpy/memset prototypes, a cast of a u16 or u64 to a pointer, a
         # partly braced initialiser, a sizeof ratio of two element types.
-        -Wno-builtin-declaration-mismatch -Wno-int-to-pointer-cast
+        -Wno-int-to-pointer-cast
         -Wno-pointer-to-int-cast -Wno-missing-field-initializers
         -Wno-sizeof-array-div
         # The whole game module (EIDOS_BOOT_ALL_GAME) adds: a negative
@@ -797,6 +797,15 @@ else()
         # a pointer stored to an int, as mwcc took it (GCC 14 makes it an
         # error)
         -Wno-int-conversion)
+    # GCC owns -Wbuiltin-declaration-mismatch. The official Orbis Clang does
+    # not recognize it and otherwise warns once for every matched game unit.
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        list(APPEND _boot_matched_opts
+            -Wno-builtin-declaration-mismatch)
+    endif()
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+        list(APPEND _boot_matched_opts -Werror=varargs)
+    endif()
     # With 8-byte pointers, GCC flags every cast between a pointer and a
     # 32-bit integer: 532 sites in the boot's matched files, the
     # pointer-width question docs/pointer-width.md measures (signal C).  They
