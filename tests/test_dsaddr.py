@@ -249,6 +249,19 @@ class NativeTypes(unittest.TestCase):
         self.assertEqual(
             dsaddr.native_wordwin_thumb_row(source, "/other.c"), source)
 
+    def test_native_wifi_invalid_peer_modes_abort_report_submission(self):
+        if not CFG.aletheia_root:
+            self.skipTest("requires the Aletheia source checkout")
+        path = os.path.join(
+            CFG.aletheia_root, "src/game/ov175/wifibattlematch_net.c")
+        with open(path, encoding="utf-8") as stream:
+            source = stream.read()
+        native = dsaddr.native_wifi_report_modes(source, path)
+        self.assertEqual(native.count("return -1;"), 2)
+        self.assertEqual(native.count("default:"), source.count("default:"))
+        self.assertEqual(
+            dsaddr.native_wifi_report_modes(source, "/other.c"), source)
+
     def test_native_mystery_gift_rejects_unknown_derived_pid_type(self):
         source = (
             "    if (gift->formatVersion != 1) {\n"

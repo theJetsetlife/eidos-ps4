@@ -2044,6 +2044,31 @@ def native_wordwin_thumb_row(source: str, path: str) -> str:
         "            goto end;")
 
 
+def native_wifi_report_modes(source: str, path: str) -> str:
+    """Do not submit wireless reports after an invalid peer-mode panic.
+
+    The recovered switches panic for unsupported peer records but then fall
+    through to report construction if the panic routine returns. Terminate
+    that malformed-input path with a nonzero report error; valid enum mappings
+    and the fatal panic behavior are unchanged.
+    """
+    if not path.replace("\\", "/").endswith(
+            "/src/game/ov175/wifibattlematch_net.c"):
+        return source
+    source = _need(
+        source,
+        "#endif\n            break;\n        }\n    }\n"
+        "    if ((result = DWC_ScReportSetPlayerData(ctx->report, 0, ctx->connectionId, 0, mode,",
+        "#endif\n            return -1;\n        }\n    }\n"
+        "    if ((result = DWC_ScReportSetPlayerData(ctx->report, 0, ctx->connectionId, 0, mode,")
+    return _need(
+        source,
+        "#endif\n                break;\n            }\n        }\n"
+        "        if ((result = DWC_ScReportSetPlayerData(ctx->report, 1, other->connectionId, 0, mode2,",
+        "#endif\n                return -1;\n            }\n        }\n"
+        "        if ((result = DWC_ScReportSetPlayerData(ctx->report, 1, other->connectionId, 0, mode2,")
+
+
 def native_itemmenu_control_domains(source: str, path: str) -> str:
     """Give item-menu loop, button, and resource-selection paths defined behavior.
 
@@ -2431,6 +2456,7 @@ def main(argv=None) -> int:
     source = native_defined_locals(source, src_path)
     source = native_musical_camera_target(source, src_path)
     source = native_wordwin_thumb_row(source, src_path)
+    source = native_wifi_report_modes(source, src_path)
     source = native_itemmenu_control_domains(source, src_path)
     source = native_mystery_gift_pid_domain(source, src_path)
     source = native_bg_screen_dimensions(source, src_path)

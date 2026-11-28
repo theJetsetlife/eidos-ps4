@@ -99,7 +99,7 @@
       "acceptance": "Mount both per-user directories across restarts",
       "status": "hardware-partial",
       "commit": "18eddf7",
-      "evidence": "Console imports ROM and boots from internal application-readable storage fallback. Latest SaveData mount returns 0x809f000f.",
+      "evidence": "Console log: sceSaveDataMount2 returns 0x809f000f; file-storage fallback imports the ROM. The 3,600-frame run reports repeated fsync(errno 9) for pokeblack.sav.tmp. This filename alone does not prove save identity or corruption.",
       "remaining": "Verify per-user SaveData lifecycle, isolation and persistence; preserve user saves."
     },
     {
@@ -117,8 +117,8 @@
       "acceptance": "Write, restart and load each game independently",
       "status": "unverified",
       "commit": "9cbb01b",
-      "evidence": "SaveData mount, native filesystem adaptation and isolated host boot tests",
-      "remaining": "Verify persistence and interrupt recovery on console"
+      "evidence": "Host tests cover save adapters; hardware log reports file-sync errno 9 and no verified reload. The log identifies IRAO/White map while writing pokeblack.sav.tmp; mapping semantics remain under review.",
+      "remaining": "Trace game identity to save path and descriptor ownership, fix the sync failure at its contract boundary, then verify isolated save/reload without modifying primary saves."
     },
     {
       "id": "console",
@@ -126,8 +126,8 @@
       "acceptance": "Install and play on base, Slim and Pro",
       "status": "hardware-partial",
       "commit": "dae8b02",
-      "evidence": "Slim installation, startup, ROM preparation, music and opening bedroom reported by user.",
-      "remaining": "Current changes, normal battles, saves and performance need target validation; base PS4 and Pro untested."
+      "evidence": "~/Documents/EIDOS_LOG.txt records ROM import for cartridge IRAO, English layout with White map, VideoOut/AudioOut initialization, and startup through the game loop. The file mixes multiple starts, ends after background execution, and contains no source revision or package hash; exact tested binary is unknown.",
+      "remaining": "Install a provenance-stamped candidate; validate menus, interaction, battles and saves on hardware. Base PS4 and Pro remain untested."
     },
     {
       "id": "perf",
@@ -135,8 +135,8 @@
       "acceptance": "Measure resolution and frame times on each console model",
       "status": "measured-baseline",
       "commit": "37c213a",
-      "evidence": "Pre-optimization console log has 16.66 ms idle intervals and roughly 22-25 ms intervals in sampled 3D scenes. Optimized SDK build underway.",
-      "remaining": "Compare equivalent scenes on console after installing optimized package."
+      "evidence": "Latest unpinned hardware log reports 600-frame wall averages 19.90, 20.79, 16.65, 16.65, 19.37, 18.32 ms; raster average peaks at 10.10 ms and max at 17.83 ms; main 2D averages 5.87\u20137.22 ms. G3D/GL draw/upload/render fields are zero. Engine frame count is not displayed-FPS evidence.",
+      "remaining": "Add build provenance and instrument actual GPU submission/presentation; compare equivalent scenes on the same identified package and console model."
     },
     {
       "id": "host-runtime",
@@ -183,6 +183,13 @@
       "status": "verified-build",
       "evidence": "Traced thumb y to [18,149] setters and n to the u16 maxTopRow domain; generated ov110/pmsiv_wordwin.c passes official Orbis compile with -Werror=sometimes-uninitialized and -ftrivial-auto-var-init=uninitialized. Full test_dsaddr corpus: 85 tests, 1 skipped. Full optimized Orbis target linked; ELF SHA-256 d54d7abd683f6dcea7fb6e406afb294870402ed3fa1173f4a128033775a31ecb. Two fixed-epoch FPKGs compare byte-for-byte (SHA-256 3d7cbe7d7820cd97ecbe41fbeb6a8b973338caecc89e7a8d7f855cc656a8e27f); both pass 29 pkg_validate checks and verify_fpkg.",
       "remaining": "Physical word-window interaction remains unverified; review the ov175 wireless mode warning next."
+    },
+    {
+      "id": "wireless-report-mode-guard",
+      "subsystem": "network report control flow",
+      "status": "verified-build",
+      "evidence": "Invalid peer record kinds now return failure after the existing panic in both report paths. Strict official Orbis compile passes with -Werror=sometimes-uninitialized and -ftrivial-auto-var-init=uninitialized. Full test_dsaddr: 86 passed, 1 skipped. Full Orbis ELF linked. Two fixed-epoch FPKGs match (SHA-256 dcc8f1e193ef6c2f6b172f275c1fbcee01ad6d2d06cda927552aaebfb4400c1a), each passes 29 pkg_validate checks and verify_fpkg.",
+      "remaining": "Live wireless report behavior is untested."
     }
   ],
   "campaign": [

@@ -1648,3 +1648,49 @@ Next bounded investigation: review the compiler-reported uninitialized `mode`
 in `ov175/wifibattlematch_net.c`; trace the wireless-mode producer and
 `GFL_NET_*` call contract before selecting a defined fallback or preserving a
 valid-domain guard.
+
+# 2026-11-28 — Invalid wireless report mode
+
+The `ov175` report builder maps peer record kinds 0–4 to report modes. Its two
+default arms call the game's panic function and then continue to consume an
+unset local if that function returns. The caller treats every nonzero return
+as a failed report and shuts it down. The native generated copy now returns
+`-1` after either panic, preventing malformed peer data from being submitted;
+valid mappings are unchanged.
+
+The full optimized official Orbis target regenerated and linked. The
+generated `wifibattlematch_net.c` passed a strict Orbis compile with
+`-Werror=sometimes-uninitialized` and
+`-ftrivial-auto-var-init=uninitialized` (three unrelated typedef warnings).
+The full `test_dsaddr.py` corpus passed 86 tests (one skipped; 33,572 matched
+sources). Two fixed-epoch GoldHEN packages compare byte-for-byte (23,920,640
+bytes; SHA-256
+`dcc8f1e193ef6c2f6b172f275c1fbcee01ad6d2d06cda927552aaebfb4400c1a`); both
+pass 29 `pkg_validate` checks and `verify_fpkg`. This does not validate live
+wireless behavior.
+
+# 2026-11-28 — Physical run log review
+
+Inspected `~/Documents/EIDOS_LOG.txt` (10,317 bytes, SHA-256
+`f307d97eee0b1c3d234db8c6849c6af0acda3552c9bdf95d493523cb8c99ec67`). Its
+successful import run resolves cartridge `IRAO` to the English layout with
+the White map (1,573 rows). It records SaveData mount error `0x809f000f` and
+repeated `fsync` failures (`errno 9`) for `pokeblack.sav.tmp`. The filename
+alone does not establish cross-game save corruption; the actual save identity
+and file-descriptor lifecycle still need tracing.
+
+The six 600-frame intervals report wall averages of 19.90, 20.79, 16.65,
+16.65, 19.37, and 18.32 ms. Software raster averages reach 10.10 ms and its
+maximum reaches 17.83 ms; main 2D averages are 5.87–7.22 ms. G3D, GL draw,
+GL upload, and render timing fields are zero. Source inspection confirms the
+PS4 game callback still runs the CPU DS compositor and GNMX DS compatibility
+pass; the standalone flat triangle does not consume game geometry. The log
+does not identify its source revision, SDK, shader manifest, or package hash,
+so it cannot be attributed to the current candidate. Its final line records
+background execution pausing simulation, not a crash. The named MP4 and
+reference screenshots were not present in the searched home/attachment paths.
+
+Next P0 batch: add runtime build provenance, then connect a bounded live
+`G3dSnapshot` diagnostic to the existing GNMX path while keeping software
+rasterization as the comparison reference. Require a physical capture before
+claiming hardware GPU game-geometry coverage.
