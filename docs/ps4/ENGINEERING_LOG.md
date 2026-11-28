@@ -1863,3 +1863,24 @@ The extended snapshot CTest passes; direct optimized NDEBUG and
 AddressSanitizer/UndefinedBehaviorSanitizer runs also pass. The 18 existing
 PS4 source rules pass. No full game ELF link or hardware execution was
 performed in this shader batch.
+
+
+## 2026-11-28 — Native polygon state preparation
+
+Added snapshot-to-draw-state translation following SDL GPU `draw_run` and
+its polygon loop: default attributes, modulate/decal/toon, texture enable
+and wrap flags, alpha threshold, polygon ID/fog bits, face selection,
+Z-equal, translucent depth-write, and the two-pass partial-alpha policy.
+Transparent and shadow polygons are explicitly skipped as upstream does;
+invalid texture bindings fail without changing the output. Backdrop-specific
+depth/fog overrides remain the composition caller's responsibility.
+
+The 624-byte fragment uniform type is now shared by SDL and PS4 rather than
+duplicated. Tests check its row offsets and representative literal register
+states, including partial-alpha textures, translucent depth-write, and
+skip/error behavior. Optimized NDEBUG, ASan/UBSan, and snapshot CTest pass.
+The affected desktop SDL GPU object compiles and the official Orbis PS4
+platform library rebuilds successfully. These helpers prepare draw commands;
+GNMX draw submission, texture resources, render targets, and composition are
+still outstanding. No full-game link, hardware validation, or package build
+was performed in this batch.

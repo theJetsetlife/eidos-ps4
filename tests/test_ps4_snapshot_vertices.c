@@ -1,6 +1,7 @@
 #include "snapshot_vertices_ps4.h"
 #include "hw3d.h"
 
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -109,10 +110,77 @@ static void test_empty_snapshot(void)
     CHECK(count == 0);
 }
 
+static void test_polygon_state(void)
+{
+    G3dPoly poly = {.count = 3};
+    s32 slot = -1;
+    u8 texel[4] = {255, 255, 255, 128};
+    G3dSnapTex texture = {.w = 32, .h = 16, .rgba = texel, .partial = 1};
+    G3dSnapshot snapshot = {
+        .polys = &poly, .n_polys = 1, .poly_tex = &slot,
+        .tex = &texture, .n_tex = 1, .disp3dcnt = 1,
+        .alpha_ref = 3, .highlight = 1, .wbuffer = 1,
+    };
+    EidosPs4GameDraw draw, before;
+
+    CHECK(sizeof(EidosPs4GameUniforms) == 624);
+    CHECK(offsetof(EidosPs4GameUniforms, e) == 80);
+    CHECK(offsetof(EidosPs4GameUniforms, toon) == 96);
+    CHECK(offsetof(EidosPs4GameUniforms, sfog) == 608);
+    snapshot.toon[95] = 219;
+    CHECK(eidos_ps4_game_draw(&snapshot, 0, &draw) == 0);
+    CHECK(draw.pass_count == 1 && draw.texture_slot == -1);
+    CHECK(draw.uniforms.a[1] == 31 && draw.uniforms.a[2] == 0);
+    CHECK(draw.uniforms.c[2] == 1 && draw.uniforms.c[3] == 1);
+    CHECK(draw.depth_write == 1 && draw.depth_equal == 0);
+    CHECK(draw.uniforms.b[2] == 3 && draw.uniforms.b[3] == 128);
+    CHECK(draw.uniforms.d[0] == 1 && draw.uniforms.toon[31][2] == 219);
+
+    /* Literal register bits: toon, front only, depth-equal, fog, alpha31, ID9. */
+    poly.attr = (2u << 4) | (1u << 7) | (1u << 14) | (1u << 15) |
+                (31u << 16) | (9u << 24);
+    poly.teximage = (1u << 16) | (1u << 19);
+    slot = 0;
+    CHECK(eidos_ps4_game_draw(&snapshot, 0, &draw) == 0);
+    CHECK(draw.pass_count == 2 && draw.texture_slot == 0);
+    CHECK(draw.uniforms.a[0] == 2 && draw.uniforms.a[2] == 1);
+    CHECK(draw.uniforms.c[0] == 1 && draw.uniforms.c[1] == 1);
+    CHECK(draw.uniforms.c[2] == 1 && draw.uniforms.c[3] == 0);
+    CHECK(draw.uniforms.b[0] == 32 && draw.uniforms.b[1] == 16);
+    CHECK(draw.uniforms.b[3] == 201 && draw.depth_equal == 1);
+    CHECK(draw.uniforms.wrap[0] == 1 && draw.uniforms.wrap[1] == 0);
+    CHECK(draw.uniforms.wrap[2] == 0 && draw.uniforms.wrap[3] == 1);
+    CHECK(draw.depth_write == 1 && draw.translucent_depth_write == 0);
+
+    poly.attr = (1u << 4) | (1u << 6) | (12u << 16);
+    CHECK(eidos_ps4_game_draw(&snapshot, 0, &draw) == 0);
+    CHECK(draw.pass_count == 1 && draw.uniforms.a[0] == 1);
+    CHECK(draw.uniforms.a[1] == 12 && draw.depth_write == 0);
+    poly.attr |= 1u << 11;
+    CHECK(eidos_ps4_game_draw(&snapshot, 0, &draw) == 0);
+    CHECK(draw.depth_write == 1 && draw.translucent_depth_write == 1);
+
+    before = draw;
+    poly.attr = 1u << 7; /* alpha zero */
+    CHECK(eidos_ps4_game_draw(&snapshot, 0, &draw) == 1);
+    CHECK(memcmp(&draw, &before, sizeof draw) == 0);
+    poly.attr = (3u << 4) | (31u << 16); /* shadow */
+    CHECK(eidos_ps4_game_draw(&snapshot, 0, &draw) == 1);
+    CHECK(memcmp(&draw, &before, sizeof draw) == 0);
+    poly.attr = 0;
+    slot = 1; /* beyond the texture array */
+    CHECK(eidos_ps4_game_draw(&snapshot, 0, &draw) == -1);
+    CHECK(memcmp(&draw, &before, sizeof draw) == 0);
+    snapshot.disp3dcnt = 0; /* disabled textures ignore the binding */
+    CHECK(eidos_ps4_game_draw(&snapshot, 0, &draw) == 0);
+    CHECK(draw.texture_slot == -1 && draw.pass_count == 1);
+}
+
 int main(void)
 {
     test_triangle_and_quad_fan();
     test_rejects_malformed_snapshot_without_writes();
     test_empty_snapshot();
+    test_polygon_state();
     return 0;
 }

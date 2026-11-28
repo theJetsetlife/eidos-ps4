@@ -40,6 +40,7 @@
 #include "bmap_leaf.h"
 #include "bmap_place.h"
 #include "g3d.h"
+#include "gpu_uniforms.h"
 #include "hw3d.h"
 #include "prof.h"
 #include "plat_thread.h"
@@ -73,16 +74,7 @@ static u8 c5to8(u32 v)
 }
 
 /* The uniforms, laid out as the shaders' cbuffers (16-byte rows). */
-typedef struct G3dUniforms {
-    int a[4];           /* mode, alpha5, textured, pass */
-    int b[4];           /* texture w, h, alpha ref, ID  */
-    int wrap[4];
-    int c[4];           /* toon, highlight, front, back */
-    int d[4];           /* w-buffer                     */
-    float e[4];         /* a sprite's depth (0: its own) */
-    float toon[32][4];
-    float sfog[4];      /* a battle sprite under the map's fog (Extras > Weather haze): the colour, and how much */
-} G3dUniforms;
+typedef G3dGpuUniforms G3dUniforms;
 
 typedef struct EdgeUniforms {
     int p0[4];          /* step, variant, clear ID */
