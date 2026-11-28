@@ -1,7 +1,8 @@
 /*
  * tests/test_armdata_real.c -- the ARM9 data, generated from aletheia's real
  * metadata (tools/armdata.py) and loaded from the player's own
- * extract/arm9_dec.bin.  Skipped, and passing, without the image.
+ * extract/arm9_dec.bin.  Skipped without the image; an unreadable or
+ * truncated image is a failure.
  *
  * CMakeLists.txt generates the tables for a handful of matched sources and
  * compiles four of them here with the forced-include header, so this checks
@@ -35,6 +36,7 @@
 #include "port.h"
 #include "dsmem.h"
 #include "armdata.h"
+#include "plat_dir.h"
 #include "port_test.h"
 
 #define CHECK_PTR(label, got, want)                                        \
@@ -140,8 +142,23 @@ int main(int argc, char **argv)
 
     BW_TEST_SETUP(argc, argv);
     if (bw_arm9_rodata(0x02004000u, 4) == NULL) {
-        printf("test_armdata_real: skipped (no extract/arm9_dec.bin next to the data root)\n");
-        return 0;
+        char image[1100];
+        const char *root = bw_data_root();
+        size_t n = strlen(root);
+        if (n + sizeof("arm9_dec.bin") > sizeof(image)) {
+            fprintf(stderr, "test_armdata_real: data path is too long\n");
+            return 1;
+        }
+        /* Follow load_arm9's sibling lookup, including a relative root. */
+        memcpy(image, root, n + 1);
+        while (n > 0 && image[n - 1] != '/' && image[n - 1] != '\\') n--;
+        memcpy(image + n, "arm9_dec.bin", sizeof("arm9_dec.bin"));
+        if (bw_plat_path_kind(image) == BW_PATH_NONE) {
+            printf("test_armdata_real: skipped (no extract/arm9_dec.bin next to the data root)\n");
+            return 77;
+        }
+        fprintf(stderr, "test_armdata_real: cannot read the required ARM9 range from %s\n", image);
+        return 1;
     }
     reloc = bw_data_relocation_supported();
     printf("pointer width %u, relocation %s; %lu names, %lu relocations, %lu code targets\n",

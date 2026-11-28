@@ -32,6 +32,7 @@
 #include "kit.h"
 #include "theme.h"
 #include "port.h"
+#include "plat_dir.h"
 #include "port_test.h"
 
 /* ------------------------------------------------------------------ */
@@ -954,18 +955,25 @@ static int test_data(const char *root)
     EidosUiCtx c = { 0 };   /* safe_* and bar_top: a desktop frame */
     UiGlyph g, q;
     const char *path = getenv("UI_KIT_SHEET");
+    char archive_dir[1100];
     int i, n, ok = 1;
 
-    /* Is there game data? */
-    ui_assets_reset();
-    if (!ui_font_glyph(UI_FONT_LARGE, 'A', &g)) {
-        printf("  no game data under %s: data checks skipped\n", root);
-        return 0;
+    n = snprintf(archive_dir, sizeof(archive_dir), "%s/a", root);
+    if (n < 0 || (size_t)n >= sizeof(archive_dir)) {
+        fprintf(stderr, "  data path is too long\n");
+        return 1;
     }
+    if (bw_plat_path_kind(archive_dir) == BW_PATH_NONE) {
+        printf("  no game data under %s: data checks skipped\n", root);
+        return 77;
+    }
+    BW_REQUIRE("game archive tree is a directory", bw_plat_path_kind(archive_dir) == BW_PATH_DIR);
+    ui_assets_reset();
+    BW_REQUIRE("large game font loads", ui_font_glyph(UI_FONT_LARGE, 'A', &g));
     BW_CHECK_EQ("large font cell", g.cell_w * 100 + g.cell_h, 12 * 100 + 15);
-    ui_font_glyph(UI_FONT_SMALL, 'A', &g);
+    BW_REQUIRE("small game font loads", ui_font_glyph(UI_FONT_SMALL, 'A', &g));
     BW_CHECK_EQ("small font cell", g.cell_w * 100 + g.cell_h, 10 * 100 + 10);
-    ui_font_glyph(UI_FONT_MEDIUM, 'A', &g);
+    BW_REQUIRE("medium game font loads", ui_font_glyph(UI_FONT_MEDIUM, 'A', &g));
     BW_CHECK_EQ("medium font cell", g.cell_w * 100 + g.cell_h, 11 * 100 + 13);
     for (i = 0; i < 3; i++) {
         BW_REQUIRE("font has e acute", ui_font_glyph(i, 0xE9, &g) && ui_font_glyph(i, '?', &q) &&
@@ -1056,7 +1064,9 @@ static int test_data(const char *root)
     if (path == NULL) {
         path = "ui_kit_sheet.png";
     }
-    if (write_canvas_png(path, &cv, 2, 0x1E1E26) != 0) {
+    n = write_canvas_png(path, &cv, 2, 0x1E1E26);
+    BW_CHECK_EQ("write contact sheet", n, 0);
+    if (n != 0) {
         printf("  could not write %s\n", path);
         ok = 0;
     } else {
@@ -1140,16 +1150,34 @@ static int test_themes(void)
 
 int main(int argc, char **argv)
 {
-    BW_TEST_SETUP(argc, argv);
+    int synthetic = 1, assets = 1, rc;
 
-    if (test_canvas() != 0 || test_blend() != 0 || test_text() != 0 ||
-        test_panels() != 0 || test_pieces() != 0 || test_icon_rows() != 0 || test_themes() != 0) {
+    BW_TEST_SETUP(argc, argv);
+    if (argc > 2) {
+        if (strcmp(argv[2], "--synthetic-only") == 0) {
+            assets = 0;
+        } else if (strcmp(argv[2], "--assets-only") == 0) {
+            synthetic = 0;
+        } else {
+            fprintf(stderr, "unknown test mode: %s\n", argv[2]);
+            return 1;
+        }
+    }
+
+    if (synthetic && (test_canvas() != 0 || test_blend() != 0 || test_text() != 0 ||
+        test_panels() != 0 || test_pieces() != 0 || test_icon_rows() != 0 || test_themes() != 0)) {
+        if (bw_failures == 0) return 1;
         BW_REPORT("test_ui_kit");
     }
     /* the data checks use the game's own fonts, not the synthetic ones */
-    ui_assets_reset();
-    if (test_data(bw_data_root()) != 0) {
-        BW_REPORT("test_ui_kit");
+    if (assets) {
+        ui_assets_reset();
+        rc = test_data(bw_data_root());
+        if (rc == 77 && bw_failures == 0) return 77;
+        if (rc != 0) {
+            if (bw_failures == 0) return 1;
+            BW_REPORT("test_ui_kit");
+        }
     }
     BW_REPORT("test_ui_kit");
 }

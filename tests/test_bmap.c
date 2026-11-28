@@ -19,6 +19,7 @@
 #include <time.h>
 
 #include "port.h"
+#include "plat_dir.h"
 #include "port_test.h"
 #include "../engine/world/bmap.h"
 
@@ -473,12 +474,21 @@ static int run_case(const char *name, unsigned zone, float px, float pz, int sea
 int main(int argc, char **argv)
 {
     const char *dir = argc > 2 ? argv[2] : ".";
+    char archive_dir[1100];
+    int n;
 
     BW_TEST_SETUP(argc, argv);
-    if (!bw_data_exists("a/0/1/3")) {
-        printf("no game data: skipped\n");
-        return 0;
+    n = snprintf(archive_dir, sizeof(archive_dir), "%s/a", bw_data_root());
+    if (n < 0 || (size_t)n >= sizeof(archive_dir)) {
+        fprintf(stderr, "test_bmap: data path is too long\n");
+        return 1;
     }
+    if (bw_plat_path_kind(archive_dir) == BW_PATH_NONE) {
+        printf("no game data: skipped\n");
+        return 77;
+    }
+    BW_REQUIRE("game archive tree is a directory", bw_plat_path_kind(archive_dir) == BW_PATH_DIR);
+    BW_REQUIRE("map archive exists", bw_data_exists("a/0/1/3"));
     if (getenv("BMAP_AT") != NULL) {
         /* BMAP_AT="name zone x z season hour minute": one extra case */
         char name[64];

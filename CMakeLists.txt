@@ -1930,6 +1930,7 @@ add_executable(test_bmap ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_bmap.c)
 target_include_directories(test_bmap PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(test_bmap PRIVATE eidos)
 add_test(NAME test_bmap COMMAND test_bmap ${BW_DATA_ROOT_ABS} ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(test_bmap PROPERTIES SKIP_RETURN_CODE 77)
 
 # The audio test reads its sequence list out of the audio oracle's own
 # manifest, so the set of sequences is changed in one place
@@ -2953,6 +2954,7 @@ add_executable(test_armdata_real
 target_include_directories(test_armdata_real PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(test_armdata_real PRIVATE eidos)
 add_test(NAME test_armdata_real COMMAND test_armdata_real ${BW_DATA_ROOT_ABS})
+set_tests_properties(test_armdata_real PROPERTIES SKIP_RETURN_CODE 77)
 
 # tools/dsaddr.py: every cast form, the prelude against sdk/dsmem.h on this
 # compiler, every matched source in this build parsed after its rewrite,
@@ -3752,7 +3754,24 @@ target_include_directories(test_ui_kit PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk ${CMAKE_CURRENT_SOURCE_DIR}/tests
     ${CMAKE_CURRENT_SOURCE_DIR}/engine/ui ${CMAKE_CURRENT_SOURCE_DIR}/engine/avatar)
 target_link_libraries(test_ui_kit PRIVATE eidos)
-add_test(NAME test_ui_kit COMMAND test_ui_kit ${BW_DATA_ROOT_ABS})
+add_test(NAME test_ui_kit COMMAND test_ui_kit ${BW_DATA_ROOT_ABS} --synthetic-only)
+add_test(NAME test_ui_kit_assets COMMAND test_ui_kit ${BW_DATA_ROOT_ABS} --assets-only)
+set_tests_properties(test_ui_kit_assets PROPERTIES SKIP_RETURN_CODE 77
+    ENVIRONMENT "UI_KIT_SHEET=${CMAKE_CURRENT_BINARY_DIR}/ui_kit_sheet.png")
+add_test(NAME test_ui_kit_write_failure COMMAND ${Python3_EXECUTABLE} -I
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_kit_write_failure.py
+    $<TARGET_FILE:test_ui_kit> ${BW_DATA_ROOT_ABS})
+set_tests_properties(test_ui_kit_write_failure PROPERTIES SKIP_RETURN_CODE 77)
+
+# Exercise negative verdicts for the data-driven and SDL input tests.
+set(_regression_verdict_args
+    --armdata $<TARGET_FILE:test_armdata_real> --bmap $<TARGET_FILE:test_bmap>
+    --ui $<TARGET_FILE:test_ui_kit> --ctest ${CMAKE_CTEST_COMMAND} --build ${CMAKE_BINARY_DIR})
+if(TARGET test_platform_input)
+    list(APPEND _regression_verdict_args --platform $<TARGET_FILE:test_platform_input>)
+endif()
+add_test(NAME test_regression_verdicts COMMAND ${Python3_EXECUTABLE} -I
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_regression_verdicts.py ${_regression_verdict_args})
 
 # The name entry and Xtransceiver recipes (engine/ui/recipe_input.c): the test
 # builds stand-ins for the game's structs, runs the recipes at several canvas

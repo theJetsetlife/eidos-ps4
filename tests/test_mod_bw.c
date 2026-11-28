@@ -788,9 +788,11 @@ static int run_python(void)
     }
     sprintf(cmd, "python %s/mk.py %s/pyfix %s/py.bw %s %s %s %s", WORK, WORK, WORK,
             names[0], names[1], names[2], names[3]);
-    if (system(cmd) != 0) {
-        printf("SKIP python package (script failed)\n");
-        return 0;
+    rc = system(cmd);
+    BW_CHECK_EQ("python package generator", rc, 0);
+    if (rc != 0) {
+        for (i = 0; i < 4; i++) free(d[i]);
+        return 1;
     }
     rc = bw_mod_bw_unpack(WORK "/py.bw", WORK "/pycache", g_err, sizeof g_err);
     BW_CHECK_EQ("python package: rc", rc, 0);

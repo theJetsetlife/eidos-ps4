@@ -941,16 +941,14 @@ if(_boot_lp64 AND NOT "${_eidos_ovls}" STREQUAL "")
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/boot_scenario.cmake)
     set_tests_properties(test_boot_battle_trainer test_boot_new_game_intro PROPERTIES
         SKIP_REGULAR_EXPRESSION "${EIDOS_BOOT_SKIP_REGEX}" TIMEOUT 1500)
-    # The game's music must play through the opening and after it: with no
-    # wave archive reaching the sound driver (the bank's DS-width link slots,
-    # tools/dsaddr.py snd_bank.c) every instrument note was silent, and only
-    # a few direct-channel sounds were heard.  The run must still be loud
-    # 30 s in, and beyond to 80 s.
+    # Check for sustained output after 30 seconds, not just isolated peaks.
+    # This cannot identify music or establish that its notes are correct.
     add_test(NAME test_boot_intro_audio
         COMMAND ${CMAKE_COMMAND} -DBOOT=$<TARGET_FILE:eidos_boot>
                 -DDATA=${BW_DATA_ROOT_ABS} -DNAME=intro_audio -DFRAMES=5400
                 -DPRESS_FROM=400 -DPRESS_TO=5000 -DPRESS_EVERY=30 -DPRESS_KEY=A
-                -DAUDIO_AFTER=30 -DAUDIO_MIN_PEAK=1000 -DPYTHON=${Python3_EXECUTABLE}
+                -DAUDIO_AFTER=30 -DAUDIO_MIN_RMS=1000 -DAUDIO_MIN_DURATION=80
+                -DPYTHON=${Python3_EXECUTABLE}
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/boot_scenario.cmake)
     set_tests_properties(test_boot_intro_audio PROPERTIES
         SKIP_REGULAR_EXPRESSION "${EIDOS_BOOT_SKIP_REGEX}" TIMEOUT 1500)

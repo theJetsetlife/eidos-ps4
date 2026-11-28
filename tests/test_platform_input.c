@@ -55,7 +55,9 @@ static void test_mapping(void)
     cfg.win_w = 512; cfg.win_h = 768;
     cfg.layout = EIDOS_LAYOUT_STACKED;
     if (eidos_platform_init(&p, &cfg) != 0) {
-        printf("no SDL video (dummy driver unavailable): skipped\n");
+        /* CTest supplies SDL's dummy drivers.  If initialization fails, the
+         * input mapping and pump checks did not run and this test must fail. */
+        BW_CHECK_EQ("stacked: SDL initialization", 0, 1);
         return;
     }
     /* Stacked at 2x: 512 x 768, the bottom screen from window y 384.

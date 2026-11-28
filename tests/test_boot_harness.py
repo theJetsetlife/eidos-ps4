@@ -68,6 +68,13 @@ class BootHarness(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("SKIPPED: no game data", result.stdout + result.stderr)
 
+    def test_missing_audio_checker_is_a_failure(self):
+        result = self.run_boot("boot_scenario.cmake", "ok", "-DNAME=audit",
+                               "-DAUDIO_AFTER=0", "-DAUDIO_MIN_RMS=64",
+                               f"-DPYTHON={self.root / 'missing-python'}")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("audio check failed", result.stdout + result.stderr)
+
     def test_ctest_skip_does_not_mask_a_failed_child(self):
         def ctest(mode, data):
             self.env["EIDOS_TEST_BOOT_MODE"] = mode

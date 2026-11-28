@@ -5,16 +5,18 @@
 #   cmake -DBOOT=<eidos_boot> -DDATA=<BW_DATA_ROOT> -DFRAMES=<n>
 #         [-DENV=<NAME=VALUE;...>] [-DPRESS_FROM=<f> -DPRESS_TO=<f>
 #          -DPRESS_EVERY=<n> -DPRESS_KEY=<key>] [-DRESIDENT_HAS=<id>]
-#         [-DAUDIO_AFTER=<seconds> -DAUDIO_MIN_PEAK=<n> -DPYTHON=<python>]
+#         [-DAUDIO_AFTER=<seconds> -DAUDIO_MIN_RMS=<n> -DPYTHON=<python>
+#          -DAUDIO_MIN_DURATION=<seconds>]
 #         [-DWATCHDOG=<seconds>] -P boot_scenario.cmake
 #
 # Without the player's game data (DATA/a and DATA/../arm9_dec.bin) the test
 # prints SKIPPED.  It passes when the run exits successfully after FRAMES frames
 # ("eidos_boot: ran after FRAMES frames") with no crash, panic or watchdog,
 # and, when asked, the overlays resident at the end include RESIDENT_HAS and
-# the game's audio is not silent after AUDIO_AFTER seconds of output
-# (tests/wav_level.py measures the recording).  The save folder is a fresh
-# one under the build tree, so no player's save is read or written.
+# the recording contains sustained audio after AUDIO_AFTER seconds of output
+# (tests/wav_level.py measures the level, not the identity of the sound).
+# The save folder is a fresh one under the build tree, so no player's save is
+# read or written.
 #
 if(NOT DEFINED WATCHDOG)
     set(WATCHDOG 120)
@@ -74,11 +76,16 @@ if(DEFINED RESIDENT_HAS)
     endif()
 endif()
 if(DEFINED AUDIO_AFTER)
+    set(audio_duration_arg)
+    if(DEFINED AUDIO_MIN_DURATION)
+        list(APPEND audio_duration_arg --min-duration ${AUDIO_MIN_DURATION})
+    endif()
     execute_process(
         COMMAND "${PYTHON}" "${CMAKE_CURRENT_LIST_DIR}/wav_level.py"
-                "${work}/audio.wav" --after ${AUDIO_AFTER} --min-peak ${AUDIO_MIN_PEAK}
+                "${work}/audio.wav" --after ${AUDIO_AFTER} --min-rms ${AUDIO_MIN_RMS}
+                ${audio_duration_arg}
         RESULT_VARIABLE wrc OUTPUT_VARIABLE wout ERROR_VARIABLE werr)
-    if(NOT wrc EQUAL 0)
+    if(NOT "${wrc}" STREQUAL "0")
         message(FATAL_ERROR "audio check failed:\n${wout}${werr}")
     endif()
     message("${wout}")

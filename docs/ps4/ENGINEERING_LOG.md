@@ -2062,3 +2062,37 @@ focused host run executed 15 and skipped the optional asset test in the
 no-game-data configuration; the latter separately passed 12 checks when
 given the local extract. An existing host warning in `ov114/dwci_nd.c`
 reports a potentially uninitialized `result`; it was not changed here.
+
+## 2026-11-28 — Regression verdict follow-up
+
+Reproduced additional misleading successes: the ARM9 and map tests returned
+success without their data, a malformed UI font archive and a failed UI
+contact-sheet write both passed, an invalid SDL driver still passed the input
+test, and a Python package-generation failure was reported as a skip. Missing
+data now returns CTest's skip code; partial or corrupt data and the observed
+failures are rejected. UI synthetic and real-asset checks are separate. The
+new verdict tests exercise missing and corrupt inputs, relative ARM9 paths,
+SDL initialization, CTest skip registration, and a failing generator. A
+separate real-asset test checks that a failed contact-sheet write is rejected.
+
+The previous audio checker accepted a recording with one loud sample per
+ten-second span. It now requires sustained 100 ms RMS activity and the boot
+scenario requires at least 80 seconds of recording. It rejects isolated
+samples and short pulses, and the existing 90.3-second host recording passes.
+The check detects output activity; it cannot identify music or verify notes.
+
+An optimized host run passed all 11 selected CTest cases, including the
+scripted audio scenario; after the relative-path correction the two affected
+cases passed again. Against the supplied White extraction the standalone UI
+asset test ran 137 checks, ARM9 data ran 269, and the map test ran 22. This
+configuration registers 143 tests, of which 10 are disabled; the remaining
+full suite was not run in this batch. Some other tests, including `test_fs`,
+`test_overlay`, `test_vfs_members`, `test_vfs_msg`, and `test_vfs_sdat`, still
+combine synthetic checks with optional real-data checks and can pass when
+the latter are skipped. Their pass status alone is not real-data coverage.
+
+The naming-UI test uses stand-in structs and callbacks, boot tests check frame
+survival and overlay residency, and the PS4 source rules and mocked platform
+tests do not exercise a console. The host GPU tests do not execute PS4 PSSL.
+Naming, menu contents, starter selection, battle completion, save durability,
+and PS4 rendering remain unverified. No package or hardware test was made.
