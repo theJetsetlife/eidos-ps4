@@ -55,6 +55,19 @@ int eidos_ps4_video_draw_ds_compatibility_snapshot_flat(
     int cursor_x, int cursor_y, uint8_t presentation_mode,
     const EidosPs4SnapshotVertex *vertices, uint32_t vertex_count);
 
+typedef struct EidosPs4TextureUploadStats {
+    uint64_t uploaded_bytes, resident_bytes;
+    uint32_t uploaded_textures, reused_textures;
+} EidosPs4TextureUploadStats;
+
+/* Prepare persistent linear-UNORM textures for the acquired back buffer.
+ * Call after begin_frame and before recording any draw. Snapshot data stays
+ * borrowed only for this call; GPU data remains owned until safe buffer
+ * reuse or video destruction. Partial failure makes the cache unavailable
+ * for drawing. Stats describe this buffer's cache, not total GPU memory. */
+int eidos_ps4_video_prepare_game_textures(EidosPs4Video *video,
+    const struct G3dSnapshot *snapshot, EidosPs4TextureUploadStats *stats);
+
 /* Make CPU writes visible to the GPU/display path and submit a vsync flip. */
 int eidos_ps4_video_present(EidosPs4Video *video);
 

@@ -13,6 +13,7 @@
 #include <video_out.h>
 
 #include "shader_blobs_ps4.h"
+#include "hw3d.h"
 
 namespace {
 
@@ -51,6 +52,20 @@ int initialize_gnm(EidosPs4Video *video,
                    const EidosPs4ShaderBlob *snapshot_vertex_blob,
                    const EidosPs4ShaderBlob *snapshot_pixel_blob);
 
+struct SnapshotTexture {
+    sce::Gnm::Texture descriptor;
+    size_t offset = 0;
+    uint32_t width = 0, height = 0;
+    uint64_t key = 0;
+    bool valid = false;
+};
+
+struct SnapshotTextureCache {
+    GpuArena arena;
+    SnapshotTexture *textures = nullptr;
+    uint32_t capacity = 0, count = 0;
+};
+
 } // namespace
 
 struct EidosPs4Video {
@@ -68,6 +83,7 @@ struct EidosPs4Video {
     bool gpu_contexts_ready = false;
     GpuArena garlic_arena;
     GpuArena onion_arena;
+    SnapshotTextureCache game_textures[kBufferCount];
     sce::Gnm::RenderTarget render_targets[kBufferCount];
     sce::Gnm::Texture ds_textures[kBufferCount];
     sce::Gnm::Sampler ds_sampler;
@@ -629,6 +645,164 @@ extern "C" int eidos_ps4_video_begin_frame(EidosPs4Video *video,
     return 0;
 }
 
+namespace {
+
+int snapshot_texture_layout(const G3dSnapTex &source, sce::Gnm::Texture *texture)
+{
+    /* SDK TextureSpec dimensions are bounded to [1,16384]. RGBA values
+     * here are already decoded game colors; sRGB sampling would change
+     * upstream's integer modulation arithmetic. */
+    if (source.rgba == nullptr || source.w == 0 || source.h == 0 ||
+        source.w > 16384u || source.h > 16384u) {
+        return -1;
+    }
+    sce::Gnm::TextureSpec spec;
+    spec.init();
+    spec.m_textureType = sce::Gnm::kTextureType2d;
+    spec.m_width = source.w;
+    spec.m_height = source.h;
+    spec.m_depth = 1;
+    spec.m_pitch = 0;
+    spec.m_numMipLevels = 1;
+    spec.m_numSlices = 1;
+    spec.m_format = sce::Gnm::kDataFormatR8G8B8A8Unorm;
+    spec.m_tileModeHint = sce::Gnm::kTileModeDisplay_LinearAligned;
+    spec.m_minGpuMode = sce::Gnm::getGpuMode();
+    spec.m_numFragments = sce::Gnm::kNumFragments1;
+    return texture->init(&spec);
+}
+
+uint64_t snapshot_texture_key(const G3dSnapTex &source)
+{
+    if (source.content != 0) {
+        return source.content;
+    }
+    uint64_t hash = UINT64_C(14695981039346656037);
+    const size_t bytes = static_cast<size_t>(source.w) * source.h * 4u;
+    for (size_t i = 0; i < bytes; ++i) {
+        hash = (hash ^ source.rgba[i]) * UINT64_C(1099511628211);
+    }
+    return hash;
+}
+
+} // namespace
+
+extern "C" int eidos_ps4_video_prepare_game_textures(
+    EidosPs4Video *video, const G3dSnapshot *snapshot,
+    EidosPs4TextureUploadStats *stats)
+{
+    if (video == nullptr || snapshot == nullptr || stats == nullptr ||
+        video->current_index < 0 || !video->gpu_contexts_ready ||
+        video->gpu_frame_ready || (snapshot->n_tex != 0 && snapshot->tex == nullptr)) {
+        return -1;
+    }
+    *stats = {};
+    SnapshotTextureCache &cache = video->game_textures[video->current_index];
+    bool repack = cache.count != snapshot->n_tex;
+    cache.count = 0;
+    size_t required = 0;
+    /* Validate all descriptors before replacing storage or touching texels. */
+    for (uint32_t i = 0; i < snapshot->n_tex; ++i) {
+        if (i >= cache.capacity || cache.textures[i].width != snapshot->tex[i].w ||
+            cache.textures[i].height != snapshot->tex[i].h) {
+            repack = true;
+        }
+        sce::Gnm::Texture descriptor;
+        const int result = snapshot_texture_layout(snapshot->tex[i], &descriptor);
+        if (result != SCE_GNM_OK) {
+            return result < 0 ? result : -1;
+        }
+        const sce::Gnm::SizeAlign layout = descriptor.getSizeAlign();
+        if (layout.m_size == 0 || layout.m_align == 0 ||
+            (layout.m_align & (layout.m_align - 1u)) != 0 ||
+            descriptor.getPitch() < snapshot->tex[i].w ||
+            (static_cast<uint64_t>(snapshot->tex[i].h - 1u) *
+                 descriptor.getPitch() + snapshot->tex[i].w) * 4u > layout.m_size ||
+            required > std::numeric_limits<size_t>::max() - (layout.m_align - 1u)) {
+            return -1;
+        }
+        required = static_cast<size_t>(align_up(required, layout.m_align));
+        if (!add_size(&required, layout.m_size)) {
+            return -1;
+        }
+    }
+    if (snapshot->n_tex > cache.capacity) {
+        SnapshotTexture *entries = new (std::nothrow) SnapshotTexture[snapshot->n_tex];
+        if (entries == nullptr) {
+            return -1;
+        }
+        delete[] cache.textures;
+        cache.textures = entries;
+        cache.capacity = snapshot->n_tex;
+    }
+    if (repack) {
+        /* An enlarged slot may have overwritten a formerly adjacent slot.
+         * Invalidate the whole packed layout before considering reuse. */
+        for (uint32_t i = 0; i < cache.capacity; ++i) {
+            cache.textures[i].valid = false;
+        }
+    }
+    if (required > cache.arena.size ||
+        (required != 0 && cache.arena.mapping == nullptr)) {
+        /* begin_frame waited past this buffer's last flip. No GPU command
+         * may still read this buffer's texture arena. Other buffers retain
+         * their independent arenas until their own safe reuse point. */
+        for (uint32_t i = 0; i < cache.capacity; ++i) {
+            cache.textures[i].valid = false;
+        }
+        int result = destroy_gpu_arena(&cache.arena);
+        if (result < 0) {
+            return result;
+        }
+        result = create_gpu_arena(&cache.arena, required, SCE_KERNEL_WC_GARLIC);
+        if (result < 0) {
+            return result;
+        }
+    }
+    if (required != 0 && cache.arena.mapping == nullptr) {
+        return -1;
+    }
+    size_t offset = 0;
+    for (uint32_t i = 0; i < snapshot->n_tex; ++i) {
+        const G3dSnapTex &source = snapshot->tex[i];
+        SnapshotTexture &entry = cache.textures[i];
+        sce::Gnm::Texture descriptor;
+        if (snapshot_texture_layout(source, &descriptor) != SCE_GNM_OK) {
+            return -1;
+        }
+        const sce::Gnm::SizeAlign layout = descriptor.getSizeAlign();
+        offset = static_cast<size_t>(align_up(offset, layout.m_align));
+        uint8_t *destination = static_cast<uint8_t *>(cache.arena.mapping) + offset;
+        const uint64_t key = snapshot_texture_key(source);
+        if (!entry.valid || entry.width != source.w || entry.height != source.h ||
+            entry.offset != offset || entry.key != key) {
+            const size_t row_bytes = static_cast<size_t>(source.w) * 4u;
+            const size_t pitch_bytes = static_cast<size_t>(descriptor.getPitch()) * 4u;
+            for (uint32_t y = 0; y < source.h; ++y) {
+                __builtin_memcpy(destination + y * pitch_bytes,
+                                 source.rgba + y * row_bytes, row_bytes);
+            }
+            stats->uploaded_bytes += row_bytes * source.h;
+            ++stats->uploaded_textures;
+        } else {
+            ++stats->reused_textures;
+        }
+        descriptor.setBaseAddress(destination);
+        descriptor.setResourceMemoryType(sce::Gnm::kResourceMemoryTypeRO);
+        entry.descriptor = descriptor;
+        entry.width = source.w;
+        entry.height = source.h;
+        entry.offset = offset;
+        entry.key = key;
+        entry.valid = true;
+        offset += layout.m_size;
+    }
+    cache.count = snapshot->n_tex;
+    stats->resident_bytes = cache.arena.size;
+    /* present() flushes CPU writes before submitting GPU work. */
+    return 0;
+}
+
 extern "C" int eidos_ps4_video_present(EidosPs4Video *video)
 {
     if (video == nullptr || video->current_index < 0) {
@@ -966,6 +1140,15 @@ extern "C" int eidos_ps4_video_destroy(EidosPs4Video *video)
             return result;
         }
         video->flip_queue = nullptr;
+    }
+    for (int i = 0; i < kBufferCount; ++i) {
+        const int result = destroy_gpu_arena(&video->game_textures[i].arena);
+        if (result < 0) {
+            return result;
+        }
+        delete[] video->game_textures[i].textures;
+        video->game_textures[i].textures = nullptr;
+        video->game_textures[i].capacity = video->game_textures[i].count = 0;
     }
     {
         const int result = destroy_gpu_arena(&video->onion_arena);

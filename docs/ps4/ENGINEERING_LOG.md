@@ -1884,3 +1884,31 @@ platform library rebuilds successfully. These helpers prepare draw commands;
 GNMX draw submission, texture resources, render targets, and composition are
 still outstanding. No full-game link, hardware validation, or package build
 was performed in this batch.
+
+
+## 2026-11-28 — Persistent snapshot texture ownership
+
+Added per-back-buffer snapshot texture caches to the GNMX video owner.
+Preparation is restricted to an acquired buffer before draw recording; the
+existing begin-frame wait is the safe point for replacing that buffer's
+storage. Each buffer retains an independent garlic arena and descriptors.
+Storage grows only when required; unchanged content keys avoid reupload,
+with a byte hash fallback when upstream supplies no content key. A changed
+packed layout invalidates every slot, preventing reuse after a neighboring
+larger texture has overwritten old texels. Video destruction releases the
+arenas after pending flips complete.
+
+Descriptors use linear RGBA8 UNORM, not sRGB: upstream's shader performs
+integer color arithmetic on decoded texels. SDK TextureSpec bounds
+[1,16384], padded row extents, alignments, and aggregate sizes are validated
+before writes. Source rows copy into SDK pitch. Preparation reports actual
+uploaded bytes, reused/uploaded texture counts, and this buffer's resident
+allocation. Snapshot pointers are borrowed only during preparation.
+
+The official Orbis platform-library target compiles this implementation,
+and the 18 existing platform source checks pass. This cache is not yet
+called by gameplay; no runtime texture correctness, cache visibility, or
+performance is proven. Production draw recording must bind these resources
+and establish GPU texture-cache visibility before sampling; CPU garlic
+writes are flushed by the existing present path. No full ELF link, console
+execution, or FPKG build was performed in this batch.
