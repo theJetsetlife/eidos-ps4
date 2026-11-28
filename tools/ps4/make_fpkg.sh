@@ -16,6 +16,7 @@
 # Environment:
 #   OO_PS4_TOOLCHAIN   OpenOrbis toolchain root (PkgTool.Core, create-gp4)
 #   SCE_ORBIS_SDK_DIR  SDK root; --module NAME is looked up in target/sce_module
+#   SOURCE_DATE_EPOCH  reproducible package timestamp (default: source HEAD)
 #
 # Nothing from the SDK, ROMs or extracted data is written to the source tree;
 # all staging is under --out.
@@ -23,6 +24,12 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 die() { echo "make_fpkg: $*" >&2; exit 1; }
+
+SOURCE_ROOT=$(cd "$HERE/../.." && pwd)
+PACKAGE_EPOCH=${SOURCE_DATE_EPOCH:-$(git -C "$SOURCE_ROOT" log -1 --format=%ct 2>/dev/null || true)}
+[[ $PACKAGE_EPOCH =~ ^[0-9]+$ ]] || die "SOURCE_DATE_EPOCH must be an integer Unix timestamp (or run from a Git checkout)"
+PACKAGE_DATETIME=$(date -u -d "@$PACKAGE_EPOCH" '+%Y-%m-%d %H:%M:%S') || die "invalid SOURCE_DATE_EPOCH: $PACKAGE_EPOCH"
+PACKAGE_ISO8601=$(date -u -d "@$PACKAGE_EPOCH" '+%Y-%m-%dT%H:%M:%SZ') || die "invalid SOURCE_DATE_EPOCH: $PACKAGE_EPOCH"
 
 ELF= TITLE= TITLE_ID= LABEL= VERSION=01.00 ICON= PIC1= OUT= SDKVER= PAID=0x3800000000000011
 MODULES=()
@@ -119,12 +126,21 @@ set_sfo TITLE Utf8 128 "$TITLE"
 set_sfo TITLE_ID Utf8 12 "$TITLE_ID"
 set_sfo VERSION Utf8 8 "$VERSION"
 
+# create-gp4 and PkgTool preserve input metadata in the package. Normalize the
+# complete stage after all generated files exist so equal inputs yield equal
+# FPKG bytes.
+find "$ST" -type f -exec touch -d "@$PACKAGE_EPOCH" {} +
+
 # --- gp4 + pkg
 cd "$ST"
 FILES="eboot.bin sce_sys/param.sfo sce_sys/icon0.png"
 [ -f sce_sys/pic1.png ] && FILES="$FILES sce_sys/pic1.png"
 for f in sce_module/*; do [ -e "$f" ] && FILES="$FILES $f"; done
 "$CREATE_GP4" -out pkg.gp4 --content-id="$CONTENT_ID" --files "$FILES" >/dev/null
+# create-gp4 has no timestamp option and always writes the wall clock into
+# volume_ts. Replace that one generated field before PkgTool hashes the GP4.
+sed -i "s#<volume_ts>[^<]*</volume_ts>#<volume_ts>$PACKAGE_DATETIME</volume_ts>#" pkg.gp4
+grep -q "<volume_ts>$PACKAGE_DATETIME</volume_ts>" pkg.gp4 || die "failed to normalize GP4 volume timestamp"
 "$PKGTOOL" pkg_build pkg.gp4 "$OUT" >/dev/null
 PKG=$OUT/$CONTENT_ID.pkg
 [ -f "$PKG" ] || die "PkgTool did not produce $PKG"
@@ -141,6 +157,6 @@ PKG=$OUT/$CONTENT_ID.pkg
   echo "source_elf_sha256=$(sha256sum "$ELF" | cut -d' ' -f1)"
   echo "sdk_version_patch=${SDKVER:-none}"
   echo "modules=${MODULES[*]:-none}"
-  echo "built=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "built=$PACKAGE_ISO8601"
 } > "$OUT/manifest.txt"
 cat "$OUT/manifest.txt"

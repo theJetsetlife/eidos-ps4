@@ -1854,6 +1854,203 @@ def _replace_body(source: str, signature: str, body: str) -> str:
     raise SystemExit("dsaddr.py: unterminated function body: %r" % signature)
 
 
+def native_game_allocations(source: str, path: str) -> str:
+    """Replace DS-sized native object allocations in generated game copies.
+
+    Aletheia remains the byte-matching ARM input. Generated native copies
+    allocate from their native declaration, not a historical DS byte count.
+    """
+    normalized = path.replace("\\", "/")
+    if normalized.endswith("/src/game/ov009/gpibuddy.c"):
+        # This mutable callback record is currently three 32-bit scalar
+        # fields. A fixed 0x0c extent would silently overflow as soon as any
+        # member becomes native-width, while sizeof preserves today's layout.
+        source = _need(
+            source,
+            "anArg = (GPRecvBuddyStatusArg *)gsimalloc(0xc);",
+            "anArg = (GPRecvBuddyStatusArg *)gsimalloc(sizeof(*anArg));",
+        )
+    return source
+
+
+def native_variadic_abi(source: str, path: str) -> str:
+    """Promote narrow parameters immediately preceding native varargs.
+
+    C requires va_start's last named parameter to be compatible with its
+    default-promoted type. MWCC accepted u8/u16 here; Clang correctly reports
+    undefined behavior. Native callers must see the promoted declaration too,
+    so generated copies shadow just that declaration while including the
+    original Aletheia header for every other API.
+    """
+    normalized = path.replace("\\", "/")
+    if normalized.endswith("/src/game/arm9/wm_system.c"):
+        source = _need(
+            source,
+            "WMErrCode WMi_SendCommand(WMApiid id, u16 paramNum, ...);",
+            "WMErrCode WMi_SendCommand(WMApiid id, int paramNum, ...);",
+        )
+        source = _need(
+            source,
+            "WMErrCode WMi_SendCommand(WMApiid id, u16 paramNum, ...)\n{",
+            "WMErrCode WMi_SendCommand(WMApiid id, int paramNum, ...)\n{",
+        )
+    elif '#include "wm_system.h"' in source:
+        source = source.replace(
+            '#include "wm_system.h"',
+            '#define WMi_SendCommand WMi_SendCommand_DS_ABI\n'
+            '#include "wm_system.h"\n'
+            '#undef WMi_SendCommand\n'
+            'WMErrCode WMi_SendCommand(WMApiid id, int paramNum, ...);',
+        )
+    elif '#include "../arm9/wm_system.h"' in source:
+        source = source.replace(
+            '#include "../arm9/wm_system.h"',
+            '#define WMi_SendCommand WMi_SendCommand_DS_ABI\n'
+            '#include "../arm9/wm_system.h"\n'
+            '#undef WMi_SendCommand\n'
+            'WMErrCode WMi_SendCommand(WMApiid id, int paramNum, ...);',
+        )
+
+    if normalized.endswith("/src/game/ov093/btl_server_cmd.c"):
+        source = _need(
+            source,
+            '#include "btl_server_cmd_types.h"',
+            '#undef BTL_SERVER_CMD_PushVariable\n'
+            '#define BTL_SERVER_CMD_PushVariable BTL_SERVER_CMD_PushVariable_DS_ABI\n'
+            '#include "btl_server_cmd_types.h"\n'
+            '#undef BTL_SERVER_CMD_PushVariable\n'
+            '#define BTL_SERVER_CMD_PushVariable ov093_BTL_SERVER_CMD_PushVariable',
+        )
+        source = _need(
+            source,
+            "void BTL_SERVER_CMD_PushVariable(BtlServerCmdQueue *queue, u8 id, ...)\n{",
+            "void BTL_SERVER_CMD_PushVariable(BtlServerCmdQueue *queue, int id, ...)\n{",
+        )
+    elif '#include "btl_server_cmd.h"' in source:
+        source = source.replace(
+            '#include "btl_server_cmd.h"',
+            '#undef BTL_SERVER_CMD_PushVariable\n'
+            '#define BTL_SERVER_CMD_PushVariable BTL_SERVER_CMD_PushVariable_DS_ABI\n'
+            '#include "btl_server_cmd.h"\n'
+            '#undef BTL_SERVER_CMD_PushVariable\n'
+            '#define BTL_SERVER_CMD_PushVariable ov093_BTL_SERVER_CMD_PushVariable\n'
+            'void BTL_SERVER_CMD_PushVariable(BtlServerCmdQueue *queue, int id, ...);',
+        )
+    return source
+
+
+def native_defined_locals(source: str, path: str) -> str:
+    """Make selected native control-flow defaults explicit.
+
+    Release builds use -ftrivial-auto-var-init=zero, but that is a diagnostic
+    safety net rather than valid C semantics. These shared subsystems contain
+    compiler-proven reads on paths without a language-level initializer. The
+    explicit zero matches existing native release behavior and survives other
+    optimization/toolchain configurations.
+    """
+    normalized = path.replace("\\", "/")
+    replacements = {
+        "/src/game/arm9/nns_snd_waveout.c": (
+            ("    int loopStartUnits;", "    int loopStartUnits = 0;"),
+            ("    int loopLength;", "    int loopLength = 0;"),
+        ),
+        "/src/game/arm9/wm_system.c": (
+            ("            u16 state, aid, myAid, reason;",
+             "            u16 state = 0, aid, myAid, reason;"),
+        ),
+        "/src/game/ov093/btl_server_flow.c": (
+            ("    int saved;\n    int ret;",
+             "    int saved = 0;\n    int ret;"),
+        ),
+    }
+    for suffix, edits in replacements.items():
+        if normalized.endswith(suffix):
+            for old, new in edits:
+                source = _need(source, old, new)
+            break
+    return source
+
+
+def native_bg_screen_dimensions(source: str, path: str) -> str:
+    """Give invalid native BG size codes empty dimensions at the shared boundary.
+
+    The recovered ARM routine writes neither out-parameter for codes above
+    five. Native callers otherwise read indeterminate widths and heights in
+    tile fill, blit, and map paths. Zero dimensions clip those paths safely.
+    """
+    if path.replace("\\", "/").endswith("/src/game/arm9/bg_sys.c"):
+        source = _need(
+            source,
+            "    case 5:\n        *a = 0x80;\n        *b = 0x80;\n        break;\n    }\n}",
+            "    case 5:\n        *a = 0x80;\n        *b = 0x80;\n        break;\n"
+            "    default:\n        *a = 0;\n        *b = 0;\n        break;\n    }\n}",
+        )
+    return source
+
+
+def native_namein_mode_conversion(source: str, path: str) -> str:
+    """Enforce the naming grid converter's native call contract.
+
+    Its sole caller converts only between the symbol grid and a text grid.
+    The recovered ARM body falls through with four indeterminate locals for
+    any other pair. Make that impossible path a defined no-op in native code.
+    """
+    if path.replace("\\", "/").endswith(
+            "/src/game/ov194/namein_graphic_field.c"):
+        source = _need(
+            source,
+            "    } else if (newmode == NAMEIN_GRAPHIC_MODE_SYMBOL) {\n"
+            "        from = NAMEIN_GRAPHIC_GridValue;\n"
+            "        to = NAMEIN_GRAPHIC_SymbolGetValue;\n"
+            "        width = 11;\n"
+            "        height = 4;\n"
+            "    }\n"
+            "    result = from(p, 0);",
+            "    } else if (newmode == NAMEIN_GRAPHIC_MODE_SYMBOL) {\n"
+            "        from = NAMEIN_GRAPHIC_GridValue;\n"
+            "        to = NAMEIN_GRAPHIC_SymbolGetValue;\n"
+            "        width = 11;\n"
+            "        height = 4;\n"
+            "    } else {\n"
+            "        return;\n"
+            "    }\n"
+            "    result = from(p, 0);",
+        )
+    return source
+
+
+def native_field_player_attributes(source: str, path: str) -> str:
+    """Return the map's absent-tile sentinel for an invalid movement kind.
+
+    The recovered controller table maps its four valid controller types to
+    grid, nogrid, or the hybrid selector, and normal hybrid transitions write
+    only grid/nogrid. A malformed saved hybrid mode can still escape that
+    domain, leaving these recovered locals indeterminate. 0xFFFFFFFF is the
+    map-attribute subsystem's established no-tile value: IsPresent rejects it
+    and IsBlocked treats it as blocked, so it is the fail-closed native result.
+    """
+    if path.replace("\\", "/").endswith("/src/game/ov021/field_player.c"):
+        source = _need(
+            source,
+            "u32 FIELD_PLAYER_GetNowAttribute(FieldPlayer *player)\n"
+            "{\n"
+            "    u32 attr;",
+            "u32 FIELD_PLAYER_GetNowAttribute(FieldPlayer *player)\n"
+            "{\n"
+            "    u32 attr = 0xFFFFFFFFu;",
+        )
+        source = _need(
+            source,
+            "u32 FIELD_PLAYER_GetFrontAttribute(FieldPlayer *player, u32 dir)\n"
+            "{\n"
+            "    u32 attr;",
+            "u32 FIELD_PLAYER_GetFrontAttribute(FieldPlayer *player, u32 dir)\n"
+            "{\n"
+            "    u32 attr = 0xFFFFFFFFu;",
+        )
+    return source
+
+
 def native_matched_types(source: str, path: str, pointer_width: int) -> str:
     """Keep recovered DS scalar names fixed-width in generated host copies."""
     if pointer_width >= 8:
@@ -1980,6 +2177,12 @@ def main(argv=None) -> int:
     src_path = a.inputs[0]
     name = a.name or os.path.abspath(src_path)
     source = _read(src_path)
+    source = native_game_allocations(source, src_path)
+    source = native_variadic_abi(source, src_path)
+    source = native_defined_locals(source, src_path)
+    source = native_bg_screen_dimensions(source, src_path)
+    source = native_namein_mode_conversion(source, src_path)
+    source = native_field_player_attributes(source, src_path)
     if "/src/matched/" in os.path.abspath(src_path).replace("\\", "/"):
         source = native_matched_types(source, src_path, a.pointer_width)
     # convert.c defines GAME_TYPES_U32_LONG, which makes u32/s32 = unsigned/

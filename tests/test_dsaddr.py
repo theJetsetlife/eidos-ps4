@@ -168,6 +168,238 @@ class Forms(unittest.TestCase):
 
 
 class NativeTypes(unittest.TestCase):
+    def test_native_callback_allocation_uses_native_extent(self):
+        source = ("void f(void) {\n"
+                  "    anArg = (GPRecvBuddyStatusArg *)gsimalloc(0xc);\n"
+                  "}\n")
+        path = "/upstream/src/game/ov009/gpibuddy.c"
+        native = dsaddr.native_game_allocations(source, path)
+        self.assertIn("gsimalloc(sizeof(*anArg))", native)
+        self.assertNotIn("gsimalloc(0xc)", native)
+        self.assertEqual(dsaddr.native_game_allocations(source, "/other.c"), source)
+
+    def test_native_variadic_definitions_use_promoted_last_parameter(self):
+        wm = ("WMErrCode WMi_SendCommand(WMApiid id, u16 paramNum, ...);\n"
+              "WMErrCode WMi_SendCommand(WMApiid id, u16 paramNum, ...)\n{\n}\n")
+        native = dsaddr.native_variadic_abi(wm, "/r/src/game/arm9/wm_system.c")
+        self.assertEqual(native.count("int paramNum"), 2)
+        battle = ('#include "btl_server_cmd_types.h"\n'
+                  "void BTL_SERVER_CMD_PushVariable("
+                  "BtlServerCmdQueue *queue, u8 id, ...)\n{\n}\n")
+        native = dsaddr.native_variadic_abi(
+            battle, "/r/src/game/ov093/btl_server_cmd.c")
+        self.assertIn("queue, int id, ...", native)
+        self.assertIn("#define BTL_SERVER_CMD_PushVariable ov093_", native)
+
+    def test_native_variadic_callers_shadow_ds_header_declaration(self):
+        wm = '#include "wm_system.h"\nvoid f(void) { WMi_SendCommand(1, 0); }\n'
+        native = dsaddr.native_variadic_abi(wm, "/r/src/game/arm9/wm_standard.c")
+        self.assertIn("#define WMi_SendCommand WMi_SendCommand_DS_ABI", native)
+        self.assertIn("int paramNum, ...", native)
+        battle = '#include "btl_server_cmd.h"\n'
+        native = dsaddr.native_variadic_abi(
+            battle, "/r/src/game/ov093/btl_server_flow.c")
+        self.assertIn("BTL_SERVER_CMD_PushVariable_DS_ABI", native)
+        self.assertIn("#define BTL_SERVER_CMD_PushVariable ov093_", native)
+        self.assertIn("int id, ...", native)
+
+    def test_native_shared_state_has_defined_zero_defaults(self):
+        sound = "    int loopStartUnits;\n    int loopLength;\n"
+        native = dsaddr.native_defined_locals(
+            sound, "/r/src/game/arm9/nns_snd_waveout.c")
+        self.assertIn("loopStartUnits = 0", native)
+        self.assertIn("loopLength = 0", native)
+        wireless = "            u16 state, aid, myAid, reason;\n"
+        native = dsaddr.native_defined_locals(
+            wireless, "/r/src/game/arm9/wm_system.c")
+        self.assertIn("u16 state = 0", native)
+        battle = "    int saved;\n    int ret;\n"
+        native = dsaddr.native_defined_locals(
+            battle, "/r/src/game/ov093/btl_server_flow.c")
+        self.assertIn("int saved = 0", native)
+        self.assertEqual(dsaddr.native_defined_locals(sound, "/other.c"), sound)
+
+    def test_native_bg_screen_dimensions_define_invalid_code(self):
+        source = ("void BG_SYS_GetScreenSizeInTiles(u32 mode, u8 *a, u8 *b)\n"
+                  "{\n    switch (mode) {\n"
+                  "    case 5:\n        *a = 0x80;\n        *b = 0x80;\n"
+                  "        break;\n    }\n}\n")
+        native = dsaddr.native_bg_screen_dimensions(
+            source, "/r/src/game/arm9/bg_sys.c")
+        self.assertIn("default:\n        *a = 0;\n        *b = 0;", native)
+        self.assertEqual(dsaddr.native_bg_screen_dimensions(source, "/other.c"), source)
+
+    def test_native_bg_screen_dimensions_execute(self):
+        if not CFG.aletheia_root:
+            self.skipTest("requires the Aletheia source checkout")
+        source_path = os.path.join(CFG.aletheia_root, "src/game/arm9/bg_sys.c")
+        with open(source_path, encoding="utf-8") as stream:
+            source = dsaddr.native_bg_screen_dimensions(stream.read(), source_path)
+        function = re.search(
+            r"void BG_SYS_GetScreenSizeInTiles\(u32 mode, u8 \*a, u8 \*b\)\s*"
+            r"\{.*?\n\}", source, re.DOTALL)
+        self.assertIsNotNone(function)
+        harness = ("typedef unsigned int u32; typedef unsigned char u8;\n"
+                   + function.group(0) + "\n"
+                   "int main(void) {\n"
+                   "  const u8 expected[6][2] = {{16,16},{32,32},{32,64},"
+                   "{64,32},{64,64},{128,128}};\n"
+                   "  for (u32 i = 0; i < 6; ++i) {\n"
+                   "    u8 a = 255, b = 255; BG_SYS_GetScreenSizeInTiles(i, &a, &b);\n"
+                   "    if (a != expected[i][0] || b != expected[i][1]) return 1;\n"
+                   "  }\n"
+                   "  u8 a = 255, b = 255; BG_SYS_GetScreenSizeInTiles(6, &a, &b);\n"
+                   "  if (a || b) return 2;\n"
+                   "  a = b = 255; BG_SYS_GetScreenSizeInTiles(255, &a, &b);\n"
+                   "  return a || b ? 3 : 0;\n"
+                   "}\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            source_file = os.path.join(tmp, "bg_dimensions.c")
+            binary_file = os.path.join(tmp, "bg_dimensions")
+            with open(source_file, "w", encoding="utf-8") as stream:
+                stream.write(harness)
+            subprocess.run(["cc", "-std=c99", "-Wall", "-Wextra", "-Werror",
+                            source_file, "-o", binary_file], check=True)
+            subprocess.run([binary_file], check=True)
+
+    def test_native_namein_mode_conversion_guards_invalid_pair(self):
+        source = ("    } else if (newmode == NAMEIN_GRAPHIC_MODE_SYMBOL) {\n"
+                  "        from = NAMEIN_GRAPHIC_GridValue;\n"
+                  "        to = NAMEIN_GRAPHIC_SymbolGetValue;\n"
+                  "        width = 11;\n"
+                  "        height = 4;\n"
+                  "    }\n"
+                  "    result = from(p, 0);\n")
+        native = dsaddr.native_namein_mode_conversion(
+            source, "/r/src/game/ov194/namein_graphic_field.c")
+        self.assertIn("    } else {\n        return;\n    }", native)
+        self.assertEqual(
+            dsaddr.native_namein_mode_conversion(source, "/other.c"), source)
+
+    def test_native_namein_mode_conversion_executes(self):
+        if not CFG.aletheia_root:
+            self.skipTest("requires the Aletheia source checkout")
+        source_path = os.path.join(
+            CFG.aletheia_root, "src/game/ov194/namein_graphic_field.c")
+        with open(source_path, encoding="utf-8") as stream:
+            source = dsaddr.native_namein_mode_conversion(
+                stream.read(), source_path)
+        function = re.search(
+            r"void NAMEIN_GRAPHIC_ConvertCellMode\(NameinGraphicPair \*p, "
+            r"int oldmode, int newmode\)\s*\{.*?\n\}", source, re.DOTALL)
+        self.assertIsNotNone(function)
+        harness = (
+            "typedef struct { int x, y; } NameinGraphicPair;\n"
+            "typedef int (*Conv)(NameinGraphicPair *, NameinGraphicPair *);\n"
+            "#define NAMEIN_GRAPHIC_MODE_SYMBOL 3\n"
+            "int NAMEIN_GRAPHIC_SymbolGetValue(NameinGraphicPair *p, "
+            "NameinGraphicPair *out) { (void)out; return p->x + p->y * 14; }\n"
+            "int NAMEIN_GRAPHIC_GridValue(NameinGraphicPair *p, "
+            "NameinGraphicPair *out) { (void)out; return p->x + p->y * 12; }\n"
+            + function.group(0) + "\n"
+            "int main(void) {\n"
+            "  NameinGraphicPair p = {2, 1};\n"
+            "  NAMEIN_GRAPHIC_ConvertCellMode(&p, 3, 0);\n"
+            "  if (p.x != 4 || p.y != 1) return 1;\n"
+            "  p.x = 3; p.y = 1;\n"
+            "  NAMEIN_GRAPHIC_ConvertCellMode(&p, 0, 3);\n"
+            "  if (p.x != 1 || p.y != 1) return 2;\n"
+            "  p.x = 7; p.y = 2;\n"
+            "  NAMEIN_GRAPHIC_ConvertCellMode(&p, 0, 1);\n"
+            "  return p.x == 7 && p.y == 2 ? 0 : 3;\n"
+            "}\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            source_file = os.path.join(tmp, "namein_mode.c")
+            binary_file = os.path.join(tmp, "namein_mode")
+            with open(source_file, "w", encoding="utf-8") as stream:
+                stream.write(harness)
+            subprocess.run(["cc", "-std=c99", "-Wall", "-Wextra", "-Werror",
+                            source_file, "-o", binary_file], check=True)
+            subprocess.run([binary_file], check=True)
+
+    def test_native_field_player_attributes_use_absent_tile_fallback(self):
+        source = (
+            "u32 FIELD_PLAYER_GetNowAttribute(FieldPlayer *player)\n"
+            "{\n    u32 attr;\n    return attr;\n}\n"
+            "u32 FIELD_PLAYER_GetFrontAttribute(FieldPlayer *player, u32 dir)\n"
+            "{\n    u32 attr;\n    return attr + dir;\n}\n")
+        native = dsaddr.native_field_player_attributes(
+            source, "/r/src/game/ov021/field_player.c")
+        self.assertEqual(native.count("u32 attr = 0xFFFFFFFFu;"), 2)
+        self.assertEqual(
+            dsaddr.native_field_player_attributes(source, "/other.c"), source)
+
+    def test_native_field_player_attributes_execute(self):
+        if not CFG.aletheia_root:
+            self.skipTest("requires the Aletheia source checkout")
+        source_path = os.path.join(
+            CFG.aletheia_root, "src/game/ov021/field_player.c")
+        with open(source_path, encoding="utf-8") as stream:
+            source = dsaddr.native_field_player_attributes(
+                stream.read(), source_path)
+
+        def function_text(signature):
+            start = source.index(signature)
+            opening = source.index("{", start)
+            depth = 0
+            for pos in range(opening, len(source)):
+                if source[pos] == "{":
+                    depth += 1
+                elif source[pos] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        return source[start:pos + 1]
+            self.fail("unterminated function " + signature)
+
+        now = function_text(
+            "u32 FIELD_PLAYER_GetNowAttribute(FieldPlayer *player)")
+        front = function_text(
+            "u32 FIELD_PLAYER_GetFrontAttribute(FieldPlayer *player, u32 dir)")
+        harness = (
+            "typedef unsigned int u32; typedef unsigned char u8;\n"
+            "typedef struct VecFx32 { int x, y, z; } VecFx32;\n"
+            "typedef VecFx32 FieldPlayerLocationPos;\n"
+            "typedef struct { int a, b; } FieldPlayerRailLocation;\n"
+            "typedef struct { int a, b; } RailLocation;\n"
+            "typedef struct FieldG3dMapper { int unused; } FieldG3dMapper;\n"
+            "typedef struct FieldNogridMapper { int unused; } FieldNogridMapper;\n"
+            "typedef struct Mmdl { int unused; } Mmdl;\n"
+            "typedef struct FieldPlayer { void *fieldMap; } FieldPlayer;\n"
+            "static u32 move_kind;\n"
+            "u32 FIELDMAP_GetMoveKind(void *map) { (void)map; return move_kind; }\n"
+            "FieldG3dMapper *FIELDMAP_GetG3dMapper(void *map) { (void)map; return 0; }\n"
+            "FieldNogridMapper *FIELDMAP_GetNogridMapper(void *map) { (void)map; return 0; }\n"
+            "void FIELD_PLAYER_GetPos(FieldPlayer *p, VecFx32 *v) { (void)p; *v = (VecFx32){0}; }\n"
+            "void FIELD_PLAYER_GetPosInDir(FieldPlayer *p, u32 d, VecFx32 *v) "
+            "{ (void)p; (void)d; *v = (VecFx32){0}; }\n"
+            "Mmdl *FIELD_PLAYER_GetMmdl(FieldPlayer *p) { (void)p; return 0; }\n"
+            "u32 MAP_ATTR_GetAt(FieldG3dMapper *m, const VecFx32 *v) "
+            "{ (void)m; (void)v; return 0x11111111u; }\n"
+            "void FLDMMDL_RAIL_GetNextLocation(Mmdl *m, RailLocation *r) "
+            "{ (void)m; *r = (RailLocation){0}; }\n"
+            "void FLDMMDL_RAIL_GetLocationByDir(Mmdl *m, u32 d, RailLocation *r) "
+            "{ (void)m; (void)d; *r = (RailLocation){0}; }\n"
+            "u32 FIELD_NOGRID_MAPPER_GetAttribute(FieldNogridMapper *m, "
+            "const RailLocation *r) { (void)m; (void)r; return 0x22222222u; }\n"
+            + now + "\n" + front + "\n"
+            "int main(void) {\n"
+            "  FieldPlayer p = {0};\n"
+            "  move_kind = 0; if (FIELD_PLAYER_GetNowAttribute(&p) != 0x11111111u) return 1;\n"
+            "  if (FIELD_PLAYER_GetFrontAttribute(&p, 2) != 0x11111111u) return 2;\n"
+            "  move_kind = 1; if (FIELD_PLAYER_GetNowAttribute(&p) != 0x22222222u) return 3;\n"
+            "  if (FIELD_PLAYER_GetFrontAttribute(&p, 2) != 0x22222222u) return 4;\n"
+            "  move_kind = 2; if (FIELD_PLAYER_GetNowAttribute(&p) != 0xFFFFFFFFu) return 5;\n"
+            "  return FIELD_PLAYER_GetFrontAttribute(&p, 2) == 0xFFFFFFFFu ? 0 : 6;\n"
+            "}\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            source_file = os.path.join(tmp, "field_player_attributes.c")
+            binary_file = os.path.join(tmp, "field_player_attributes")
+            with open(source_file, "w", encoding="utf-8") as stream:
+                stream.write(harness)
+            subprocess.run(["cc", "-std=c99", "-Wall", "-Wextra", "-Werror",
+                            source_file, "-o", binary_file], check=True)
+            subprocess.run([binary_file], check=True)
+
     def test_arc_runtime_prefix_tracks_pointer_width(self):
         source = "struct ArcFile {\n    u8 file[0x48];\n    u32 imageBase;\n};\n"
         path = "/upstream/src/matched/arm9/example.c"

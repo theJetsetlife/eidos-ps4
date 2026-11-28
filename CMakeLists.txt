@@ -2938,6 +2938,8 @@ add_test(NAME test_dsaddr
 # and implicit declarations, on synthetic C (no aletheia sources needed).
 add_test(NAME test_closure
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_closure.py)
+add_test(NAME test_ovlink_codegen
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ovlink_codegen.py)
 
 # ---------------------------------------------------------------------------
 # eidos_view -- the demo, and the first visible output

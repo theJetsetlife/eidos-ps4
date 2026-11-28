@@ -1294,3 +1294,82 @@ removed. The compiled fixture tests the production weak forwarders; the build
 regression checks shim_sources_gen.txt rather than incorrectly forbidding
 aliases in the shared library. Rebuild the complete host target set as well as
 the game executable to validate this boundary.
+
+# 2026-11-27 — Native control-flow defaults: BG dimensions and naming grid
+
+Bounded question: determine whether compiler-reported uninitialized reads in
+the shared background dimension helper and naming grid mode converter are
+valid native paths, and stop after classifying those two routines. The prior
+official build reported the affected callers; source inspection supplied the
+missing control-flow evidence.
+
+`BG_SYS_GetScreenSizeInTiles` writes both outputs for size codes 0 through 5
+and previously wrote neither for any other code. Native generated code now
+returns an empty 0 by 0 extent for an invalid code, which makes all tile-map
+callers clip safely. A compiled regression checks all six valid mappings and
+invalid codes 6 and 255. The official Orbis object no longer reports the
+width/height warning family.
+
+`NAMEIN_GRAPHIC_ConvertCellMode` has one caller. That caller returns for an
+unchanged mode and invokes conversion only when either the old or new mode is
+the symbol grid, so exactly one conversion direction is valid. Native
+generated code now rejects any other pair as a no-op before reading callback
+and extent locals. A compiled regression checks symbol-to-grid,
+grid-to-symbol, and an invalid pair against the transformed production
+function. Official Orbis and optimized host compilation no longer report its
+four uninitialized locals.
+
+The separate non-Japanese `NAMEIN_GRAPHIC_KanaGetBox` `xy[0]` warning is
+classified as proven compatible for this configuration: the branch reading
+`xy` is reached only when `NAMEIN_GRAPHIC_ComputeGridValue` returns 1, and
+that return path writes both coordinates. It remains unchanged.
+
+Validation on the uncommitted integration tree: focused compiled regressions,
+Python compilation, `git diff --check`, official SDK ELF link, optimized host
+link, `test_dsaddr`, `test_boot_run`, and `test_boot_new_game_intro` pass. Two
+fixed-epoch GoldHEN packages compare byte-for-byte and both pass
+`verify_fpkg`; ELF SHA-256 is
+`971691acc6417a6771a942c82cd4f3e79ea1292cb722c2be2a573ab74354a346`
+and FPKG SHA-256 is
+`efd0d5925e37dc5f440f80686b7f679067006497e2d4329122a7b245990546b2`.
+This validates the bounded native control-flow corrections, not complete
+keyboard interaction, graphics compatibility, or physical-console behavior.
+
+# 2026-11-28 — Overworld movement attribute fallback
+
+Bounded question: determine whether the two `field_player.c` attribute
+accessors can return an indeterminate local, and choose a subsystem-defined
+fallback rather than blanket-zeroing the warning. The White reference ROM was
+extracted with the repository's `ndsrom.py` and `delink.py` tooling. The
+`FIELDMAP_GetMoveKind` literal points at White address `0x021D35C0`, whose four
+bytes are exactly `00 01 02 00`: fixed controller types select grid, nogrid,
+hybrid, and grid. Normal hybrid creation and switching writes mode 0 or 1.
+
+The remaining invalid path is malformed persisted hybrid state. The recovered
+save accessor returns an unchecked byte, and hybrid creation passes any
+nonzero value through `FIELDMAP_CTRL_HYBRID_SetMode`, which stores that value
+as the active mode. `FIELD_PLAYER_GetNowAttribute` and
+`FIELD_PLAYER_GetFrontAttribute` previously assigned their local only for
+movement kinds 0 and 1. Native generated copies now initialize both locals to
+`0xFFFFFFFF`, the map-attribute subsystem's established absent-tile sentinel.
+`MAP_ATTR_IsPresent` rejects it and `MAP_ATTR_IsBlocked` treats it as blocked,
+so malformed state fails closed while all valid grid and rail paths are
+unchanged. Aletheia's byte-matching source remains untouched.
+
+A source-derived compiled regression executes both transformed production
+functions and checks grid, rail, and invalid movement kinds. Python
+compilation and `git diff --check` pass. The official compiler rebuilt only
+`field_player.c`; both `-Wsometimes-uninitialized` diagnostics disappeared,
+the full Orbis ELF linked, and an immediate repeat reported no work. The full
+optimized host suite passed all 130 executed tests (three skipped, two
+disabled), including boot, new-game intro, intro audio, and trainer battle.
+
+Two independently staged GoldHEN packages built with
+`SOURCE_DATE_EPOCH=1764201600` compare byte-for-byte. Both pass all 28
+`pkg_validate` checks and `verify_fpkg`. ELF SHA-256 is
+`c011e5d303f700db22c78cfb0f3a0b5ee5164a9b7b862d2b600df6579db0eb5f`;
+FPKG SHA-256 is
+`dc6fbb80848c07b785b10c8f6d7e493335615027006fa08ad6f903a827104dbd`.
+The packages are under `/tmp/eidos-fieldattr-fpkg-{a,b}`. No console upload,
+installation, remote push, commit, or physical performance claim is part of
+this checkpoint.

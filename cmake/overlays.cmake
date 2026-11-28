@@ -89,7 +89,7 @@ else()
         -Wno-sign-compare -Wno-parentheses -Wno-unused-function
         -Wno-unused-label -Wno-unknown-pragmas -Wno-switch -Wno-return-type
         -Wno-type-limits -Wno-cast-function-type -Wno-implicit-int
-        -Wno-builtin-declaration-mismatch -Wno-char-subscripts -Wno-address
+        -Wno-char-subscripts -Wno-address
         -Wno-sequence-point -Wno-comment
         # a pointer stored to an int, as mwcc took it (GCC 14 makes it an
         # error): ov010_func_02166CD0.c's `int r0 = func_02012F08(a)`
@@ -99,10 +99,20 @@ else()
         # INTRO_GRAPHIC_Setup3d as G3D_SYSTEM_Init's callback, its file name
         # string as GFL_HEAP_Alloc's
         -Wno-incompatible-pointer-types)
+    # This diagnostic is GCC-specific. Passing its suppression to the PS4
+    # SDK's Clang emits one unknown-option warning for every overlay unit.
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        list(APPEND EIDOS_OVL_MATCHED_OPTIONS
+            -Wno-builtin-declaration-mismatch)
+    endif()
     if(CMAKE_C_COMPILER_ID MATCHES "Clang")
         # deprecated-non-prototype: the `int name();` ovlink declares for a
         # call mwcc compiled with no declaration in scope.
         list(APPEND EIDOS_OVL_MATCHED_OPTIONS
+            # A narrow parameter immediately before ... makes va_start
+            # undefined. Native ABI shims in dsaddr.py remove the known
+            # instances; never allow this class to regress quietly.
+            -Werror=varargs
             -Wno-incompatible-library-redeclaration -Wno-pointer-sign
             -Wno-tautological-constant-out-of-range-compare
             -Wno-deprecated-non-prototype)
