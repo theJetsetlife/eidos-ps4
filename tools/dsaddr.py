@@ -1960,9 +1960,9 @@ def native_field_model_lookup(source: str, path: str) -> str:
     """Return NULL when a zone has no eligible field model with the given ID.
 
     The recovered DS function returns an indeterminate stack value after an
-    exhaustive miss. Its sole caller passes a nonzero NPC-header count and
-    already tests the result against NULL before pausing the newly added
-    model, establishing NULL as the native not-found contract.
+    exhaustive miss. Both callers pass a nonzero NPC-header count and test
+    the result against NULL before pausing the newly added model, establishing
+    NULL as the native not-found contract.
     """
     if path.replace("\\", "/").endswith("/src/game/ov010/fldmmdl.c"):
         source = _need(

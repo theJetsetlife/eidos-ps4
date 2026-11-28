@@ -1378,9 +1378,10 @@ this checkpoint.
 
 Bounded question: determine whether the `FLDMMDL_AddMmdlHeaderById` result can
 remain indeterminate after an exhaustive NPC-header search, and whether a
-subsystem-defined failure value exists. The function has one caller,
-`SP_POKE_GIMMICK_SwapNpcEventMain`. That caller invokes it only when the zone's
-NPC count is nonzero and already checks the returned model against null before
+subsystem-defined failure value exists. The function has two callers,
+`SP_POKE_GIMMICK_SwapNpcEventMain` and
+`SCRCMD_FLDMMDL_AddPartyFollowerMmdl`. Both invoke it only when the zone's
+NPC count is nonzero and check the returned model against null before
 pausing it. This establishes null as the intended native not-found result and
 keeps the recovered `do` loop's positive-count precondition unchanged.
 
