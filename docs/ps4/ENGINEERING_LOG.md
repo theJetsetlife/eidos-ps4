@@ -1912,3 +1912,23 @@ performance is proven. Production draw recording must bind these resources
 and establish GPU texture-cache visibility before sampling; CPU garlic
 writes are flushed by the existing present path. No full ELF link, console
 execution, or FPKG build was performed in this batch.
+
+
+## 2026-11-28 — Production shader loading and offscreen targets
+
+Added lazy official shader parsing, GPU-code relocation, fetch-shader
+creation, and VS/PS input-offset caches for the shared polygon programs.
+Game-frame preparation owns per-back-buffer native-resolution RGBA8 color,
+R8 polygon-ID, R32 depth-copy, and D32/S8 depth/stencil targets. Formats
+follow upstream SDL GPU output; all sizes/alignments come from SDK target
+descriptors. Compression flags are explicitly disabled because this path
+does not allocate CMASK/FMASK/DCC/HTILE metadata. Shader resources persist;
+targets resize only for the acquired buffer after its safe reuse point.
+Partial failures remain owned by the video object for retry/cleanup.
+
+The official platform-library target and 18 existing source checks pass.
+Preparation records no clears or draws and is not called by gameplay yet.
+The next implementation dependency is command recording: target clears,
+three vertex streams, polygon constants/textures, depth/stencil/blend state,
+and resource barriers before downstream composition. No full game link,
+physical-console evidence, or package was produced in this batch.

@@ -68,6 +68,14 @@ typedef struct EidosPs4TextureUploadStats {
 int eidos_ps4_video_prepare_game_textures(EidosPs4Video *video,
     const struct G3dSnapshot *snapshot, EidosPs4TextureUploadStats *stats);
 
+/* Lazily load the upstream polygon shaders/fetch program and allocate this
+ * acquired buffer's color, ID, depth-copy, and depth/stencil targets at the
+ * requested native resolution, then prepare snapshot textures. No draw or
+ * clear is recorded by preparation. Same frame ownership rules as above. */
+int eidos_ps4_video_prepare_game_frame(EidosPs4Video *video,
+    const struct G3dSnapshot *snapshot, uint32_t width, uint32_t height,
+    EidosPs4TextureUploadStats *stats);
+
 /* Make CPU writes visible to the GPU/display path and submit a vsync flip. */
 int eidos_ps4_video_present(EidosPs4Video *video);
 

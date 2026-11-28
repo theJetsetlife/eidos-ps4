@@ -60,6 +60,23 @@ struct SnapshotTexture {
     bool valid = false;
 };
 
+struct GameTargets {
+    GpuArena arena;
+    sce::Gnm::RenderTarget color[3];
+    sce::Gnm::DepthRenderTarget depth;
+    uint32_t width = 0, height = 0;
+};
+
+struct GameProgram {
+    GpuArena arena;
+    sce::Gnmx::VsShader *vs = nullptr;
+    sce::Gnmx::PsShader *ps = nullptr;
+    void *fetch = nullptr;
+    uint32_t modifier = 0;
+    sce::Gnmx::InputOffsetsCache vs_offsets = {}, ps_offsets = {};
+    bool ready = false;
+};
+
 struct SnapshotTextureCache {
     GpuArena arena;
     SnapshotTexture *textures = nullptr;
@@ -84,6 +101,8 @@ struct EidosPs4Video {
     GpuArena garlic_arena;
     GpuArena onion_arena;
     SnapshotTextureCache game_textures[kBufferCount];
+    GameProgram game_program;
+    GameTargets game_targets[kBufferCount];
     sce::Gnm::RenderTarget render_targets[kBufferCount];
     sce::Gnm::Texture ds_textures[kBufferCount];
     sce::Gnm::Sampler ds_sampler;
@@ -647,6 +666,138 @@ extern "C" int eidos_ps4_video_begin_frame(EidosPs4Video *video,
 
 namespace {
 
+int initialize_game_program(GameProgram *program)
+{
+    if (program->ready) {
+        return 0;
+    }
+    /* A previous partial initialization has never been submitted. */
+    int result = destroy_gpu_arena(&program->arena);
+    if (result < 0) {
+        return result;
+    }
+    const EidosPs4ShaderBlob *vs_blob = eidos_ps4_game_g3d_vertex_shader();
+    const EidosPs4ShaderBlob *ps_blob = eidos_ps4_game_g3d_pixel_shader();
+    sce::Gnmx::ShaderInfo vs_info = {}, ps_info = {};
+    sce::Gnmx::parseShader(&vs_info, vs_blob->data);
+    sce::Gnmx::parseShader(&ps_info, ps_blob->data);
+    size_t vs_struct, vs_offset, vs_size, ps_struct, ps_offset, ps_size;
+    if (!vertex_shader_layout(vs_info, &vs_struct, &vs_offset, &vs_size) ||
+        !shader_layout(ps_info, &ps_struct, &ps_offset, &ps_size)) {
+        return -1;
+    }
+    const uint32_t fetch_size = sce::Gnmx::computeVsFetchShaderSize(vs_info.m_vsShader);
+    size_t required = kDirectAlignment;
+    if (fetch_size == 0 || !add_size(&required, vs_size) ||
+        !add_size(&required, ps_size) || !add_size(&required, fetch_size)) {
+        return -1;
+    }
+    result = create_gpu_arena(&program->arena, required, SCE_KERNEL_WC_GARLIC);
+    if (result < 0) {
+        return result;
+    }
+    program->vs = copy_vertex_shader(&program->arena, vs_info, vs_struct, vs_offset, vs_size);
+    program->ps = copy_shader(&program->arena, ps_info, ps_struct, ps_offset, ps_size);
+    program->fetch = gpu_arena_allocate(&program->arena, fetch_size,
+                                       sce::Gnm::kAlignmentOfFetchShaderInBytes);
+    if (program->vs == nullptr || program->ps == nullptr || program->fetch == nullptr) {
+        return -1;
+    }
+    sce::Gnmx::generateVsFetchShader(program->fetch, &program->modifier, program->vs);
+    sce::Gnmx::generateInputOffsetsCache(&program->vs_offsets,
+        sce::Gnm::kShaderStageVs, program->vs);
+    sce::Gnmx::generateInputOffsetsCache(&program->ps_offsets,
+        sce::Gnm::kShaderStagePs, program->ps);
+    program->ready = true;
+    return 0;
+}
+
+int initialize_game_targets(GameTargets *targets, uint32_t width, uint32_t height)
+{
+    if (width == 0 || height == 0 || width > 16384u || height > 16384u) {
+        return -1;
+    }
+    if (targets->width == width && targets->height == height) {
+        return 0;
+    }
+    GameTargets candidate;
+    sce::Gnm::SizeAlign layouts[5];
+    const sce::Gnm::DataFormat formats[3] = {
+        sce::Gnm::kDataFormatR8G8B8A8Unorm,
+        sce::Gnm::kDataFormatR8Unorm,
+        sce::Gnm::kDataFormatR32Float,
+    };
+    for (int i = 0; i < 3; ++i) {
+        sce::Gnm::RenderTargetSpec spec;
+        spec.init();
+        spec.m_width = width;
+        spec.m_height = height;
+        spec.m_numSlices = 1;
+        spec.m_colorFormat = formats[i];
+        spec.m_flags.asInt = 0; /* no unallocated CMASK/FMASK/DCC metadata */
+        spec.m_colorTileModeHint = sce::Gnm::kTileModeThin_2dThin;
+        spec.m_minGpuMode = sce::Gnm::getGpuMode();
+        spec.m_numSamples = sce::Gnm::kNumSamples1;
+        spec.m_numFragments = sce::Gnm::kNumFragments1;
+        if (candidate.color[i].init(&spec) != SCE_GNM_OK) {
+            return -1;
+        }
+        layouts[i] = candidate.color[i].getColorSizeAlign();
+    }
+    sce::Gnm::DepthRenderTargetSpec spec;
+    spec.init();
+    spec.m_width = width;
+    spec.m_height = height;
+    spec.m_numSlices = 1;
+    spec.m_flags.asInt = 0; /* no unallocated HTILE metadata */
+    spec.m_zFormat = sce::Gnm::kZFormat32Float;
+    spec.m_stencilFormat = sce::Gnm::kStencil8;
+    spec.m_tileModeHint = sce::Gnm::kTileModeDepth_2dThin_64;
+    spec.m_minGpuMode = sce::Gnm::getGpuMode();
+    spec.m_numFragments = sce::Gnm::kNumFragments1;
+    if (candidate.depth.init(&spec) != SCE_GNM_OK) {
+        return -1;
+    }
+    layouts[3] = candidate.depth.getZSizeAlign();
+    layouts[4] = candidate.depth.getStencilSizeAlign();
+    size_t required = 0;
+    for (int i = 0; i < 5; ++i) {
+        if (layouts[i].m_size == 0 || layouts[i].m_align == 0 ||
+            (layouts[i].m_align & (layouts[i].m_align - 1u)) != 0 ||
+            !add_size(&required, layouts[i].m_align - 1u) ||
+            !add_size(&required, layouts[i].m_size)) {
+            return -1;
+        }
+    }
+    /* Only the acquired back buffer is resized. Its old resources have
+     * passed begin_frame's flip fence; other in-flight buffers are intact. */
+    targets->width = targets->height = 0;
+    int result = destroy_gpu_arena(&targets->arena);
+    if (result < 0) {
+        return result;
+    }
+    result = create_gpu_arena(&targets->arena, required, SCE_KERNEL_WC_GARLIC);
+    if (result < 0) {
+        return result;
+    }
+    void *memory[5] = {};
+    for (int i = 0; i < 5; ++i) {
+        memory[i] = gpu_arena_allocate(&targets->arena, layouts[i].m_size, layouts[i].m_align);
+        if (memory[i] == nullptr) {
+            return -1;
+        }
+    }
+    for (int i = 0; i < 3; ++i) {
+        candidate.color[i].setAddresses(memory[i], nullptr, nullptr);
+        targets->color[i] = candidate.color[i];
+    }
+    candidate.depth.setAddresses(memory[3], memory[4]);
+    targets->depth = candidate.depth;
+    targets->width = width;
+    targets->height = height;
+    return 0;
+}
+
 int snapshot_texture_layout(const G3dSnapTex &source, sce::Gnm::Texture *texture)
 {
     /* SDK TextureSpec dimensions are bounded to [1,16384]. RGBA values
@@ -801,6 +952,27 @@ extern "C" int eidos_ps4_video_prepare_game_textures(
     stats->resident_bytes = cache.arena.size;
     /* present() flushes CPU writes before submitting GPU work. */
     return 0;
+}
+
+extern "C" int eidos_ps4_video_prepare_game_frame(
+    EidosPs4Video *video, const G3dSnapshot *snapshot, uint32_t width,
+    uint32_t height, EidosPs4TextureUploadStats *stats)
+{
+    if (video == nullptr || snapshot == nullptr || stats == nullptr ||
+        video->current_index < 0 || !video->gpu_contexts_ready ||
+        video->gpu_frame_ready || width == 0 || height == 0 ||
+        width > 16384u || height > 16384u) {
+        return -1;
+    }
+    int result = initialize_game_program(&video->game_program);
+    if (result < 0) {
+        return result;
+    }
+    result = initialize_game_targets(&video->game_targets[video->current_index], width, height);
+    if (result < 0) {
+        return result;
+    }
+    return eidos_ps4_video_prepare_game_textures(video, snapshot, stats);
 }
 
 extern "C" int eidos_ps4_video_present(EidosPs4Video *video)
@@ -1142,13 +1314,23 @@ extern "C" int eidos_ps4_video_destroy(EidosPs4Video *video)
         video->flip_queue = nullptr;
     }
     for (int i = 0; i < kBufferCount; ++i) {
-        const int result = destroy_gpu_arena(&video->game_textures[i].arena);
+        int result = destroy_gpu_arena(&video->game_targets[i].arena);
+        if (result < 0) {
+            return result;
+        }
+        result = destroy_gpu_arena(&video->game_textures[i].arena);
         if (result < 0) {
             return result;
         }
         delete[] video->game_textures[i].textures;
         video->game_textures[i].textures = nullptr;
         video->game_textures[i].capacity = video->game_textures[i].count = 0;
+    }
+    {
+        const int result = destroy_gpu_arena(&video->game_program.arena);
+        if (result < 0) {
+            return result;
+        }
     }
     {
         const int result = destroy_gpu_arena(&video->onion_arena);
