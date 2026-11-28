@@ -2045,6 +2045,51 @@ def native_itemmenu_control_domains(source: str, path: str) -> str:
     return source
 
 
+def native_mystery_gift_pid_domain(source: str, path: str) -> str:
+    """Reject undefined derived personality modes in mystery gift records.
+
+    A supplied PID bypasses pidType. Otherwise the recovered creator defines
+    only modes 0, 1, and 2. Preserve those mappings and reject other record
+    values before allocation or party mutation.
+    """
+    if not path.replace("\\", "/").endswith(
+            "/src/game/ov010/mystery_gift_mon.c"):
+        return source
+
+    source = _need(
+        source,
+        "    if (gift->formatVersion != 1) {\n"
+        "        result = 0;\n"
+        "        goto out;\n"
+        "    }\n"
+        "    if (species > SPECIES_LAST) {",
+        "    if (gift->formatVersion != 1) {\n"
+        "        result = 0;\n"
+        "        goto out;\n"
+        "    }\n"
+        "    if (gift->pid == 0 && gift->pidType > 2) {\n"
+        "        result = 0;\n"
+        "        goto out;\n"
+        "    }\n"
+        "    if (species > SPECIES_LAST) {")
+    return _need(
+        source,
+        "    } else if (gift->pidType == 2) {\n"
+        "        personalRnd = POKE_TOOL_CreatePersonalRnd(otId, (u16)species, "
+        "(u8)gift->form, gender, abilitySlot, 1);\n"
+        "    }\n\n"
+        "    POKE_TOOL_SetupPartyParamEx(mon, gift->species, level, otId64, packedIvs, personalRnd);",
+        "    } else if (gift->pidType == 2) {\n"
+        "        personalRnd = POKE_TOOL_CreatePersonalRnd(otId, (u16)species, "
+        "(u8)gift->form, gender, abilitySlot, 1);\n"
+        "    } else {\n"
+        "        GFL_HEAP_Free(mon);\n"
+        "        result = 0;\n"
+        "        goto out;\n"
+        "    }\n\n"
+        "    POKE_TOOL_SetupPartyParamEx(mon, gift->species, level, otId64, packedIvs, personalRnd);")
+
+
 def native_bg_screen_dimensions(source: str, path: str) -> str:
     """Give invalid native BG size codes empty dimensions at the shared boundary.
 
@@ -2312,6 +2357,7 @@ def main(argv=None) -> int:
     source = native_variadic_abi(source, src_path)
     source = native_defined_locals(source, src_path)
     source = native_itemmenu_control_domains(source, src_path)
+    source = native_mystery_gift_pid_domain(source, src_path)
     source = native_bg_screen_dimensions(source, src_path)
     source = native_namein_mode_conversion(source, src_path)
     source = native_field_player_attributes(source, src_path)

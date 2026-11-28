@@ -219,6 +219,29 @@ class NativeTypes(unittest.TestCase):
         self.assertIn("int saved = 0", native)
         self.assertEqual(dsaddr.native_defined_locals(sound, "/other.c"), sound)
 
+    def test_native_mystery_gift_rejects_unknown_derived_pid_type(self):
+        source = (
+            "    if (gift->formatVersion != 1) {\n"
+            "        result = 0;\n"
+            "        goto out;\n"
+            "    }\n"
+            "    if (species > SPECIES_LAST) {\n"
+            "    } else if (gift->pidType == 2) {\n"
+            "        personalRnd = POKE_TOOL_CreatePersonalRnd(otId, (u16)species, "
+            "(u8)gift->form, gender, abilitySlot, 1);\n"
+            "    }\n\n"
+            "    POKE_TOOL_SetupPartyParamEx(mon, gift->species, level, otId64, packedIvs, personalRnd);"
+        )
+        native = dsaddr.native_mystery_gift_pid_domain(
+            source, "/r/src/game/ov010/mystery_gift_mon.c")
+        self.assertIn(
+            "if (gift->pid == 0 && gift->pidType > 2)", native)
+        self.assertIn("GFL_HEAP_Free(mon);", native)
+        self.assertIn("goto out;", native)
+        self.assertIn("if (species > SPECIES_LAST)", native)
+        self.assertEqual(
+            dsaddr.native_mystery_gift_pid_domain(source, "/other.c"), source)
+
     def test_native_itemmenu_domains_define_paths(self):
         if not CFG.aletheia_root:
             self.skipTest("requires the Aletheia source checkout")
