@@ -1,9 +1,29 @@
 # Native PS4 integration handoff
 
-Updated 2026-11-27. This is the current context; older checkpoints remain in
-Git history and ENGINEERING_LOG.md. Machine-readable status is progress/ps4.json;
-verified ABI defects and scanner candidates are separate in
-tools/lp64/inventory.jsonl.
+Updated 2026-11-28. The authoritative integration worktree is
+`/home/majorxghost/eidos-ps4/.claude/worktrees/game-pkg-and-dev`, on the
+existing `release` branch at `189edef9bd7f6c308180dfc80313528e26711596`
+(`origin/release`). The worktree is clean, and `origin` currently has only the
+`release` branch. Continue checkpoint commits and pushes on that branch; do not
+create branches or pull requests. The primary workspace at
+`/home/majorxghost/eidos-ps4` is a separate dirty tree and must remain
+untouched. Aletheia remains at
+`995615a30f1b1d47109d435a7cb355983ec32e18`.
+
+The latest code checkpoint closes reviewed uninitialized control-flow paths
+in the native item menu. Its optimized Orbis ELF and two reproducible GoldHEN
+FPKGs are documented in `ENGINEERING_LOG.md`. The latest `test_dsaddr.py` run
+passes 82 tests (13 skipped). All five current PSSL source and binary hashes
+match `/tmp/eidos-merged-orbis-o2/ps4-shaders/manifest.json`. The PS4 output
+still presents CPU-composited DS-resolution content through GNMX; native
+snapshot rendering, hardware behavior, gameplay coverage, and performance
+acceptance remain open.
+
+Machine-readable subsystem status is `progress/ps4.json`; verified ABI
+defects and scanner candidates are separate in `tools/lp64/inventory.jsonl`.
+The following ownership and crash notes are a historical 2026-11-27 handoff
+snapshot, not the current branch/build state. Revalidate them against current
+logs before acting on them.
 
 ## Ownership and revisions
 
