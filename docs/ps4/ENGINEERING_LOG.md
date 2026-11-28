@@ -1466,3 +1466,39 @@ and the equivalent filename under `/tmp/eidos-event-direction-fpkg-b`.
 These are integration artifacts built with the established minimal package
 inputs; this check does not establish production renderer/resource coverage
 or physical-console behavior. Physical-console validation remains pending.
+
+# 2026-11-28 — Item-menu uninitialized paths
+
+Bounded investigation: close the remaining `-Wsometimes-uninitialized`
+diagnostics in `ov070/itemmenu.c` without initializing arbitrary values.
+Compiler evidence identified four control-flow groups: a touch loop counter,
+side-button animation selection, pocket-tab direction selection, and the two
+gender-specific bag resource maps. The recovered menu callers pass button
+IDs 0, 1, 3, or 4 and tab direction 0 or 1. New-game configuration writes
+player sex as 0 or 1. The generated native copy now initializes the touch
+counter to zero, rejects unsupported button/tab values before their side
+effects, and uses an exhaustive two-case resource selection. Valid animation
+and resource mappings are unchanged. Aletheia remains untouched.
+
+Compiled regressions exercise all four button animations, both pocket-tab
+directions, rejected values with no side effects, and male/female bag and tab
+resource IDs. All 19 `NativeTypes` tests pass. The complete `test_dsaddr`
+corpus run passed all 82 tests across 33,572 matched files. An isolated
+official Orbis compile of the generated `itemmenu.c` passed with
+`-ftrivial-auto-var-init=uninitialized` and
+`-Werror=sometimes-uninitialized`; no such diagnostic remained. It emitted
+eight existing typedef-redefinition warnings. The official optimized Orbis
+build then regenerated and linked the complete target from the updated
+generator. The build tree's configured source checkout was at `b8f9fed`; its
+game code matched release `5f5f693`, and the updated `tools/dsaddr.py` from
+this checkpoint was used for generation. The ELF SHA-256 is
+`b77516a0946c28d1ed4922fb172885de051a68e0fa81c93dfa71984e600884a9`.
+
+Two isolated GoldHEN game package builds from that ELF used
+`SOURCE_DATE_EPOCH=1764201600`, version `01.00`, and the `libc.prx` and
+`libSceFios2.prx` runtime modules. They are byte-identical 23,920,640-byte
+FPKGs with SHA-256
+`1a4bda971a3537465c703ab5a7ca7f78a0a6b2e2799dabd5b63b105180220341`.
+Both passed all 29 `pkg_validate` checks and `verify_fpkg`. The artifacts are
+under `/tmp/eidos-itemmenu-pkg-a` and `/tmp/eidos-itemmenu-pkg-b`.
+Physical-console item-menu interaction and performance remain unverified.

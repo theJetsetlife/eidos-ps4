@@ -219,6 +219,135 @@ class NativeTypes(unittest.TestCase):
         self.assertIn("int saved = 0", native)
         self.assertEqual(dsaddr.native_defined_locals(sound, "/other.c"), sound)
 
+    def test_native_itemmenu_domains_define_paths(self):
+        if not CFG.aletheia_root:
+            self.skipTest("requires the Aletheia source checkout")
+        path = os.path.join(CFG.aletheia_root, "src/game/ov070/itemmenu.c")
+        with open(path, encoding="utf-8") as stream:
+            source = stream.read()
+        native = dsaddr.native_itemmenu_control_domains(source, path)
+        self.assertIn("u32 step = 0;", native)
+        self.assertIn("button != 0 && button != 1 && button != 3 && button != 4", native)
+        self.assertIn("isNextTab != 0 && isNextTab != 1", native)
+        self.assertNotIn("} else if (gender == 1)", native)
+        self.assertIn("} else {\n        paletteFileId = 1;", native)
+        self.assertIn("} else {\n        paletteFileId = 0xc;", native)
+        self.assertEqual(dsaddr.native_itemmenu_control_domains(source, "/other.c"), source)
+
+    def test_native_itemmenu_button_paths_execute(self):
+        if not CFG.aletheia_root:
+            self.skipTest("requires the Aletheia source checkout")
+        source_path = os.path.join(
+            CFG.aletheia_root, "src/game/ov070/itemmenu.c")
+        with open(source_path, encoding="utf-8") as stream:
+            source = dsaddr.native_itemmenu_control_domains(stream.read(), source_path)
+
+        def function_text(signature):
+            start = source.rindex(signature)
+            opening = source.index("{", start)
+            depth = 0
+            for pos in range(opening, len(source)):
+                if source[pos] == "{":
+                    depth += 1
+                elif source[pos] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        return source[start:pos + 1]
+            self.fail("unterminated function " + signature)
+
+        side = function_text(
+            "void ITEMMENU_StartSideButtonPress(ItemMenuWork *work, int button, "
+            "ItemMenuTaskFn callback)")
+        pocket = function_text(
+            "void ITEMMENU_StartPocketTabPress(ItemMenuWork *work, int previousPocket, "
+            "int isNextTab, ItemMenuTaskFn callback)")
+        load_bag = function_text(
+            "void ITEMMENU_LoadBagGraphics(ItemMenuWork *work, void *archive)")
+        load_tabs = function_text(
+            "void ITEMMENU_LoadTabGraphics(ItemMenuWork *work, void *archive)")
+        harness = (
+            "typedef struct ClactActor { int unused; } ClactActor;\n"
+            "typedef struct MyStatus { int sex; } MyStatus;\n"
+            "typedef struct ItemMenuWork ItemMenuWork;\n"
+            "typedef void (*ItemMenuTaskFn)(ItemMenuWork *);\n"
+            "struct ItemMenuWork { int fadeStep, fadeTimer, currentPocket, shownItemId; "
+            "void *sideActor[5]; void *blinkPalAnm; void *items; "
+            "ItemMenuTaskFn fadeCallback; MyStatus *myStatus; int heapId; "
+            "int frameCounter, tabCharRes, tabPaletteRes, tabCellRes; };\n"
+            "static int sounds, animSeq, animActor, taskSets, redraws, switches;\n"
+            "static int paletteId, charId, screenId, cellId, animFileId;\n"
+            "unsigned int MYSTATUS_GetSex(MyStatus *s) { return (unsigned)s->sex; }\n"
+            "void ARC_UTIL_UploadPaletteFromHandleWhole(void *a, int id, int x, int y, int n, int h) "
+            "{ (void)a; (void)x; (void)y; (void)n; (void)h; paletteId = id; }\n"
+            "int ARC_UTIL_RegisterObjCharFromHandle(void *a, int id, int b, int x, int y, int h) "
+            "{ (void)a; (void)b; (void)x; (void)y; (void)h; charId = id; return 44; }\n"
+            "void ARC_UTIL_UploadBgPaletteAddFromHandle(void *a, int id, int x, int y, "
+            "unsigned short c, int b, int d, int h) "
+            "{ (void)a; (void)x; (void)y; (void)c; (void)b; (void)d; (void)h; screenId = id; }\n"
+            "int CLACT_RegisterPaletteEx(void *a, int id, int b, int c, int d, int e, int h) "
+            "{ (void)a; (void)b; (void)c; (void)d; (void)e; (void)h; paletteId = id; return id; }\n"
+            "int CLACT_RegisterCharacter(void *a, int id, int b, int c, int h) "
+            "{ (void)a; (void)b; (void)c; (void)h; charId = id; return id; }\n"
+            "int CLACT_RegisterCellAnim(void *a, int id, int anim, int h) "
+            "{ (void)a; (void)h; cellId = id; animFileId = anim; return id; }\n"
+            "void ITEMMENU_TaskWaitSideButtonPress(ItemMenuWork *w) { (void)w; }\n"
+            "void ITEMMENU_TaskWaitPocketTabPress(ItemMenuWork *w) { (void)w; }\n"
+            "void GFL_USE_PlaySeDefaultVolume(int id) { sounds += id; }\n"
+            "void CLACT_SetActorAnimFrame(ClactActor *a, int f) { (void)f; animActor = a != 0; }\n"
+            "void CLACT_SetActorAnimSeq(ClactActor *a, unsigned short s) "
+            "{ (void)a; animSeq = s; }\n"
+            "void CLACT_SetActorAutoAnim(ClactActor *a, int on) { (void)a; (void)on; }\n"
+            "void ITEMMENU_SetTask(ItemMenuWork *w, ItemMenuTaskFn f) "
+            "{ (void)w; (void)f; ++taskSets; }\n"
+            "void ITEMMENU_SwitchPocketCursor(ItemMenuWork *w, int p, int n) "
+            "{ (void)w; (void)p; (void)n; ++switches; }\n"
+            "void ITEMMENU_RefreshInputGuard(ItemMenuWork *w) { (void)w; }\n"
+            "void ITEMMENU_UpdatePocketSortIcon(ItemMenuWork *w) { (void)w; }\n"
+            "void ITEMMENU_RedrawList(ItemMenuWork *w) { (void)w; ++redraws; }\n"
+            "void BLINK_PALANM_ResetPhase(void *p) { (void)p; }\n"
+            "void BLINK_PALANM_Update(void *p) { (void)p; }\n"
+            + side + "\n" + pocket + "\n" + load_bag + "\n" + load_tabs + "\n"
+            "int main(void) {\n"
+            "  ItemMenuWork w = {0}; ClactActor actors[5] = {{0}};\n"
+            "  for (int i = 0; i < 5; ++i) w.sideActor[i] = &actors[i];\n"
+            "  ITEMMENU_StartSideButtonPress(&w, 4, 0);\n"
+            "  if (animSeq != 9 || w.fadeStep != 4 || sounds != 0x551 || taskSets != 1) return 1;\n"
+            "  ITEMMENU_StartSideButtonPress(&w, 3, 0);\n"
+            "  if (animSeq != 8 || w.fadeStep != 3 || sounds != 0x551 + 0x556) return 2;\n"
+            "  ITEMMENU_StartSideButtonPress(&w, 1, 0);\n"
+            "  if (animSeq != 13 || w.fadeStep != 1) return 3;\n"
+            "  ITEMMENU_StartSideButtonPress(&w, 0, 0);\n"
+            "  if (animSeq != 12 || w.fadeStep != 0) return 4;\n"
+            "  int beforeTasks = taskSets, beforeSounds = sounds;\n"
+            "  ITEMMENU_StartSideButtonPress(&w, 2, 0);\n"
+            "  if (taskSets != beforeTasks || sounds != beforeSounds) return 5;\n"
+            "  w.currentPocket = 3;\n"
+            "  ITEMMENU_StartPocketTabPress(&w, 2, 1, 0);\n"
+            "  if (animSeq != 13 || w.fadeStep != 1 || switches != 1 || redraws != 1) return 6;\n"
+            "  ITEMMENU_StartPocketTabPress(&w, 3, 0, 0);\n"
+            "  if (animSeq != 12 || w.fadeStep != 0 || switches != 2 || redraws != 2) return 7;\n"
+            "  beforeTasks = taskSets; int beforeSwitches = switches;\n"
+            "  ITEMMENU_StartPocketTabPress(&w, 3, 2, 0);\n"
+            "  if (taskSets != beforeTasks || switches != beforeSwitches) return 8;\n"
+            "  MyStatus status = {0}; w.myStatus = &status; w.heapId = 1;\n"
+            "  ITEMMENU_LoadBagGraphics(&w, 0);\n"
+            "  if (paletteId != 4 || charId != 3 || screenId != 5 || w.frameCounter != 44) return 9;\n"
+            "  ITEMMENU_LoadTabGraphics(&w, 0);\n"
+            "  if (paletteId != 0x10 || charId != 0xf || cellId != 0xe || animFileId != 0xd) return 10;\n"
+            "  status.sex = 1; ITEMMENU_LoadBagGraphics(&w, 0);\n"
+            "  if (paletteId != 1 || charId != 0 || screenId != 2) return 11;\n"
+            "  ITEMMENU_LoadTabGraphics(&w, 0);\n"
+            "  return paletteId == 0xc && charId == 0xb && cellId == 0xa && animFileId == 9 ? 0 : 12;\n"
+            "}\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            source_file = os.path.join(tmp, "itemmenu_domains.c")
+            binary_file = os.path.join(tmp, "itemmenu_domains")
+            with open(source_file, "w", encoding="utf-8") as stream:
+                stream.write(harness)
+            subprocess.run(["cc", "-std=c99", "-O2", "-Wall", "-Wextra",
+                            "-Werror", source_file, "-o", binary_file], check=True)
+            subprocess.run([binary_file], check=True)
+
     def test_native_bg_screen_dimensions_define_invalid_code(self):
         source = ("void BG_SYS_GetScreenSizeInTiles(u32 mode, u8 *a, u8 *b)\n"
                   "{\n    switch (mode) {\n"

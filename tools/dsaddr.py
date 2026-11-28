@@ -1971,6 +1971,80 @@ def native_defined_locals(source: str, path: str) -> str:
     return source
 
 
+def native_itemmenu_control_domains(source: str, path: str) -> str:
+    """Give item-menu loop, button, and resource-selection paths defined behavior.
+
+    The caller domain is a two-valued player sex and documented button/tab
+    values. Preserve valid paths and keep invalid inputs from reaching the
+    recovered code's indeterminate locals.
+    """
+    if not path.replace("\\", "/").endswith("/src/game/ov070/itemmenu.c"):
+        return source
+
+    edits = (
+        (
+            "    u32 step;\n\n    if (TOUCHPANEL_GetPointCont(&touchX, &touchY) == 1) {",
+            "    u32 step = 0;\n\n    if (TOUCHPANEL_GetPointCont(&touchX, &touchY) == 1) {",
+        ),
+        (
+            "    int animSeq;\n    if (button == 4) {",
+            "    int animSeq;\n"
+            "    if (button != 0 && button != 1 && button != 3 && button != 4)\n"
+            "        return;\n"
+            "    if (button == 4) {",
+        ),
+        (
+            "    } else if (button == 0) {\n"
+            "        GFL_USE_PlaySeDefaultVolume(0x7D9);\n"
+            "        animSeq = 0xC;\n"
+            "    }\n"
+            "    work->fadeStep = button;",
+            "    } else if (button == 0) {\n"
+            "        GFL_USE_PlaySeDefaultVolume(0x7D9);\n"
+            "        animSeq = 0xC;\n"
+            "    } else {\n"
+            "        return;\n"
+            "    }\n"
+            "    work->fadeStep = button;",
+        ),
+        (
+            "    int animSeq;\n"
+            "    ITEMMENU_SwitchPocketCursor(work, previousPocket, work->currentPocket);",
+            "    int animSeq;\n"
+            "    if (isNextTab != 0 && isNextTab != 1)\n"
+            "        return;\n"
+            "    ITEMMENU_SwitchPocketCursor(work, previousPocket, work->currentPocket);",
+        ),
+        (
+            "    } else if (isNextTab == 0) {\n"
+            "        GFL_USE_PlaySeDefaultVolume(0x7D9);\n"
+            "        animSeq = 0xC;\n"
+            "    }\n"
+            "    work->fadeStep = isNextTab;",
+            "    } else {\n"
+            "        GFL_USE_PlaySeDefaultVolume(0x7D9);\n"
+            "        animSeq = 0xC;\n"
+            "    }\n"
+            "    work->fadeStep = isNextTab;",
+        ),
+        (
+            "    } else if (gender == 1) {\n"
+            "        paletteFileId = 1;",
+            "    } else {\n"
+            "        paletteFileId = 1;",
+        ),
+        (
+            "    } else if (gender == 1) {\n"
+            "        paletteFileId = 0xc;",
+            "    } else {\n"
+            "        paletteFileId = 0xc;",
+        ),
+    )
+    for old, new in edits:
+        source = _need(source, old, new)
+    return source
+
+
 def native_bg_screen_dimensions(source: str, path: str) -> str:
     """Give invalid native BG size codes empty dimensions at the shared boundary.
 
@@ -2237,6 +2311,7 @@ def main(argv=None) -> int:
     source = native_game_allocations(source, src_path)
     source = native_variadic_abi(source, src_path)
     source = native_defined_locals(source, src_path)
+    source = native_itemmenu_control_domains(source, src_path)
     source = native_bg_screen_dimensions(source, src_path)
     source = native_namein_mode_conversion(source, src_path)
     source = native_field_player_attributes(source, src_path)
