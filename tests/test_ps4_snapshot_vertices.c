@@ -1,8 +1,17 @@
 #include "snapshot_vertices_ps4.h"
 #include "hw3d.h"
 
-#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+/* Checks must execute in optimized builds, including with NDEBUG. */
+#define CHECK(condition) do { \
+    if (!(condition)) { \
+        fprintf(stderr, "%s:%d: failed: %s\n", __FILE__, __LINE__, #condition); \
+        exit(EXIT_FAILURE); \
+    } \
+} while (0)
 
 static int near(float value, float expected)
 {
@@ -31,17 +40,17 @@ static void test_triangle_and_quad_fan(void)
     EidosPs4SnapshotVertex output[9];
     u32 count = 99;
 
-    assert(eidos_ps4_snapshot_vertices(&snapshot, output, 9, &count) == 0);
-    assert(count == 9);
-    assert(near(output[0].clip[0], 1.0f));
-    assert(near(output[0].clip[2], -0.5f));
-    assert(near(output[0].clip[3], 1.0f));
-    assert(near(output[0].color[0], 1.0f));
-    assert(near(output[0].color[2], 17.0f / 255.0f));
+    CHECK(eidos_ps4_snapshot_vertices(&snapshot, output, 9, &count) == 0);
+    CHECK(count == 9);
+    CHECK(near(output[0].clip[0], 1.0f));
+    CHECK(near(output[0].clip[2], -0.5f));
+    CHECK(near(output[0].clip[3], 1.0f));
+    CHECK(near(output[0].color[0], 1.0f));
+    CHECK(near(output[0].color[2], 17.0f / 255.0f));
     /* Quad fan order is 0,1,2 then 0,2,3, after the first triangle. */
-    assert(output[3].clip[0] == output[6].clip[0]);
-    assert(output[5].clip[0] == output[7].clip[0]);
-    assert(output[5].clip[1] == output[7].clip[1]);
+    CHECK(output[3].clip[0] == output[6].clip[0]);
+    CHECK(output[5].clip[0] == output[7].clip[0]);
+    CHECK(output[5].clip[1] == output[7].clip[1]);
 }
 
 static void test_rejects_malformed_snapshot_without_writes(void)
@@ -60,23 +69,23 @@ static void test_rejects_malformed_snapshot_without_writes(void)
 
     memset(output, 0xA5, sizeof(output));
     memcpy(before, output, sizeof(output));
-    assert(eidos_ps4_snapshot_vertices(&snapshot, output, 3, &count) == -1);
-    assert(count == 0);
-    assert(memcmp(output, before, sizeof(output)) == 0);
+    CHECK(eidos_ps4_snapshot_vertices(&snapshot, output, 3, &count) == -1);
+    CHECK(count == 0);
+    CHECK(memcmp(output, before, sizeof(output)) == 0);
 
     indices[2] = 0;
     count = 7;
-    assert(eidos_ps4_snapshot_vertices(&snapshot, output, 2, &count) == -2);
-    assert(count == 0);
-    assert(memcmp(output, before, sizeof(output)) == 0);
+    CHECK(eidos_ps4_snapshot_vertices(&snapshot, output, 2, &count) == -2);
+    CHECK(count == 0);
+    CHECK(memcmp(output, before, sizeof(output)) == 0);
 }
 
 static void test_empty_snapshot(void)
 {
     G3dSnapshot snapshot = {0};
     u32 count = 7;
-    assert(eidos_ps4_snapshot_vertices(&snapshot, NULL, 0, &count) == 0);
-    assert(count == 0);
+    CHECK(eidos_ps4_snapshot_vertices(&snapshot, NULL, 0, &count) == 0);
+    CHECK(count == 0);
 }
 
 int main(void)
