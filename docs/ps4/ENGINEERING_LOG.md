@@ -1373,3 +1373,58 @@ FPKG SHA-256 is
 The packages are under `/tmp/eidos-fieldattr-fpkg-{a,b}`. No console upload,
 installation, remote push, commit, or physical performance claim is part of
 this checkpoint.
+
+# 2026-11-28 — Field-model lookup not-found contract
+
+Bounded question: determine whether the `FLDMMDL_AddMmdlHeaderById` result can
+remain indeterminate after an exhaustive NPC-header search, and whether a
+subsystem-defined failure value exists. The function has two callers,
+`SP_POKE_GIMMICK_SwapNpcEventMain` and
+`SCRCMD_FLDMMDL_AddPartyFollowerMmdl`. Both invoke it only when the zone's
+NPC count is nonzero and check the returned model against null before
+pausing it. This establishes null as the intended native not-found result and
+keeps the recovered `do` loop's positive-count precondition unchanged.
+
+The generated native copy of `src/game/ov010/fldmmdl.c` now initializes the
+result to null. Aletheia's byte-matching source remains untouched. A
+source-derived compiled regression executes the transformed production
+function and covers an eligible match, an object-ID miss, an event-ID-none
+record, and an event-flag-suppressed record. The source transformation is
+fail-closed if the recovered function changes.
+
+Python compilation, the focused tests, and `git diff --check` pass. The
+official compiler rebuilt `fldmmdl.c` without its former
+`-Wsometimes-uninitialized` diagnostic, and the optimized Orbis ELF linked;
+an immediate repeat reported no work. The full optimized host suite passed all
+130 executed tests (three skipped, two disabled). The ELF remains byte-for-byte
+identical to the preceding release build because
+`-ftrivial-auto-var-init=zero` already imposed the same machine behavior; its
+SHA-256 is
+`c011e5d303f700db22c78cfb0f3a0b5ee5164a9b7b862d2b600df6579db0eb5f`.
+
+Two independently staged GoldHEN packages built with
+`SOURCE_DATE_EPOCH=1764201600` compare byte-for-byte. Both pass all 28
+`pkg_validate` checks and `verify_fpkg`; their SHA-256 is
+`dc6fbb80848c07b785b10c8f6d7e493335615027006fa08ad6f903a827104dbd`.
+The packages are under `/tmp/eidos-fieldmodel-fpkg-{a,b}`. No console upload,
+installation, new branch, pull request, or physical performance claim is part
+of this checkpoint.
+
+# 2026-11-28 — Script movement talk target
+
+The field script model lookup reserves object ID `0xF1` for the current talk
+target. Its recovered branch discarded `SCRCMD_WORK_GetScriptWork` and returned
+an indeterminate model pointer. Other commands in the same module obtain the
+talk target with `SCRIPT_WORK_GetTargetObj`, and the movement command already
+skips a null model. The generated native copy now uses that accessor for
+`0xF1`; the move-code `0x30` and ordinary object-ID paths are unchanged.
+
+A compiled test extracts the transformed production function and exercises
+all three IDs plus an absent talk target. Python compilation and
+`git diff --check` pass. The official Orbis compiler rebuilt
+`scrcmd_fldmmdl.c` without the `mmdl` uninitialized warning and linked the
+optimized ELF (SHA-256
+`fd302cb535576a4e80087f527fc9b697071b50ca0b23c255917e48ea3a10e5a3`).
+The neighboring `found` warning remains unresolved and requires separate
+control-flow review. Host gameplay tests and physical-console behavior are
+not established by this focused checkpoint.

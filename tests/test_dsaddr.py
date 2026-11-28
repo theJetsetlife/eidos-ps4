@@ -400,6 +400,120 @@ class NativeTypes(unittest.TestCase):
                             source_file, "-o", binary_file], check=True)
             subprocess.run([binary_file], check=True)
 
+    def test_native_field_model_lookup_has_null_not_found_result(self):
+        source = (
+            "Mmdl *FLDMMDL_AddMmdlHeaderById(MmdlSys *sys, const MmdlHeader *header, int zoneId, int count, void *evWork, u32 objId)\n"
+            "{\n    Mmdl *mmdl;\n    return mmdl;\n}\n")
+        native = dsaddr.native_field_model_lookup(
+            source, "/r/src/game/ov010/fldmmdl.c")
+        self.assertIn("Mmdl *mmdl = 0;", native)
+        self.assertEqual(
+            dsaddr.native_field_model_lookup(source, "/other.c"), source)
+
+    def test_native_field_model_lookup_execute(self):
+        if not CFG.aletheia_root:
+            self.skipTest("requires the Aletheia source checkout")
+        source_path = os.path.join(
+            CFG.aletheia_root, "src/game/ov010/fldmmdl.c")
+        with open(source_path, encoding="utf-8") as stream:
+            source = dsaddr.native_field_model_lookup(
+                stream.read(), source_path)
+        signature = (
+            "Mmdl *FLDMMDL_AddMmdlHeaderById(MmdlSys *sys, "
+            "const MmdlHeader *header, int zoneId, int count, "
+            "void *evWork, u32 objId)")
+        start = source.index(signature + "\n{")
+        opening = source.index("{", start)
+        depth = 0
+        function = None
+        for pos in range(opening, len(source)):
+            if source[pos] == "{":
+                depth += 1
+            elif source[pos] == "}":
+                depth -= 1
+                if depth == 0:
+                    function = source[start:pos + 1]
+                    break
+        self.assertIsNotNone(function)
+        harness = (
+            "typedef unsigned int u32;\n"
+            "typedef struct MmdlSys { int tag; } MmdlSys;\n"
+            "typedef struct Mmdl { int tag; } Mmdl;\n"
+            "typedef struct MmdlHeader { u32 objId, eventFlag, none; } MmdlHeader;\n"
+            "static Mmdl added = {17};\n"
+            "static const MmdlHeader *added_header;\n"
+            "int FLDMMDL_HeaderIsEventIdNone(const MmdlHeader *h) "
+            "{ return h->none; }\n"
+            "int FLDMMDL_CheckEventFlagBit(void *work, u32 flag) "
+            "{ (void)work; return flag != 0; }\n"
+            "Mmdl *FLDMMDL_AddMmdlCore(MmdlSys *sys, const MmdlHeader *h, "
+            "int zone, void *work) { (void)sys; (void)zone; (void)work; "
+            "added_header = h; return &added; }\n"
+            + function + "\n"
+            "int main(void) {\n"
+            "  MmdlSys sys = {0}; int work = 0;\n"
+            "  MmdlHeader headers[] = {{3, 0, 0}, {7, 0, 0}};\n"
+            "  if (FLDMMDL_AddMmdlHeaderById(&sys, headers, 2, 2, &work, 7) != &added) return 1;\n"
+            "  if (added_header != &headers[1]) return 2;\n"
+            "  if (FLDMMDL_AddMmdlHeaderById(&sys, headers, 2, 2, &work, 9) != 0) return 3;\n"
+            "  headers[1].none = 1;\n"
+            "  if (FLDMMDL_AddMmdlHeaderById(&sys, headers, 2, 2, &work, 7) != 0) return 4;\n"
+            "  headers[1].none = 0; headers[1].eventFlag = 1;\n"
+            "  return FLDMMDL_AddMmdlHeaderById(&sys, headers, 2, 2, &work, 7) == 0 ? 0 : 5;\n"
+            "}\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            source_file = os.path.join(tmp, "field_model_lookup.c")
+            binary_file = os.path.join(tmp, "field_model_lookup")
+            with open(source_file, "w", encoding="utf-8") as stream:
+                stream.write(harness)
+            subprocess.run(["cc", "-std=c99", "-Wall", "-Wextra", "-Werror",
+                            source_file, "-o", binary_file], check=True)
+            subprocess.run([binary_file], check=True)
+
+    def test_native_script_talk_target_resolves_model(self):
+        if not CFG.aletheia_root:
+            self.skipTest("requires the Aletheia source checkout")
+        source_path = os.path.join(
+            CFG.aletheia_root, "src/game/ov021/scrcmd_fldmmdl.c")
+        with open(source_path, encoding="utf-8") as stream:
+            source = dsaddr.native_script_talk_target(stream.read(), source_path)
+        signature = "Mmdl *SCRCMD_FLDMMDL_GetMmdlByScriptId(ScrcmdWork *cmdWork, u32 objId)\n{"
+        start = source.index(signature)
+        end = source.index("\n}\n", start) + 2
+        function = source[start:end]
+        harness = (
+            "typedef unsigned int u32;\n"
+            "typedef struct Mmdl { int tag; } Mmdl;\n"
+            "typedef struct MmdlSys { int tag; } MmdlSys;\n"
+            "typedef struct ScriptWork { Mmdl *target; } ScriptWork;\n"
+            "typedef struct ScrcmdWork { ScriptWork *script; MmdlSys *sys; } ScrcmdWork;\n"
+            "static Mmdl speaker = {1}, partner = {2}, ordinary = {3};\n"
+            "MmdlSys *SCRCMD_WORK_GetMmdlSys(ScrcmdWork *w) { return w->sys; }\n"
+            "ScriptWork *SCRCMD_WORK_GetScriptWork(ScrcmdWork *w) { return w->script; }\n"
+            "Mmdl *SCRIPT_WORK_GetTargetObj(ScriptWork *w) { return w->target; }\n"
+            "Mmdl *FLDMMDL_SysSearchMoveCode(MmdlSys *s, u32 c) "
+            "{ (void)s; return c == 0x30 ? &partner : 0; }\n"
+            "Mmdl *FLDMMDL_SysSearchObjId(MmdlSys *s, u32 id) "
+            "{ (void)s; return id == 42 ? &ordinary : 0; }\n"
+            + function + "\n"
+            "int main(void) {\n"
+            "  MmdlSys sys = {0}; ScriptWork script = {&speaker};\n"
+            "  ScrcmdWork work = {&script, &sys};\n"
+            "  if (SCRCMD_FLDMMDL_GetMmdlByScriptId(&work, 0xf1) != &speaker) return 1;\n"
+            "  if (SCRCMD_FLDMMDL_GetMmdlByScriptId(&work, 0xf2) != &partner) return 2;\n"
+            "  if (SCRCMD_FLDMMDL_GetMmdlByScriptId(&work, 42) != &ordinary) return 3;\n"
+            "  script.target = 0;\n"
+            "  return SCRCMD_FLDMMDL_GetMmdlByScriptId(&work, 0xf1) == 0 ? 0 : 4;\n"
+            "}\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            source_file = os.path.join(tmp, "script_talk_target.c")
+            binary_file = os.path.join(tmp, "script_talk_target")
+            with open(source_file, "w", encoding="utf-8") as stream:
+                stream.write(harness)
+            subprocess.run(["cc", "-std=c99", "-Wall", "-Wextra", "-Werror",
+                            source_file, "-o", binary_file], check=True)
+            subprocess.run([binary_file], check=True)
+
     def test_arc_runtime_prefix_tracks_pointer_width(self):
         source = "struct ArcFile {\n    u8 file[0x48];\n    u32 imageBase;\n};\n"
         path = "/upstream/src/matched/arm9/example.c"

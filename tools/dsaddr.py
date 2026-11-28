@@ -2051,6 +2051,49 @@ def native_field_player_attributes(source: str, path: str) -> str:
     return source
 
 
+def native_field_model_lookup(source: str, path: str) -> str:
+    """Return NULL when a zone has no eligible field model with the given ID.
+
+    The recovered DS function returns an indeterminate stack value after an
+    exhaustive miss. Both callers pass a nonzero NPC-header count and test
+    the result against NULL before pausing the newly added model, establishing
+    NULL as the native not-found contract.
+    """
+    if path.replace("\\", "/").endswith("/src/game/ov010/fldmmdl.c"):
+        source = _need(
+            source,
+            "Mmdl *FLDMMDL_AddMmdlHeaderById(MmdlSys *sys, const MmdlHeader *header, int zoneId, int count, void *evWork, u32 objId)\n"
+            "{\n"
+            "    Mmdl *mmdl;",
+            "Mmdl *FLDMMDL_AddMmdlHeaderById(MmdlSys *sys, const MmdlHeader *header, int zoneId, int count, void *evWork, u32 objId)\n"
+            "{\n"
+            "    Mmdl *mmdl = 0;",
+        )
+    return source
+
+
+def native_script_talk_target(source: str, path: str) -> str:
+    """Resolve the reserved talk target ID through the script's target model.
+
+    Other field script commands use SCRIPT_WORK_GetTargetObj for this model.
+    The recovered 0xF1 branch discarded the ScriptWork pointer and returned
+    an uninitialized local, breaking movement scripts aimed at the speaker.
+    """
+    if path.replace("\\", "/").endswith("/src/game/ov021/scrcmd_fldmmdl.c"):
+        source = _need(
+            source,
+            "    } else if (objId == 0xf1) {\n"
+            "        SCRCMD_WORK_GetScriptWork(cmdWork);\n"
+            "    } else {\n"
+            "        mmdl = FLDMMDL_SysSearchObjId(mmdlSys, objId);",
+            "    } else if (objId == 0xf1) {\n"
+            "        mmdl = SCRIPT_WORK_GetTargetObj(SCRCMD_WORK_GetScriptWork(cmdWork));\n"
+            "    } else {\n"
+            "        mmdl = FLDMMDL_SysSearchObjId(mmdlSys, objId);",
+        )
+    return source
+
+
 def native_matched_types(source: str, path: str, pointer_width: int) -> str:
     """Keep recovered DS scalar names fixed-width in generated host copies."""
     if pointer_width >= 8:
@@ -2183,6 +2226,8 @@ def main(argv=None) -> int:
     source = native_bg_screen_dimensions(source, src_path)
     source = native_namein_mode_conversion(source, src_path)
     source = native_field_player_attributes(source, src_path)
+    source = native_field_model_lookup(source, src_path)
+    source = native_script_talk_target(source, src_path)
     if "/src/matched/" in os.path.abspath(src_path).replace("\\", "/"):
         source = native_matched_types(source, src_path, a.pointer_width)
     # convert.c defines GAME_TYPES_U32_LONG, which makes u32/s32 = unsigned/
