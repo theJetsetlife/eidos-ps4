@@ -1445,5 +1445,15 @@ and checks a complete miss, the turn list and wait result for each of four
 matching directions, and no animation when already facing each direction.
 The regression passes with warnings treated as errors; `git diff --check`
 passes. This closes the function's uninitialized direction path at source
-level. Official Orbis regeneration/link and host gameplay validation remain
-pending for this checkpoint; no updated package or hardware result is claimed.
+level.
+
+Validation of `b8f9fed`: the official optimized Orbis build and optimized host
+build regenerated the corpus, compiled `scrcmd_fldmmdl.c` without a diagnostic
+for that source, and linked successfully. Both former uninitialized-local
+warnings in this module are absent. Aletheia remained clean at
+`995615a30f1b1d47109d435a7cb355983ec32e18`. The selected host tests
+`test_dsaddr`, `test_boot_run`, and `test_boot_new_game_intro` all passed
+(three executed, none skipped or disabled). This run does not establish the
+complete host suite or console interaction coverage. The Orbis ELF SHA-256 is
+`e12d1975034aa2a359b6859e14befe2738a0fe43b97fa090c42c117ab2809e63`.
+Package rebuilding and physical-console validation remain pending.
