@@ -1733,3 +1733,21 @@ back, and confirmed byte-for-byte equality and the same SHA-256. This is a
 hardware-test candidate only; it has not been installed or exercised on a
 console. The FTP server did not contain `/data/eidos/EIDOS_LOG.txt` when
 checked, so there is no newer console log to correlate yet.
+
+# 2026-11-28 — Live G3D flat snapshot overlay diagnostic
+
+Added the opt-in PS4 launch option `--g3d-snapshot-flat`. It enables the
+existing `G3dSnapshot` capture, converts up to 32,768 snapshot vertices
+(1 MiB), and appends a flat-color GNMX triangle draw after the DS compatibility
+composition in the same graphics context. CPU G3D rasterization remains
+enabled as the reference image. If the snapshot is malformed, exceeds the
+conversion bound, or the GNMX overlay draw fails, the code logs the reason
+and falls back to the DS compatibility frame.
+
+This overlay intentionally has no depth buffer, material/texture sampling,
+transparency, fog, or correct 2D/3D layer ordering. It is a diagnostic for
+whether live game triangles reach GNMX, not a production renderer or a
+performance optimization. The provenance generator now refreshes Git
+revision and dirty state on each build, avoiding configure-time stale revision
+metadata. Official optimized Orbis compilation and linking succeeded; no
+physical run or screenshot has confirmed the overlay yet.

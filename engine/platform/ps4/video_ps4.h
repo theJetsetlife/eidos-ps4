@@ -48,6 +48,13 @@ int eidos_ps4_video_draw_ds_compatibility(EidosPs4Video *video,
                                           int cursor_x, int cursor_y,
                                           uint8_t presentation_mode);
 
+/* Diagnostic only: draw the DS compatibility frame, then overlay the
+ * supplied flat-color G3D snapshot triangles in the centered 4:3 viewport. */
+int eidos_ps4_video_draw_ds_compatibility_snapshot_flat(
+    EidosPs4Video *video, const void *top_rgba, const void *bottom_rgba,
+    int cursor_x, int cursor_y, uint8_t presentation_mode,
+    const EidosPs4SnapshotVertex *vertices, uint32_t vertex_count);
+
 /* Make CPU writes visible to the GPU/display path and submit a vsync flip. */
 int eidos_ps4_video_present(EidosPs4Video *video);
 

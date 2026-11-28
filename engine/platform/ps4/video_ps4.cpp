@@ -24,6 +24,7 @@ constexpr uint64_t kDirectAlignment = 2u * 1024u * 1024u;
 constexpr uint32_t kCueRingEntries = 64;
 constexpr size_t kDrawCommandBufferSize = 2u * 1024u * 1024u;
 constexpr size_t kConstantCommandBufferSize = 256u * 1024u;
+constexpr size_t kSnapshotVertexBufferLimit = 1024u * 1024u;
 constexpr int kInitialDirectMemorySearchStart = 0;
 
 struct GpuArena {
@@ -697,14 +698,12 @@ extern "C" int eidos_ps4_video_draw_color_bars(EidosPs4Video *video)
     return 0;
 }
 
-extern "C" int eidos_ps4_video_draw_snapshot_flat(
-    EidosPs4Video *video, const EidosPs4SnapshotVertex *vertices,
-    uint32_t vertex_count)
+static int draw_snapshot_flat_commands(
+    EidosPs4Video *video, sce::Gnmx::GfxContext *context, int index,
+    const EidosPs4SnapshotVertex *vertices, uint32_t vertex_count)
 {
-    if (video == nullptr || vertices == nullptr || vertex_count == 0 ||
-        vertex_count % 3u != 0 || video->current_index < 0 ||
-        !video->gpu_contexts_ready || video->gpu_frame_ready ||
-        video->width != 1920u || video->height != 1080u ||
+    if (video == nullptr || context == nullptr || vertices == nullptr ||
+        vertex_count == 0 || vertex_count % 3u != 0 ||
         video->snapshot_vertex_shader == nullptr ||
         video->snapshot_pixel_shader == nullptr ||
         video->snapshot_fetch_shader == nullptr ||
@@ -713,14 +712,9 @@ extern "C" int eidos_ps4_video_draw_snapshot_flat(
         return -1;
     }
     const uint32_t bytes = vertex_count * sizeof(EidosPs4SnapshotVertex);
-    if (bytes >= 64u * 1024u) {
+    if (bytes > kSnapshotVertexBufferLimit) {
         return -1;
     }
-
-    const int index = video->current_index;
-    sce::Gnmx::GfxContext *context = &video->gfx_contexts[index];
-    context->reset();
-    context->initializeDefaultHardwareState();
     void *vertex_data = context->allocateFromCommandBuffer(
         bytes, sce::Gnm::kEmbeddedDataAlignment4);
     if (vertex_data == nullptr) {
@@ -767,14 +761,42 @@ extern "C" int eidos_ps4_video_draw_snapshot_flat(
     context->setPrimitiveSetup(primitive_setup);
     context->setPrimitiveType(sce::Gnm::kPrimitiveTypeTriList);
     context->drawIndexAuto(vertex_count);
+    return 0;
+}
+
+extern "C" int eidos_ps4_video_draw_snapshot_flat(
+    EidosPs4Video *video, const EidosPs4SnapshotVertex *vertices,
+    uint32_t vertex_count)
+{
+    if (video == nullptr || vertices == nullptr || vertex_count == 0 ||
+        vertex_count % 3u != 0 || video->current_index < 0 ||
+        !video->gpu_contexts_ready || video->gpu_frame_ready ||
+        video->width != 1920u || video->height != 1080u ||
+        video->snapshot_vertex_shader == nullptr ||
+        video->snapshot_pixel_shader == nullptr ||
+        video->snapshot_fetch_shader == nullptr ||
+        vertex_count > std::numeric_limits<uint32_t>::max() /
+                           sizeof(EidosPs4SnapshotVertex)) {
+        return -1;
+    }
+    const int index = video->current_index;
+    sce::Gnmx::GfxContext *context = &video->gfx_contexts[index];
+    context->reset();
+    context->initializeDefaultHardwareState();
+    if (draw_snapshot_flat_commands(video, context, index, vertices,
+                                    vertex_count) != 0) {
+        return -1;
+    }
 
     video->gpu_frame_ready = true;
     return 0;
 }
 
-extern "C" int eidos_ps4_video_draw_ds_compatibility(
+extern "C" int eidos_ps4_video_draw_ds_compatibility_snapshot_flat(
     EidosPs4Video *video, const void *top_rgba, const void *bottom_rgba,
-    int cursor_x, int cursor_y, uint8_t presentation_mode)
+    int cursor_x, int cursor_y, uint8_t presentation_mode,
+    const EidosPs4SnapshotVertex *snapshot_vertices,
+    uint32_t snapshot_vertex_count)
 {
     if (video == nullptr || top_rgba == nullptr || bottom_rgba == nullptr ||
         video->current_index < 0 || !video->gpu_contexts_ready ||
@@ -785,7 +807,8 @@ extern "C" int eidos_ps4_video_draw_ds_compatibility(
         presentation_mode > EIDOS_PS4_PRESENT_BOTH ||
         video->ds_texture_memory[0] == nullptr ||
         video->ds_texture_memory[1] == nullptr ||
-        video->ds_texture_pitch < kDsAtlasWidth) {
+        video->ds_texture_pitch < kDsAtlasWidth ||
+        ((snapshot_vertices == nullptr) != (snapshot_vertex_count == 0))) {
         return -1;
     }
 
@@ -861,8 +884,23 @@ extern "C" int eidos_ps4_video_draw_ds_compatibility(
     context->setBlendControl(0, blend_control);
 
     sce::Gnmx::renderFullScreenQuad(context);
+    if (snapshot_vertex_count != 0 &&
+        draw_snapshot_flat_commands(video, context, index,
+                                    snapshot_vertices,
+                                    snapshot_vertex_count) != 0) {
+        return -1;
+    }
     video->gpu_frame_ready = true;
     return 0;
+}
+
+extern "C" int eidos_ps4_video_draw_ds_compatibility(
+    EidosPs4Video *video, const void *top_rgba, const void *bottom_rgba,
+    int cursor_x, int cursor_y, uint8_t presentation_mode)
+{
+    return eidos_ps4_video_draw_ds_compatibility_snapshot_flat(
+        video, top_rgba, bottom_rgba, cursor_x, cursor_y,
+        presentation_mode, nullptr, 0);
 }
 
 extern "C" int eidos_ps4_video_on_resume(EidosPs4Video *video)

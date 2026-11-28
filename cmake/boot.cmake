@@ -848,53 +848,22 @@ if(PS4)
     eidos_ps4_link_platform(eidos_boot)
     set_target_properties(eidos_boot PROPERTIES SUFFIX ".elf")
 
-    # Runtime provenance is generated after the actual offline shader
-    # manifest, so the console log identifies the binaries embedded here.
-    execute_process(COMMAND git -C "${CMAKE_CURRENT_SOURCE_DIR}" rev-parse HEAD
-        OUTPUT_VARIABLE _eidos_prov_rev OUTPUT_STRIP_TRAILING_WHITESPACE
-        RESULT_VARIABLE _eidos_prov_git_rc ERROR_QUIET)
-    if(NOT _eidos_prov_git_rc EQUAL 0)
-        set(_eidos_prov_rev unknown)
-    endif()
-    execute_process(COMMAND git -C "${CMAKE_CURRENT_SOURCE_DIR}" status --porcelain
-        OUTPUT_VARIABLE _eidos_prov_dirty OUTPUT_STRIP_TRAILING_WHITESPACE
-        RESULT_VARIABLE _eidos_prov_status_rc ERROR_QUIET)
-    if(_eidos_prov_status_rc EQUAL 0 AND _eidos_prov_dirty)
-        set(_eidos_prov_tree dirty)
-    elseif(_eidos_prov_status_rc EQUAL 0)
-        set(_eidos_prov_tree clean)
-    else()
-        set(_eidos_prov_tree unknown)
-    endif()
-    execute_process(COMMAND git -C "${ALETHEIA_ROOT}" rev-parse HEAD
-        OUTPUT_VARIABLE _eidos_prov_alethea OUTPUT_STRIP_TRAILING_WHITESPACE
-        RESULT_VARIABLE _eidos_prov_alethea_rc ERROR_QUIET)
-    if(NOT _eidos_prov_alethea_rc EQUAL 0)
-        set(_eidos_prov_alethea unknown)
-    endif()
-    execute_process(COMMAND git -C "${ALETHEIA_ROOT}" status --porcelain
-        OUTPUT_VARIABLE _eidos_prov_alethea_dirty OUTPUT_STRIP_TRAILING_WHITESPACE
-        RESULT_VARIABLE _eidos_prov_alethea_status_rc ERROR_QUIET)
-    if(_eidos_prov_alethea_status_rc EQUAL 0 AND _eidos_prov_alethea_dirty)
-        set(_eidos_prov_alethea_tree dirty)
-    elseif(_eidos_prov_alethea_status_rc EQUAL 0)
-        set(_eidos_prov_alethea_tree clean)
-    else()
-        set(_eidos_prov_alethea_tree unknown)
-    endif()
+    # Refresh on each build so a commit or dirty-tree change after CMake
+    # configuration cannot leave stale source provenance in the executable.
     set(_eidos_prov_c "${CMAKE_CURRENT_BINARY_DIR}/ps4-build-provenance.c")
-    add_custom_command(OUTPUT "${_eidos_prov_c}"
+    add_custom_target(eidos_ps4_build_provenance
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ps4/build_provenance.py"
             --manifest "${EIDOS_PS4_SHADER_MANIFEST}" --out "${_eidos_prov_c}"
-            --eidos "${_eidos_prov_rev}" --eidos-tree "${_eidos_prov_tree}"
-            --aletheia "${_eidos_prov_alethea}" --aletheia-tree "${_eidos_prov_alethea_tree}"
+            --eidos-root "${CMAKE_CURRENT_SOURCE_DIR}"
+            --aletheia-root "${ALETHEIA_ROOT}"
             --sdk-root "${ORBIS_SDK_ROOT}" --build-type "${CMAKE_BUILD_TYPE}"
             --release "$<BOOL:${EIDOS_RELEASE}>"
-        DEPENDS "${EIDOS_PS4_SHADER_MANIFEST}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/tools/ps4/build_provenance.py"
+        BYPRODUCTS "${_eidos_prov_c}"
         VERBATIM)
+    add_dependencies(eidos_ps4_build_provenance eidos_ps4_shaders)
+    set_source_files_properties("${_eidos_prov_c}" PROPERTIES GENERATED TRUE)
     target_sources(eidos_boot PRIVATE "${_eidos_prov_c}")
-    add_dependencies(eidos_boot eidos_ps4_shaders)
+    add_dependencies(eidos_boot eidos_ps4_shaders eidos_ps4_build_provenance)
 
     # The installable game FPKG (tools/ps4/make_game_pkg.sh):
     #   cmake --build <dir> --target eidos_ps4_release_fpkg

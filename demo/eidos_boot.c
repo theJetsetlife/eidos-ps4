@@ -180,6 +180,11 @@ static int g_ps4_input_ready;
 static int g_ps4_video_ready;
 static int g_ps4_video_failure_reported;
 static int g_ps4_audio_failure_reported;
+static int g_ps4_gpu_snapshot_flat;
+static int g_ps4_gpu_snapshot_reported;
+#define PS4_GPU_SNAPSHOT_VERTEX_CAPACITY 32768u
+static EidosPs4SnapshotVertex
+    g_ps4_gpu_snapshot_vertices[PS4_GPU_SNAPSHOT_VERTEX_CAPACITY];
 /* The libc heap of an Orbis application is capped by default; the ROM import
  * and the game's own allocations need more.  Unlimited, and allowed to grow
  * past its first extent (SDK 12.508 stdlib.h). */
@@ -1333,6 +1338,9 @@ static void boot_ps4_video_failure(const char *stage, int result)
 static void boot_render_ps4(void *user, u8 *top, u8 *bottom)
 {
     u32 unsupported[2];
+    const G3dSnapshot *snapshot;
+    uint32_t snapshot_vertex_count = 0;
+    int have_snapshot_vertices = 0;
     int result;
 
     if (!g_ps4_video_ready || top == NULL || bottom == NULL) {
@@ -1342,6 +1350,22 @@ static void boot_render_ps4(void *user, u8 *top, u8 *bottom)
     if (result < 0) {
         boot_ps4_video_failure("DS composition", result);
         return;
+    }
+    snapshot = g_ps4_gpu_snapshot_flat ? g3d_hw_snapshot() : NULL;
+    if (snapshot != NULL) {
+        result = eidos_ps4_snapshot_vertices(
+            snapshot, g_ps4_gpu_snapshot_vertices,
+            PS4_GPU_SNAPSHOT_VERTEX_CAPACITY, &snapshot_vertex_count);
+        if (result == 0 && snapshot_vertex_count != 0) {
+            have_snapshot_vertices = 1;
+        } else if (!g_ps4_gpu_snapshot_reported) {
+            fprintf(stderr,
+                    "PS4 G3D snapshot overlay unavailable: convert=%d polys=%u unsupported=0x%x capacity=%u\n",
+                    result, snapshot->n_polys, snapshot->unsupported,
+                    (unsigned)PS4_GPU_SNAPSHOT_VERTEX_CAPACITY);
+            g_ps4_gpu_snapshot_reported = 1;
+            g_ps4_gpu_snapshot_flat = 0;
+        }
     }
     {
         void *back_buffer = NULL;
@@ -1361,9 +1385,30 @@ static void boot_render_ps4(void *user, u8 *top, u8 *bottom)
         cursor_x = g_ps4_input.cursor_x;
         cursor_y = g_ps4_input.cursor_y;
     }
-    result = eidos_ps4_video_draw_ds_compatibility(
-        g_ps4_video, top, bottom, cursor_x, cursor_y,
-        g_ps4_input.presentation_mode);
+    if (have_snapshot_vertices) {
+        result = eidos_ps4_video_draw_ds_compatibility_snapshot_flat(
+            g_ps4_video, top, bottom, cursor_x, cursor_y,
+            g_ps4_input.presentation_mode, g_ps4_gpu_snapshot_vertices,
+            snapshot_vertex_count);
+        if (result == 0 && !g_ps4_gpu_snapshot_reported) {
+            fprintf(stderr,
+                    "PS4 G3D snapshot overlay active: polygons=%u vertices=%u unsupported=0x%x; flat-color overlay on CPU reference\n",
+                    snapshot->n_polys, snapshot_vertex_count,
+                    snapshot->unsupported);
+            g_ps4_gpu_snapshot_reported = 1;
+        } else if (result < 0) {
+            fprintf(stderr,
+                    "PS4 G3D snapshot overlay draw failed (%d); using DS compatibility frame alone\n",
+                    result);
+            result = eidos_ps4_video_draw_ds_compatibility(
+                g_ps4_video, top, bottom, cursor_x, cursor_y,
+                g_ps4_input.presentation_mode);
+        }
+    } else {
+        result = eidos_ps4_video_draw_ds_compatibility(
+            g_ps4_video, top, bottom, cursor_x, cursor_y,
+            g_ps4_input.presentation_mode);
+    }
     if (result < 0) {
         boot_ps4_video_failure("GNM DS compatibility draw", result);
         return;
@@ -3920,7 +3965,11 @@ static int boot_run_start(EidosFrameHooks *hooks, int own_thread)
     if (boot_load_input_script() != 0) {
         return -1;
     }
+#if EIDOS_BOOT_PS4
+    if (g_ps4_gpu_snapshot_flat || boot_getenv("EIDOS_G3D_DUMP") != NULL) {
+#else
     if (boot_getenv("EIDOS_G3D_DUMP") != NULL) {
+#endif
         g3d_hw_snapshot_enable(1);
     }
     /* The 3D hardware after the reset that cleared its access hook: the
@@ -4159,7 +4208,8 @@ static void usage(void)
 #endif
 #if EIDOS_BOOT_PS4 && EIDOS_BOOT
     fputs("  --rom PATH         import a user-supplied Pokémon Black/White ROM\n"
-          "  --data-root PATH   use an existing extracted game data folder\n",
+          "  --data-root PATH   use an existing extracted game data folder\n"
+          "  --g3d-snapshot-flat  overlay bounded flat-color game geometry for GNMX diagnostics\n",
           stderr);
 #endif
 }
@@ -5217,6 +5267,10 @@ int main(int argc, char **argv)
                 return 2;
             }
             g_trace_on = 1;
+#if EIDOS_BOOT_PS4
+        } else if (strcmp(argv[i], "--g3d-snapshot-flat") == 0) {
+            g_ps4_gpu_snapshot_flat = 1;
+#endif
         } else if (strcmp(argv[i], "--screenshot-dir") == 0 && i + 1 < argc) {
             g_shot_dir = argv[++i];
         } else if (strcmp(argv[i], "--profile") == 0) {
@@ -5263,6 +5317,12 @@ int main(int argc, char **argv)
         }
     }
 
+#if EIDOS_BOOT_PS4
+    if (g_ps4_gpu_snapshot_flat) {
+        fprintf(stderr,
+                "runtime option: --g3d-snapshot-flat enabled (diagnostic overlay; CPU raster remains active)\n");
+    }
+#endif
     if (g_mod_log != NULL) {
         if (freopen(g_mod_log, "w", stderr) == NULL) {
             fprintf(stdout, "eidos_boot: cannot write the mod log %s\n", g_mod_log);
