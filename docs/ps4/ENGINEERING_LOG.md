@@ -1791,3 +1791,30 @@ stall or a timing-counter fault; it is not a displayed-FPS result. That run
 also retains SaveData `0x809f000f`, repeated save `fsync` `errno 9`, and zero
 G3D/GPU draw/snapshot counters. The latest file still ends without a clean
 exit marker.
+
+## 2026-11-28 — Orbis save descriptor accessor and newer FTP log
+
+Fetched `/data/eidos/EIDOS_LOG.txt` over the now-live FTP endpoint. The file
+was 26,894 bytes (SHA-256
+`9044e97dde8bfb6c4594473ca023f49d1e54d1669c8fb3565151bd04f369d4c1`) and
+contains two run sections. Both use the `/data/eidos` fallback after
+`sceSaveDataMount2` returns `0x809f000f`. In the newer section, saves-tidy
+temporary files and `pokeblack.sav.tmp` all report `fsync` `errno 9`; thus the
+failure is at the shared POSIX save adapter, not specific to one save writer.
+The log still has no build provenance, so it cannot be tied to a source
+revision or the snapshot diagnostic package.
+
+The PS4 SDK's `stdio.h` provides `sceLibcGetFD(FILE *)` for Orbis streams.
+Changed the Orbis save adapter to use this Sony accessor after `fflush`,
+keeping `fileno` for other POSIX hosts. The optimized official SDK build of
+`eidos_boot.elf` succeeds, and the compiled object references
+`sceLibcGetFD` plus `fsync`. This is a source/build-validated correction; the
+console log predates it, so hardware behavior and durable save/reload remain
+unverified. No FPKG was built.
+
+The live Klogger capture (`/tmp/eidos-klogger-nc-20261128.txt`) separately
+records an Eidos launch and a SaveData API result `0x809f8709` for a request
+using directory `eidos-ps4-saves`, launch user `0x14702968`, mode `0x26`, and
+256 blocks. The error differs from the app's logged `0x809f000f`; the
+Klogger's API event cannot be mapped to a public SaveData error from current
+evidence and is not treated as a confirmed cause.

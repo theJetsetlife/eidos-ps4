@@ -182,9 +182,17 @@ static int make_one(const char *path)
 
 int bw_plat_sync_file(FILE *f)
 {
+    int fd;
+
     if (fflush(f) != 0)
         return -1;
-    return fsync(fileno(f)) == 0 ? 0 : -1;
+#if defined(__ORBIS__) || defined(__SCE__)
+    /* Use Sony's descriptor accessor for its Orbis FILE representation. */
+    fd = sceLibcGetFD(f);
+#else
+    fd = fileno(f);
+#endif
+    return fd >= 0 && fsync(fd) == 0 ? 0 : -1;
 }
 
 int bw_plat_replace_file(const char *from, const char *to)

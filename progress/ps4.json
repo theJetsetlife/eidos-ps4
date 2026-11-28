@@ -99,8 +99,8 @@
       "acceptance": "Mount both per-user directories across restarts",
       "status": "hardware-partial",
       "commit": "18eddf7",
-      "evidence": "Console log: sceSaveDataMount2 returns 0x809f000f; file-storage fallback imports the ROM. The 3,600-frame run reports repeated fsync(errno 9) for pokeblack.sav.tmp. This filename alone does not prove save identity or corruption.",
-      "remaining": "Verify per-user SaveData lifecycle, isolation and persistence; preserve user saves."
+      "evidence": "Latest 26,894-byte FTP EIDOS_LOG.txt (SHA-256 9044e97dde8bfb6c4594473ca023f49d1e54d1669c8fb3565151bd04f369d4c1) contains two runs. Both show sceSaveDataMount2 0x809f000f and fallback to /data/eidos; the newer run reports fsync(errno 9) for tidy temp files and pokeblack.sav.tmp. Source now uses Sony sceLibcGetFD(FILE *) for Orbis before fsync; optimized official SDK ELF build succeeds and the object imports sceLibcGetFD. Hardware confirmation and durable reload remain unverified. Log has no build provenance.",
+      "remaining": "Validate the Sony descriptor accessor on console without producing a package unless hardware evidence is necessary; investigate SaveData mount failure separately; verify isolated save/reload while preserving user saves."
     },
     {
       "id": "usb",
