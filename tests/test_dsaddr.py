@@ -234,6 +234,21 @@ class NativeTypes(unittest.TestCase):
         self.assertEqual(
             dsaddr.native_musical_camera_target(source, "/other.c"), source)
 
+    def test_native_wordwin_thumb_row_bounds_coordinate_and_fallback(self):
+        if not CFG.aletheia_root:
+            self.skipTest("requires the Aletheia source checkout")
+        path = os.path.join(
+            CFG.aletheia_root, "src/game/ov110/pmsiv_wordwin.c")
+        with open(path, encoding="utf-8") as stream:
+            source = stream.read()
+        native = dsaddr.native_wordwin_thumb_row(source, path)
+        self.assertIn("if (y < 18) y = 18;", native)
+        self.assertIn("else if (y > 149) y = 149;", native)
+        self.assertIn("if (i > n) result = n;", native)
+        self.assertIn("if (lo <= y && y <= hi) { result = (int)i; break; }", native)
+        self.assertEqual(
+            dsaddr.native_wordwin_thumb_row(source, "/other.c"), source)
+
     def test_native_mystery_gift_rejects_unknown_derived_pid_type(self):
         source = (
             "    if (gift->formatVersion != 1) {\n"

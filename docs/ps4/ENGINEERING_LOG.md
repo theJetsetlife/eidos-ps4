@@ -1616,3 +1616,35 @@ establish the valid thumb-coordinate and row-count domains from its callers,
 then preserve its documented row mapping while eliminating any undefined
 fallback. Do not initialize the result until those domains establish the
 appropriate behavior.
+
+# 2026-11-28 — Word-window thumb row fallback
+
+Bounded investigation: determine whether the uninitialized `result` in
+`PMSIV_WORDWIN_GetThumbRow` is reachable through the word-window scrollbar.
+The thumb is created at y=18; both row positioning and touch positioning clamp
+it to [18,149]. Its row count comes from `PmsWordListCursor.maxTopRow`, a
+16-bit field computed from the 16-bit item count, so `n` is at most 32,761.
+For row counts through the pixel span, the integer intervals partition the
+bar; for larger counts, the collapsed intervals still cover every integer y.
+
+The native generated copy now clamps the read coordinate at the consumer and
+returns the bottom row only if no interval matches. That fallback is
+unreachable under the traced state and count invariants; all valid row
+mappings remain unchanged. The focused transformation test and full
+`test_dsaddr.py` corpus passed (85 tests, one skipped; 33,572 matched
+sources). The complete optimized official Orbis target regenerated and
+linked, and `pmsiv_wordwin.c` passed a strict Orbis compile with
+`-Werror=sometimes-uninitialized` and
+`-ftrivial-auto-var-init=uninitialized`.
+
+Two isolated GoldHEN FPKGs from the resulting ELF, using
+`SOURCE_DATE_EPOCH=1764201600`, compare byte-for-byte (23,920,640 bytes;
+SHA-256 `3d7cbe7d7820cd97ecbe41fbeb6a8b973338caecc89e7a8d7f855cc656a8e27f`).
+Both passed all 29 `pkg_validate` checks and `verify_fpkg`. The ELF SHA-256 is
+`d54d7abd683f6dcea7fb6e406afb294870402ed3fa1173f4a128033775a31ecb`.
+Touch interaction and physical-console behavior remain unverified.
+
+Next bounded investigation: review the compiler-reported uninitialized `mode`
+in `ov175/wifibattlematch_net.c`; trace the wireless-mode producer and
+`GFL_NET_*` call contract before selecting a defined fallback or preserving a
+valid-domain guard.

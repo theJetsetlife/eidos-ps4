@@ -176,6 +176,13 @@
       "status": "verified-build",
       "evidence": "Generated ov132/sta_acting.c passes official Orbis compile with -Werror=sometimes-uninitialized and -ftrivial-auto-var-init=uninitialized. Full test_dsaddr corpus: 84 tests, 1 skipped. Full optimized Orbis target linked; ELF SHA-256 403473cfc77ddfc179ad27551eeba2ef267c7f2b2b97c18b837afdfb8c10c9ff. Two fixed-epoch FPKGs are byte-identical (SHA-256 e35fd6d1463b1c73ae53a235b3514d1bd7c11365120094f56f8e63ce5b512d96); both pass 29 pkg_validate checks and verify_fpkg.",
       "remaining": "Musical camera interaction and all console runtime behavior remain unverified; review ov110 PMSIV_WORDWIN_GetThumbRow next."
+    },
+    {
+      "id": "wordwin-thumb-row-control-flow",
+      "subsystem": "overlay uninitialized-state correction",
+      "status": "verified-build",
+      "evidence": "Traced thumb y to [18,149] setters and n to the u16 maxTopRow domain; generated ov110/pmsiv_wordwin.c passes official Orbis compile with -Werror=sometimes-uninitialized and -ftrivial-auto-var-init=uninitialized. Full test_dsaddr corpus: 85 tests, 1 skipped. Full optimized Orbis target linked; ELF SHA-256 d54d7abd683f6dcea7fb6e406afb294870402ed3fa1173f4a128033775a31ecb. Two fixed-epoch FPKGs compare byte-for-byte (SHA-256 3d7cbe7d7820cd97ecbe41fbeb6a8b973338caecc89e7a8d7f855cc656a8e27f); both pass 29 pkg_validate checks and verify_fpkg.",
+      "remaining": "Physical word-window interaction remains unverified; review the ov175 wireless mode warning next."
     }
   ],
   "campaign": [

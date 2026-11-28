@@ -2013,6 +2013,37 @@ def native_musical_camera_target(source: str, path: str) -> str:
     return source
 
 
+def native_wordwin_thumb_row(source: str, path: str) -> str:
+    """Define the row result for every thumb coordinate in the word window.
+
+    The thumb starts at y=18 and every writer clamps it to [18, 149]. The
+    caller's row count is the u16 maxTopRow. Clamp again at this consumer
+    boundary and give the theoretically unreachable interval miss a stable
+    endpoint result, without changing any covered row mapping.
+    """
+    if not path.replace("\\", "/").endswith(
+            "/src/game/ov110/pmsiv_wordwin.c"):
+        return source
+    source = _need(
+        source,
+        "        y = pos.y;\n        do {",
+        "        y = pos.y;\n"
+        "        if (y < 18) y = 18;\n"
+        "        else if (y > 149) y = 149;\n"
+        "        do {")
+    return _need(
+        source,
+        "                    if (lo <= y && y <= hi) { result = (int)i; break; }\n"
+        "                }\n"
+        "            }\n"
+        "            goto end;",
+        "                    if (lo <= y && y <= hi) { result = (int)i; break; }\n"
+        "                }\n"
+        "                if (i > n) result = n;\n"
+        "            }\n"
+        "            goto end;")
+
+
 def native_itemmenu_control_domains(source: str, path: str) -> str:
     """Give item-menu loop, button, and resource-selection paths defined behavior.
 
@@ -2399,6 +2430,7 @@ def main(argv=None) -> int:
     source = native_variadic_abi(source, src_path)
     source = native_defined_locals(source, src_path)
     source = native_musical_camera_target(source, src_path)
+    source = native_wordwin_thumb_row(source, src_path)
     source = native_itemmenu_control_domains(source, src_path)
     source = native_mystery_gift_pid_domain(source, src_path)
     source = native_bg_screen_dimensions(source, src_path)
