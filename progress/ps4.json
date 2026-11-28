@@ -194,9 +194,10 @@
     {
       "id": "runtime-build-provenance",
       "subsystem": "build provenance",
-      "status": "implementation-in-progress",
-      "evidence": "Generated runtime log record binds source revision/tree state, Aletheia state, build type, Orbis SDK 12.508.041, renderer path, and SHA-256 of the actual seven-shader manifest. Optimized official Orbis link succeeded (ELF SHA-256 af7bc1b5e30b499776f9be9d3003066c9fc4b3d91106ed8fdf2cd0ce03804617); embedded metadata correctly marks the pre-commit source tree dirty.",
-      "remaining": "Reconfigure after commit so the artifact names the clean committed revision, package and record package checksum, then verify runtime log output on hardware."
+      "status": "hardware-validation-candidate",
+      "evidence": "Clean official optimized Orbis ELF embeds Eidos 422b313 and clean Aletheia 995615a30f; SDK 12.508.041; renderer GNMX-DS-composite with CPU G3D rasterization; seven-shader manifest SHA-256 265ba4b8bd1c26233c955489f4d673fd2d995aa9dab2ee9b6054000e9f99e31d. ELF SHA-256 fbe2c238b36c2167a71f1972277a04e8aba9755953d5707442667499c660292c. GoldHEN FPKG is 23,920,640 bytes, SHA-256 c5bc2fb9e2a7c8a2b33c00993c9496862adc44f4a46abe3f07a36345f29b42e2; 29 pkg_validate checks and verify_fpkg passed. Uploaded to /data/eidos/Eidos-PS4-01.00-422b313.pkg; FTP readback matches byte-for-byte and checksum.",
+      "remaining": "Install and verify this exact package on physical PS4 hardware; collect the new EIDOS_LOG.txt and report gameplay, rendering, storage, and frame pacing. This remains an experimental hardware-validation candidate, not a playable alpha.",
+      "commit": "422b313"
     }
   ],
   "campaign": [

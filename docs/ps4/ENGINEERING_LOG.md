@@ -1711,6 +1711,25 @@ configured while the source tree was dirty, so its embedded state correctly
 says dirty and its revision names the parent checkpoint. The SDK identity is
 `12.508.041 (0x12508041)`. ELF SHA-256:
 `af7bc1b5e30b499776f9be9d3003066c9fc4b3d91106ed8fdf2cd0ce03804617`.
-This is build validation only; no package was produced and no physical run was
-performed. Reconfigure after committing to produce an artifact whose embedded
-revision names the committed source tree.
+This first build was validation of the generated logging path; it was built
+before the provenance change was committed and is superseded as a package
+candidate by the clean build recorded below.
+
+# 2026-11-28 — Clean provenance package delivery
+
+Reconfigured the official optimized Orbis build from clean Eidos `422b313`
+and clean Aletheia `995615a30f`. The embedded runtime record reports SDK
+12.508.041, seven shaders, manifest SHA-256
+`265ba4b8bd1c26233c955489f4d673fd2d995aa9dab2ee9b6054000e9f99e31d`, and the
+current `GNMX-DS-composite;G3D=CPU-raster` path. ELF SHA-256:
+`fbe2c238b36c2167a71f1972277a04e8aba9755953d5707442667499c660292c`.
+
+Built the GoldHEN FPKG with fixed `SOURCE_DATE_EPOCH=1764201600`. It is
+23,920,640 bytes, SHA-256
+`c5bc2fb9e2a7c8a2b33c00993c9496862adc44f4a46abe3f07a36345f29b42e2`;
+all 29 `pkg_validate` checks and `verify_fpkg` passed. Uploaded it to
+`ftp://10.0.0.9:2121/data/eidos/Eidos-PS4-01.00-422b313.pkg`, downloaded it
+back, and confirmed byte-for-byte equality and the same SHA-256. This is a
+hardware-test candidate only; it has not been installed or exercised on a
+console. The FTP server did not contain `/data/eidos/EIDOS_LOG.txt` when
+checked, so there is no newer console log to correlate yet.
