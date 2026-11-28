@@ -1409,3 +1409,22 @@ Two independently staged GoldHEN packages built with
 The packages are under `/tmp/eidos-fieldmodel-fpkg-{a,b}`. No console upload,
 installation, new branch, pull request, or physical performance claim is part
 of this checkpoint.
+
+# 2026-11-28 — Script movement talk target
+
+The field script model lookup reserves object ID `0xF1` for the current talk
+target. Its recovered branch discarded `SCRCMD_WORK_GetScriptWork` and returned
+an indeterminate model pointer. Other commands in the same module obtain the
+talk target with `SCRIPT_WORK_GetTargetObj`, and the movement command already
+skips a null model. The generated native copy now uses that accessor for
+`0xF1`; the move-code `0x30` and ordinary object-ID paths are unchanged.
+
+A compiled test extracts the transformed production function and exercises
+all three IDs plus an absent talk target. Python compilation and
+`git diff --check` pass. The official Orbis compiler rebuilt
+`scrcmd_fldmmdl.c` without the `mmdl` uninitialized warning and linked the
+optimized ELF (SHA-256
+`fd302cb535576a4e80087f527fc9b697071b50ca0b23c255917e48ea3a10e5a3`).
+The neighboring `found` warning remains unresolved and requires separate
+control-flow review. Host gameplay tests and physical-console behavior are
+not established by this focused checkpoint.
