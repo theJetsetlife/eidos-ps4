@@ -62,18 +62,18 @@
       "subsystem": "offline shaders",
       "acceptance": "Compile and index every program currently bound by the PS4 backend",
       "status": "verified-build",
-      "commit": "c0d50c1",
-      "evidence": "4 of 4 declared PSSL programs compiled; Ninja no-op and single-source rebuild checked",
-      "remaining": "Port outstanding upstream rendering passes"
+      "commit": "189edef",
+      "evidence": "All five PSSL programs in the optimized Orbis manifest have matching source and binary SHA-256 values; generated artifacts are embedded in the native target.",
+      "remaining": "Compile and integrate the production snapshot geometry, texture, depth, and composition shader passes."
     },
     {
       "id": "graphics",
       "subsystem": "graphics",
       "acceptance": "Present native game layers at 1920x1080",
       "status": "partial",
-      "commit": null,
-      "evidence": "GNMX presenter and DS screen composite exist",
-      "remaining": "Hardware capture of native-detail layers"
+      "commit": "189edef",
+      "evidence": "GNMX presents the CPU-composited DS-resolution frame. G3dSnapshot and GL/SDL GPU backends exist, but the PS4 boot path bypasses EidosPlatform and has no snapshot renderer. Native-detail game rendering is absent.",
+      "remaining": "Prototype a GNMX snapshot adapter with explicit feature detection and CPU fallback; validate target draw and physical capture."
     },
     {
       "id": "pad",
@@ -157,18 +157,18 @@
     {
       "id": "orbis-build",
       "subsystem": "official SDK",
-      "status": "in-progress",
-      "evidence": "Official SDK 12.508.041 optimized ELF linked and packaged before latest corrections; final corrected build is active.",
-      "commit": "b42be6c",
-      "remaining": "Check final build exit, binary and package integrity."
+      "status": "verified-build",
+      "evidence": "Optimized official Orbis build linked after the item-menu generator correction; ELF SHA-256 b77516a0946c28d1ed4922fb172885de051a68e0fa81c93dfa71984e600884a9.",
+      "commit": "189edef",
+      "remaining": "Rebuild from the clean release source checkout after the next code batch; physical execution remains unverified."
     },
     {
       "id": "package",
       "subsystem": "native packaging",
-      "status": "built-prior-revision",
-      "evidence": "Previous game FPKG installed and launched on Slim; optimized corrected replacement building.",
-      "commit": "18eddf7",
-      "remaining": "Verify and checksum final artifact; upload/read-back; user installs and tests."
+      "status": "reproducible-build",
+      "evidence": "Two independent GoldHEN FPKGs from the optimized ELF compare byte-for-byte (23,920,640 bytes; SHA-256 1a4bda971a3537465c703ab5a7ca7f78a0a6b2e2799dabd5b63b105180220341); both passed 29 pkg_validate checks and verify_fpkg.",
+      "commit": "189edef",
+      "remaining": "Physical installation and end-to-end gameplay validation on the identified build."
     }
   ],
   "campaign": [
@@ -247,5 +247,30 @@
       "natural": "unverified-on-integrated-build",
       "debug_assisted": "unverified-on-integrated-build"
     }
-  ]
+  ],
+  "renderer_investigation": {
+    "date": "2026-11-28",
+    "question": "What is the smallest production path for native PS4 drawing of G3dSnapshot data while preserving the current CPU fallback and DS composition semantics?",
+    "scope": [
+      "engine/g3d/hw3d.h and engine/g3d/hw3d.c snapshot contract",
+      "engine/platform/plat_gl3d.c and engine/platform/plat_sdlgpu3d.c feature and fallback behavior",
+      "demo/eidos_boot.c PS4 and generic GPU frame paths",
+      "engine/platform/ps4/video_ps4.cpp GNMX resources and command submission"
+    ],
+    "evidence": [
+      "G3dSnapshot owns transformed clip-space vertices, indices, polygons, decoded texture copies, and DS render state.",
+      "GL and SDL GPU backends consume G3dSnapshot and report supported frame features through g3d_hw_gpu_features; unsupported frames retain CPU rasterization.",
+      "The PS4 boot path does not create EidosPlatform: boot_render_ps4 calls g2d_hw_render_dsmem and draws the resulting 256x192 DS images through a final GNMX compatibility pass.",
+      "The official SDK sample archive includes GNMX vertex-buffer, vertex-shader, depth-target, indexed-draw, and submit examples; the current PS4 backend only binds pixel shaders for fullscreen compatibility passes."
+    ],
+    "decision": "Keep the PS4 frame path and CPU rasterizer intact while prototyping a dedicated GNMX snapshot adapter. Do not advertise snapshot features as GPU-supported or enable raster skipping until feature coverage and fallback boundaries are proven.",
+    "missing_evidence": [
+      "Official PSSL vertex shader plus fetch/input layout compiled and linked in the PS4 target.",
+      "GNMX depth and per-polygon state translation with an explicit supported-feature classifier.",
+      "Physical-console capture confirming the native draw and correct DS composition."
+    ],
+    "next_experiment": "Build an isolated GNMX draw of snapshot-derived opaque untextured triangles into an offscreen 256x192 target, keeping CPU output authoritative. Add source-derived vertex conversion checks and compile/link with SDK 12.508 before any game-path connection.",
+    "effort_budget": "One bounded implementation checkpoint; stop after the isolated target build and conversion evidence, or record the exact SDK/API blocker and next discriminating check.",
+    "stopping_condition": "Do not connect the prototype to game presentation or enable g3d_hw_skip_raster until target compile/link succeeds, converted vertices are covered by tests, unsupported content is detected, and physical capture validates the draw."
+  }
 }

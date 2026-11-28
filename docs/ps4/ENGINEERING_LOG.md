@@ -1502,3 +1502,27 @@ FPKGs with SHA-256
 Both passed all 29 `pkg_validate` checks and `verify_fpkg`. The artifacts are
 under `/tmp/eidos-itemmenu-pkg-a` and `/tmp/eidos-itemmenu-pkg-b`.
 Physical-console item-menu interaction and performance remain unverified.
+
+# 2026-11-28 — Native snapshot renderer boundary
+
+Bounded investigation: identify the smallest route from the existing 3D frame
+snapshot to the PS4 GPU without changing the current rendering authority. The
+`G3dSnapshot` contract already exposes transformed clip-space vertices,
+indices, polygons, copied decoded textures, and DS register state. The GL and
+SDL GPU renderers consume that contract and publish their feature support
+through `g3d_hw_gpu_features`; frames outside the supported feature set retain
+the CPU rasterizer. The PS4 boot path is separate: `boot_render_ps4` invokes
+`g2d_hw_render_dsmem` and sends the resulting DS-resolution images through the
+GNMX compatibility presenter. It does not create `EidosPlatform` or connect
+the existing GPU3D dispatch. Official SDK sample sources provide GNMX vertex
+buffer, vertex shader, depth target, indexed draw, and submission examples.
+
+Decision: prototype a dedicated PS4 GNMX adapter over `G3dSnapshot`, preserve
+CPU output as the authority, and do not claim GPU feature support or skip CPU
+rasterization until capability detection and fallback are complete. The first
+bounded slice is opaque untextured triangle conversion and an offscreen draw.
+The next evidence is an official SDK compile/link, source-derived conversion
+tests, and a physical-console capture. Current source review does not prove
+that any snapshot geometry has been drawn by the PS4 GPU. The scoped question,
+evidence, effort limit, and stopping condition are recorded in
+`progress/ps4.json`.
