@@ -1780,3 +1780,14 @@ provenance or `--g3d-snapshot-flat` line, so it cannot be attributed to
 evidence about the new overlay. It ends at frame 10,800 with no clean-exit
 marker; the ending alone cannot distinguish a still-running app from a hang
 or crash.
+
+The FTP log later grew to 21,070 bytes (SHA-256
+`f376806bff7f073561b69c708c181a8127636f4b29bff1796eecb838b91fe4ac`) and
+contains two runs. The newer run reaches frame 10,200. It still has no build
+provenance or snapshot-option message, so it does not identify `229a6a7`.
+At frame 6000 its interval reports 62.25 ms/frame wall average and a game
+counter maximum of 19,976.81 ms. This is a strong lead for a rare, very long
+stall or a timing-counter fault; it is not a displayed-FPS result. That run
+also retains SaveData `0x809f000f`, repeated save `fsync` `errno 9`, and zero
+G3D/GPU draw/snapshot counters. The latest file still ends without a clean
+exit marker.
