@@ -258,6 +258,34 @@ void g2d_ncgr_block(const G2dNcgr *ncgr, u32 block_index, u8 out[64])
     u32 bx, by, ly;
 
     memset(out, 0, 64);
+    if (ncgr->sentinel_dims) {
+        u32 bytes = ncgr->bytes_per_tile;
+        size_t offset;
+        u32 i;
+
+        /* A CHAR dimension sentinel means no 2D canvas can be built.  OBJ
+         * cells still address the character payload as a flat tile run;
+         * compose.c supplies the OAM-width stride for multi-row sprites. */
+        if (ncgr->tile_data == NULL ||
+            (ncgr->pixel_fmt != G2D_NCGR_FMT_4BPP &&
+             ncgr->pixel_fmt != G2D_NCGR_FMT_8BPP) ||
+            bytes != (ncgr->pixel_fmt == G2D_NCGR_FMT_8BPP ? 64u : 32u) ||
+            bytes == 0 || block_index >= ncgr->tile_data_size / bytes) {
+            return;
+        }
+        offset = (size_t)block_index * bytes;
+        if (ncgr->pixel_fmt == G2D_NCGR_FMT_8BPP) {
+            memcpy(out, ncgr->tile_data + offset, 64);
+        } else {
+            for (i = 0; i < 32u; i++) {
+                u8 packed = ncgr->tile_data[offset + i];
+
+                out[i * 2u] = (u8)(packed & 0x0Fu);
+                out[i * 2u + 1u] = (u8)(packed >> 4);
+            }
+        }
+        return;
+    }
     if (ncgr->pixels == NULL || ncgr->tile_num_x == 0) {
         return;
     }

@@ -1878,6 +1878,11 @@ endfunction()
 
 # The 2D engine test needs the oracle rather than the fixture header, and
 # takes the oracle directory as its second argument.
+add_executable(test_ncgr_blocks ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ncgr_blocks.c)
+target_include_directories(test_ncgr_blocks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(test_ncgr_blocks PRIVATE eidos)
+add_test(NAME test_ncgr_blocks COMMAND test_ncgr_blocks)
+
 add_executable(test_g2d ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_g2d.c)
 target_include_directories(test_g2d PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(test_g2d PRIVATE eidos)
