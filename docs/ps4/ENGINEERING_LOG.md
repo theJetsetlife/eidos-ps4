@@ -1425,6 +1425,7 @@ all three IDs plus an absent talk target. Python compilation and
 `scrcmd_fldmmdl.c` without the `mmdl` uninitialized warning and linked the
 optimized ELF (SHA-256
 `fd302cb535576a4e80087f527fc9b697071b50ca0b23c255917e48ea3a10e5a3`).
-The neighboring `found` warning remains unresolved and requires separate
-control-flow review. Host gameplay tests and physical-console behavior are
-not established by this focused checkpoint.
+The optimized host build linked, and `test_dsaddr`, `test_boot_run`, and
+`test_boot_new_game_intro` passed against this checkpoint. The neighboring
+`found` warning remains unresolved and requires separate control-flow review.
+Physical-console behavior is not established by these host tests.
