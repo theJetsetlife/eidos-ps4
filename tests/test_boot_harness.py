@@ -56,6 +56,13 @@ class BootHarness(unittest.TestCase):
                 result = self.run_boot("boot_run.cmake", mode, "-DLP64=1")
                 self.assertEqual(result.returncode == 0, expected, result.stdout + result.stderr)
 
+    def test_expected_stop_requires_a_nonzero_exit(self):
+        for mode, expected in (("known_stop_zero", False), ("known_stop_error", True)):
+            with self.subTest(mode=mode):
+                result = self.run_boot("boot_run.cmake", mode, "-DLP64=0", "-DMIN_FRAMES=1",
+                                       "-DKNOWN_STOP=PANIC in boot stub reached")
+                self.assertEqual(result.returncode == 0, expected, result.stdout + result.stderr)
+
     def test_no_data_is_explicitly_skipped(self):
         result = self.run_boot("boot_scenario.cmake", "ok", "-DDATA=/nonexistent/eidos-test-data")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

@@ -2024,7 +2024,8 @@ early refusal. Both now fail. Boot checks isolate settings, mods and user
 directories as well as saves. CTest skip rules no longer classify an error
 as skipped merely because a child printed `SKIPPED:`; synthetic failures,
 including a sanitizer report, exercise those verdicts. Three deliberately
-reintroduced harness faults were rejected by the tests.
+reintroduced harness faults were rejected by the tests. A legacy
+expected-panic path also now rejects a zero exit or a timeout.
 
 The OpenGL 3D test previously returned success without a usable GPU, and its
 asynchronous window resize left the presenter at 256x192 while two composite

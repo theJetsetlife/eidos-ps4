@@ -74,6 +74,9 @@ execute_process(COMMAND "${BOOT}" --data-root "${DATA}" --frames ${FRAMES}
     TIMEOUT 600)
 file(REMOVE_RECURSE "${run_home}")
 set(all "${out}${err}")
+if("${rc}" MATCHES "[Tt]imeout")
+    message(FATAL_ERROR "the boot timed out: ${rc}\n${all}")
+endif()
 if(all MATCHES "(CRASH:|WATCHDOG:|AddressSanitizer|UndefinedBehaviorSanitizer|runtime error:)")
     message(FATAL_ERROR "the boot reported a fault (exit ${rc}):\n${all}")
 endif()
@@ -114,7 +117,8 @@ if("${rc}" STREQUAL "0" AND all MATCHES "eidos_boot: ran after ${FRAMES} frames"
     return()
 endif()
 
-if(NOT "${KNOWN_STOP}" STREQUAL "" AND all MATCHES "${KNOWN_STOP}")
+if(NOT "${rc}" STREQUAL "0" AND NOT "${KNOWN_STOP}" STREQUAL ""
+   AND all MATCHES "${KNOWN_STOP}")
     string(REGEX MATCH "stopped at frame ([0-9]+)" _at "${all}")
     set(at "${CMAKE_MATCH_1}")
     if("${at}" STREQUAL "")
@@ -129,7 +133,7 @@ if(NOT "${KNOWN_STOP}" STREQUAL "" AND all MATCHES "${KNOWN_STOP}")
     return()
 endif()
 
-if("${KNOWN_STOP}" STREQUAL ""
+if(NOT "${rc}" STREQUAL "0" AND "${KNOWN_STOP}" STREQUAL ""
    AND all MATCHES "PANIC in FS_LoadOverlay at 0x[0-9A-F]+: overlay [0-9]+ \\([^)]*\\) is not in this build")
     string(REGEX MATCH "overlay [0-9]+ \\([^)]*\\) is not in this build" stop "${all}")
     message(STATUS "the boot stopped at the overlay boundary: ${stop}")

@@ -34,6 +34,11 @@ int main(void)
         puts("SKIPPED: no game data at a child process diagnostic");
         return 42;
     }
+    if (strcmp(mode, "known_stop_zero") == 0 || strcmp(mode, "known_stop_error") == 0) {
+        puts("bw-port: PANIC in boot stub reached");
+        puts("eidos_boot: stopped at frame 1");
+        return strcmp(mode, "known_stop_error") == 0 ? 42 : 0;
+    }
     if (strcmp(mode, "missing") == 0) return 0;
     if (strcmp(mode, "identity") == 0)
         puts("eidos_boot: DS address space identity-mapped");
