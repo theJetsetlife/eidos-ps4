@@ -1798,7 +1798,12 @@ Fetched `/data/eidos/EIDOS_LOG.txt` over the now-live FTP endpoint. The file
 was 26,894 bytes (SHA-256
 `9044e97dde8bfb6c4594473ca023f49d1e54d1669c8fb3565151bd04f369d4c1`) and
 contains two run sections. Both use the `/data/eidos` fallback after
-`sceSaveDataMount2` returns `0x809f000f`. In the newer section, saves-tidy
+`sceSaveDataMount2` returns `0x809f000f`. SDK 12.508's
+`save_data_error.h` defines this exact value as
+`SCE_SAVE_DATA_ERROR_BROKEN` (“Save data is corrupted”). The current
+evidence therefore points to invalid existing SaveData contents/metadata;
+it does not prove which files are corrupt or authorize deleting them. In the
+newer section, saves-tidy
 temporary files and `pokeblack.sav.tmp` all report `fsync` `errno 9`; thus the
 failure is at the shared POSIX save adapter, not specific to one save writer.
 The log still has no build provenance, so it cannot be tied to a source
@@ -1815,6 +1820,7 @@ unverified. No FPKG was built.
 The live Klogger capture (`/tmp/eidos-klogger-nc-20261128.txt`) separately
 records an Eidos launch and a SaveData API result `0x809f8709` for a request
 using directory `eidos-ps4-saves`, launch user `0x14702968`, mode `0x26`, and
-256 blocks. The error differs from the app's logged `0x809f000f`; the
-Klogger's API event cannot be mapped to a public SaveData error from current
-evidence and is not treated as a confirmed cause.
+256 blocks. This full Klogger value does not match the app's public
+`0x809f000f` result and has not been mapped; it is not treated as a confirmed
+cause. The app's `0x809f000f` mapping comes directly from the installed Sony
+SDK header.
