@@ -190,6 +190,13 @@
       "status": "verified-build",
       "evidence": "Invalid peer record kinds now return failure after the existing panic in both report paths. Strict official Orbis compile passes with -Werror=sometimes-uninitialized and -ftrivial-auto-var-init=uninitialized. Full test_dsaddr: 86 passed, 1 skipped. Full Orbis ELF linked. Two fixed-epoch FPKGs match (SHA-256 dcc8f1e193ef6c2f6b172f275c1fbcee01ad6d2d06cda927552aaebfb4400c1a), each passes 29 pkg_validate checks and verify_fpkg.",
       "remaining": "Live wireless report behavior is untested."
+    },
+    {
+      "id": "runtime-build-provenance",
+      "subsystem": "build provenance",
+      "status": "implementation-in-progress",
+      "evidence": "Generated runtime log record binds source revision/tree state, Aletheia state, build type, Orbis SDK 12.508.041, renderer path, and SHA-256 of the actual seven-shader manifest. Optimized official Orbis link succeeded (ELF SHA-256 af7bc1b5e30b499776f9be9d3003066c9fc4b3d91106ed8fdf2cd0ce03804617); embedded metadata correctly marks the pre-commit source tree dirty.",
+      "remaining": "Reconfigure after commit so the artifact names the clean committed revision, package and record package checksum, then verify runtime log output on hardware."
     }
   ],
   "campaign": [

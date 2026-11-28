@@ -26,6 +26,9 @@ extern "C" {
 /* Open the log.  Safe to call twice. */
 void eidos_ps4_log_start(const char *title_id, const char *version);
 
+/* Build-time provenance generated from the linked shader manifest. */
+const char *eidos_ps4_build_provenance(void);
+
 /* Copy the log to a USB drive when it is not already on one.  Returns 0 when
  * the log is on a drive afterwards, -1 when no drive accepted it. */
 int eidos_ps4_log_export(void);

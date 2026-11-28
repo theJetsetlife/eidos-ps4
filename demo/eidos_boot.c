@@ -5068,6 +5068,7 @@ int main(int argc, char **argv)
 
 #if EIDOS_BOOT_PS4 && EIDOS_BOOT
     eidos_ps4_log_start("EIDP90002", "01.00");
+    fprintf(stderr, "build provenance: %s\n", eidos_ps4_build_provenance());
     boot_ps4_log_memory("at start");
     /* Frame timing into the run log every 600 frames (ten seconds): the
      * average and worst milliseconds of each phase, the software 3D

@@ -1694,3 +1694,23 @@ Next P0 batch: add runtime build provenance, then connect a bounded live
 `G3dSnapshot` diagnostic to the existing GNMX path while keeping software
 rasterization as the comparison reference. Require a physical capture before
 claiming hardware GPU game-geometry coverage.
+
+# 2026-11-28 — Runtime build provenance
+
+The PS4 startup log now includes generated provenance for the exact Eidos
+revision/tree state, Aletheia revision/tree state, build type, release mode,
+Orbis SDK version, renderer path, and shader-manifest SHA-256 and count. The
+provenance source is generated only after the offline shader manifest and is
+linked into `eidos_boot.elf`. The renderer is recorded as GNMX DS composition
+with CPU G3D rasterization; no production GPU game-geometry claim is made.
+Game data and launch options are identified as user/runtime selected.
+
+An optimized official Orbis build linked with the generated provenance
+source. The manifest contains seven compiled shaders. This build was
+configured while the source tree was dirty, so its embedded state correctly
+says dirty and its revision names the parent checkpoint. The SDK identity is
+`12.508.041 (0x12508041)`. ELF SHA-256:
+`af7bc1b5e30b499776f9be9d3003066c9fc4b3d91106ed8fdf2cd0ce03804617`.
+This is build validation only; no package was produced and no physical run was
+performed. Reconfigure after committing to produce an artifact whose embedded
+revision names the committed source tree.

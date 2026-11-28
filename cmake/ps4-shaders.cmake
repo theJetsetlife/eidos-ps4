@@ -66,6 +66,7 @@ add_custom_command(OUTPUT "${_manifest}"
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/ps4/check_sdk.py"
     VERBATIM)
 add_custom_target(eidos_ps4_shaders ALL DEPENDS "${_manifest}")
+set(EIDOS_PS4_SHADER_MANIFEST "${_manifest}")
 get_property(_eidos_pssl_header_outputs GLOBAL PROPERTY EIDOS_PS4_SHADER_HEADER_OUTPUTS)
 add_custom_target(eidos_ps4_shader_headers ALL DEPENDS ${_eidos_pssl_header_outputs})
 add_dependencies(eidos_platform_ps4 eidos_ps4_shader_headers eidos_ps4_shaders)
