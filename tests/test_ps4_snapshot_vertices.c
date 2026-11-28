@@ -23,7 +23,7 @@ static void test_triangle_and_quad_fan(void)
 {
     G3dVertex vertices[4] = {
         {.x = 4096, .y = 0, .z = -2048, .w = 4096, .r = 255, .g = 0, .b = 17},
-        {.x = 0, .y = 8192, .z = 0, .w = 8192, .r = 0, .g = 128, .b = 0},
+        {.x = 0, .y = 8192, .z = 0, .w = 8192, .s = -24, .t = 56, .r = 0, .g = 128, .b = 0},
         {.x = -4096, .y = 0, .z = 2048, .w = 4096, .r = 0, .g = 0, .b = 255},
         {.x = 0, .y = -4096, .z = 0, .w = 4096, .r = 64, .g = 32, .b = 16},
     };
@@ -38,6 +38,7 @@ static void test_triangle_and_quad_fan(void)
         .polys = polys, .n_polys = 2,
     };
     EidosPs4SnapshotVertex output[9];
+    EidosPs4GameVertex game_output[9];
     u32 count = 99;
 
     CHECK(eidos_ps4_snapshot_vertices(&snapshot, output, 9, &count) == 0);
@@ -47,6 +48,14 @@ static void test_triangle_and_quad_fan(void)
     CHECK(near(output[0].clip[3], 1.0f));
     CHECK(near(output[0].color[0], 1.0f));
     CHECK(near(output[0].color[2], 17.0f / 255.0f));
+    CHECK(eidos_ps4_game_vertices(&snapshot, game_output, 9, &count) == 0);
+    CHECK(count == 9);
+    CHECK(game_output[1].clip[3] == 8192.0f);
+    CHECK(game_output[1].st[0] == -24.0f);
+    CHECK(game_output[1].st[1] == 56.0f);
+    CHECK(game_output[1].color[1] == 128.0f);
+    CHECK(game_output[3].clip[0] == game_output[6].clip[0]);
+    CHECK(game_output[5].clip[1] == game_output[7].clip[1]);
     /* Quad fan order is 0,1,2 then 0,2,3, after the first triangle. */
     CHECK(output[3].clip[0] == output[6].clip[0]);
     CHECK(output[5].clip[0] == output[7].clip[0]);
@@ -65,7 +74,14 @@ static void test_rejects_malformed_snapshot_without_writes(void)
     };
     EidosPs4SnapshotVertex output[3];
     EidosPs4SnapshotVertex before[3];
+    EidosPs4GameVertex game_output[3], game_before[3];
     u32 count = 7;
+
+    memset(game_output, 0xA5, sizeof(game_output));
+    memcpy(game_before, game_output, sizeof(game_output));
+    CHECK(eidos_ps4_game_vertices(&snapshot, game_output, 3, &count) == -1);
+    CHECK(count == 0);
+    CHECK(memcmp(game_output, game_before, sizeof(game_output)) == 0);
 
     memset(output, 0xA5, sizeof(output));
     memcpy(before, output, sizeof(output));
@@ -74,6 +90,9 @@ static void test_rejects_malformed_snapshot_without_writes(void)
     CHECK(memcmp(output, before, sizeof(output)) == 0);
 
     indices[2] = 0;
+    CHECK(eidos_ps4_game_vertices(&snapshot, game_output, 2, &count) == -2);
+    CHECK(count == 0);
+    CHECK(memcmp(game_output, game_before, sizeof(game_output)) == 0);
     count = 7;
     CHECK(eidos_ps4_snapshot_vertices(&snapshot, output, 2, &count) == -2);
     CHECK(count == 0);
@@ -85,6 +104,8 @@ static void test_empty_snapshot(void)
     G3dSnapshot snapshot = {0};
     u32 count = 7;
     CHECK(eidos_ps4_snapshot_vertices(&snapshot, NULL, 0, &count) == 0);
+    CHECK(count == 0);
+    CHECK(eidos_ps4_game_vertices(&snapshot, NULL, 0, &count) == 0);
     CHECK(count == 0);
 }
 

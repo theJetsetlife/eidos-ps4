@@ -18,6 +18,18 @@ typedef struct EidosPs4SnapshotVertex {
     float color[3];
 } EidosPs4SnapshotVertex;
 
+/* Production g3d.hlsl input: raw clip-space fixed-point units, s16.4
+ * texel coordinates, and 0..255 color. Keep w unscaled for W-buffer depth. */
+typedef struct EidosPs4GameVertex {
+    float clip[4];
+    float st[2];
+    float color[3];
+} EidosPs4GameVertex;
+
+int eidos_ps4_game_vertices(const struct G3dSnapshot *snapshot,
+                            EidosPs4GameVertex *output, uint32_t capacity,
+                            uint32_t *vertex_count);
+
 /* Convert snapshot triangle and quad fans into a linear triangle list.
  * Returns 0 on success, -1 for malformed input, and -2 when capacity is too
  * small. On failure, *vertex_count is zero and output is left untouched. */

@@ -2,10 +2,37 @@
 import argparse
 import hashlib
 import json
+import os
+import re
 from pathlib import Path
 import subprocess
 
 from check_sdk import sdk_version
+
+
+def source_dependencies(source):
+    """Hash the local quoted includes used by the offline PSSL compiler."""
+    seen = set()
+    dependencies = []
+
+    def visit(path):
+        path = path.resolve()
+        if path in seen:
+            return
+        seen.add(path)
+        payload = path.read_bytes()
+        for name in re.findall(r'^\s*#include\s+"([^"\n]+)"',
+                               payload.decode("utf-8"), re.MULTILINE):
+            child = (path.parent / name).resolve()
+            if child not in seen:
+                dependencies.append({
+                    "source": Path(os.path.relpath(child, source.resolve().parent)).as_posix(),
+                    "source_sha256": hashlib.sha256(child.read_bytes()).hexdigest(),
+                })
+                visit(child)
+
+    visit(source)
+    return dependencies
 
 
 def main():
@@ -32,6 +59,7 @@ def main():
             "profile": profile,
             "source": source.name,
             "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+            "source_dependencies": source_dependencies(source),
             "binary": binary.name,
             "binary_sha256": hashlib.sha256(payload).hexdigest(),
             "bytes": len(payload),

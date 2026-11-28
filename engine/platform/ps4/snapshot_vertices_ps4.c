@@ -90,3 +90,37 @@ int eidos_ps4_snapshot_vertices(const struct G3dSnapshot *snapshot,
     *vertex_count = written;
     return 0;
 }
+
+int eidos_ps4_game_vertices(const struct G3dSnapshot *snapshot,
+                            EidosPs4GameVertex *output, uint32_t capacity,
+                            uint32_t *vertex_count)
+{
+    static const uint8_t fan[6] = { 0, 1, 2, 0, 2, 3 };
+    uint32_t required = 0, written = 0, i;
+
+    if (vertex_count == NULL) {
+        return -1;
+    }
+    *vertex_count = 0;
+    if (snapshot_vertex_count(snapshot, &required) != 0) {
+        return -1;
+    }
+    if (required > capacity || (required != 0 && output == NULL)) {
+        return -2;
+    }
+    for (i = 0; i < snapshot->n_polys; ++i) {
+        const G3dPoly *poly = &snapshot->polys[i];
+        uint32_t j;
+        for (j = 0; j < (poly->count - 2u) * 3u; ++j) {
+            const G3dVertex *v = &snapshot->verts[snapshot->idx[poly->first + fan[j]]];
+            EidosPs4GameVertex *o = &output[written++];
+            o->clip[0] = (float)v->x; o->clip[1] = (float)v->y;
+            o->clip[2] = (float)v->z; o->clip[3] = (float)v->w;
+            o->st[0] = (float)v->s; o->st[1] = (float)v->t;
+            o->color[0] = (float)v->r; o->color[1] = (float)v->g;
+            o->color[2] = (float)v->b;
+        }
+    }
+    *vertex_count = written;
+    return 0;
+}

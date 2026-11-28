@@ -1824,3 +1824,42 @@ using directory `eidos-ps4-saves`, launch user `0x14702968`, mode `0x26`, and
 `0x809f000f` result and has not been mapped; it is not treated as a confirmed
 cause. The app's `0x809f000f` mapping comes directly from the installed Sony
 SDK header.
+
+
+## 2026-11-28 — Shared upstream polygon shaders for Orbis
+
+Compared the desktop polygon shader with upstream Eidos
+`119c27e63d226259f94cd6c193d9364664bbac97`; the baseline source matches.
+Added PSSL entry points that include this same shader, adapting system
+semantics and uniform/texture declarations. Both stages compile directly
+with SDK 12.508's official PSSL compiler. This carries upstream texture
+wrapping, integer color/alpha arithmetic, toon/highlight, culling, alpha
+passes, polygon ID, and Z/W-depth outputs into the Orbis shader build.
+Desktop vertex and fragment SPIR-V are byte-identical to the baseline after
+stripping debug names (glslang; its preexisting combinedImageSampler warning
+is unchanged). This is compilation evidence, not pixel or hardware evidence.
+
+Added a separate production snapshot vertex format/converter matching those
+inputs: raw clip coordinates, raw s16.4 texture coordinates, and 0..255 RGB.
+The flat diagnostic converter rescales position and color, so it cannot feed
+this shader: scaling W would alter upstream's W-buffer depth calculation.
+Optimized host checks with NDEBUG cover input scale, negative coordinates,
+fan ordering, empty input, and invalid/capacity failures without writes.
+The shader manifest now hashes quoted local include dependencies as well
+as entry files; include-content changes and cycles were exercised using
+temporary fixtures.
+
+These programs are available for GNMX integration. Runtime texture uploads,
+per-polygon constants, three render targets, depth/blend state, and downstream
+2D composition still need binding before they draw actual game content.
+No hardware performance gain or visual correction is established by this
+batch. No FPKG was produced.
+
+The CMake `eidos_ps4_shaders` and official SDK `eidos_platform_ps4`
+static-library targets pass, including embedding the new shader programs
+and compiling the production converter. Generated manifest entries contain
+the verified shared-source hash (VS binary 464 bytes; PS 2,356 bytes).
+The extended snapshot CTest passes; direct optimized NDEBUG and
+AddressSanitizer/UndefinedBehaviorSanitizer runs also pass. The 18 existing
+PS4 source rules pass. No full game ELF link or hardware execution was
+performed in this shader batch.

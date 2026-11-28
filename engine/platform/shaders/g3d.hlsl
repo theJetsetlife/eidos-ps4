@@ -9,6 +9,17 @@
 // over 255: bit 7 opaque, bit 6 fog, bits 0-5 the ID); the depth as the
 // depth buffer has it (R32 float), which the edge and fog passes read.
 
+// PSSL uses native system semantics and register bindings; polygon arithmetic
+// below remains shared with the SDL GPU backend.
+#ifdef EIDOS_PSSL
+#define SV_Position S_POSITION
+#define SV_Target0 S_TARGET_OUTPUT0
+#define SV_Target1 S_TARGET_OUTPUT1
+#define SV_Target2 S_TARGET_OUTPUT2
+#define SV_Depth S_DEPTH_OUTPUT
+#define SV_IsFrontFace S_FRONT_FACE
+#endif
+
 struct VSIn
 {
     float4 pos : TEXCOORD0;     // clip space, z from -w to w (the DS's, GL's)
@@ -35,10 +46,15 @@ VSOut vs_main(VSIn i)
     return o;
 }
 
+#ifndef EIDOS_G3D_VERTEX_ONLY
+#ifdef EIDOS_PSSL
+Texture2D<float4> tex : register(t0);
+ConstantBuffer FragmentUniforms : register(b0)
+#else
 [[vk::combinedImageSampler]] Texture2D<float4> tex : register(t0, space2);
 [[vk::combinedImageSampler]] SamplerState smp : register(s0, space2);
-
 cbuffer FragmentUniforms : register(b0, space3)
+#endif
 {
     int4 a;         // mode (0 modulate, 1 decal, 2 toon), alpha5, textured, pass
     int4 b;         // texsize x, y, alpharef, id
@@ -93,9 +109,9 @@ FSOut fs_main(VSOut i, bool front : SV_IsFrontFace)
     int3 col3 = clamp(int3(floor(i.rgb + 0.001)), int3(0, 0, 0), int3(255, 255, 255));
     int3 hl = int3(0, 0, 0);
     if (c.x == 1) {
-        int3 e = int3(toontab[col3.r >> 3].rgb + 0.5);
-        if (c.y == 1) { hl = e; col3.g = col3.r; col3.b = col3.r; }
-        else { col3 = e; }
+        int3 toon_color = int3(toontab[col3.r >> 3].rgb + 0.5);
+        if (c.y == 1) { hl = toon_color; col3.g = col3.r; col3.b = col3.r; }
+        else { col3 = toon_color; }
     }
     int a5 = a.y;
     int3 colr = col3;
@@ -125,3 +141,5 @@ FSOut fs_main(VSOut i, bool front : SV_IsFrontFace)
     o.depth = o.z;
     return o;
 }
+
+#endif // EIDOS_G3D_VERTEX_ONLY

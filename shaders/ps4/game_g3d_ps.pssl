@@ -1,0 +1,4 @@
+// Production polygon shading shares the upstream arithmetic and uniforms.
+#define EIDOS_PSSL 1
+#define fs_main main
+#include "../../engine/platform/shaders/g3d.hlsl"

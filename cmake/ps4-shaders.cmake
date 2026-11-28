@@ -28,7 +28,7 @@ function(eidos_ps4_compile_shader source profile)
             --depfile "${_output}.d"
             --cache-dir "${_eidos_pssl_cache_dir}"
             --include-dir "${_eidos_pssl_sources}"
-        DEPENDS "${_input}" "${_eidos_pssl_script}" "${_eidos_psslc}"
+        DEPENDS "${_input}" ${ARGN} "${_eidos_pssl_script}" "${_eidos_psslc}"
             "${ORBIS_SDK_ROOT}/target/include/sdk_version.h"
         DEPFILE "${_output}.d"
         COMMENT "Compiling ${source} with the official Orbis PSSL compiler"
@@ -55,6 +55,10 @@ eidos_ps4_compile_shader(diagnostic_ds_composite_ps.pssl sce_ps_orbis)
 eidos_ps4_compile_shader(single_ds_screen_ps.pssl sce_ps_orbis)
 eidos_ps4_compile_shader(snapshot_flat_vs.pssl sce_vs_vs_orbis)
 eidos_ps4_compile_shader(snapshot_flat_ps.pssl sce_ps_orbis)
+eidos_ps4_compile_shader(game_g3d_vs.pssl sce_vs_vs_orbis
+    "${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/shaders/g3d.hlsl")
+eidos_ps4_compile_shader(game_g3d_ps.pssl sce_ps_orbis
+    "${CMAKE_CURRENT_SOURCE_DIR}/engine/platform/shaders/g3d.hlsl")
 get_property(_eidos_pssl_outputs GLOBAL PROPERTY EIDOS_PS4_SHADER_OUTPUTS)
 get_property(_manifest_args GLOBAL PROPERTY EIDOS_PS4_SHADER_ARGS)
 set(_manifest "${_eidos_pssl_output_dir}/manifest.json")

@@ -22,6 +22,9 @@ const EidosPs4ShaderBlob *eidos_ps4_diagnostic_ds_shader(void);
 const EidosPs4ShaderBlob *eidos_ps4_single_ds_shader(void);
 /* Prototype flat-color snapshot shaders; compiled and embedded offline but
  * not yet bound by a game render path. */
+/* Upstream polygon shaders; require texture/uniform and MRT bindings. */
+const EidosPs4ShaderBlob *eidos_ps4_game_g3d_vertex_shader(void);
+const EidosPs4ShaderBlob *eidos_ps4_game_g3d_pixel_shader(void);
 const EidosPs4ShaderBlob *eidos_ps4_snapshot_flat_vertex_shader(void);
 const EidosPs4ShaderBlob *eidos_ps4_snapshot_flat_pixel_shader(void);
 

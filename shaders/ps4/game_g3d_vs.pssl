@@ -1,0 +1,5 @@
+// Keep fixed-point positions and texel coordinates in upstream snapshot units.
+#define EIDOS_PSSL 1
+#define EIDOS_G3D_VERTEX_ONLY 1
+#define vs_main main
+#include "../../engine/platform/shaders/g3d.hlsl"

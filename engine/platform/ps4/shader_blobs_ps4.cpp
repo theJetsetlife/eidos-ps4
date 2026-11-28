@@ -7,6 +7,8 @@
 #include "single_ds_screen_ps.h"
 #include "snapshot_flat_vs.h"
 #include "snapshot_flat_ps.h"
+#include "game_g3d_vs.h"
+#include "game_g3d_ps.h"
 
 namespace {
 
@@ -68,5 +70,19 @@ extern "C" const EidosPs4ShaderBlob *eidos_ps4_snapshot_flat_pixel_shader(void)
         eidos_ps4_snapshot_flat_ps_sb,
         sizeof(eidos_ps4_snapshot_flat_ps_sb),
     };
+    return &blob;
+}
+
+extern "C" const EidosPs4ShaderBlob *eidos_ps4_game_g3d_vertex_shader(void)
+{
+    static const EidosPs4ShaderBlob blob = {
+        eidos_ps4_game_g3d_vs_sb, sizeof(eidos_ps4_game_g3d_vs_sb)};
+    return &blob;
+}
+
+extern "C" const EidosPs4ShaderBlob *eidos_ps4_game_g3d_pixel_shader(void)
+{
+    static const EidosPs4ShaderBlob blob = {
+        eidos_ps4_game_g3d_ps_sb, sizeof(eidos_ps4_game_g3d_ps_sb)};
     return &blob;
 }
