@@ -31,7 +31,11 @@ static void make_ncgr(u8 file[TEST_FILE_SIZE], u32 pixel_fmt,
 
     memset(file, 0, TEST_FILE_SIZE);
     memcpy(file, "RGCN", 4);
+    put16(file + 4, 0xFEFFu);
+    put16(file + 6, 0x0100u);
+    put32(file + 8, TEST_FILE_SIZE);
     put16(file + 12, NCGR_HEADER_SIZE);
+    put16(file + 14, 1);
     memcpy(file + NCGR_HEADER_SIZE, "RAHC", 4);
     put32(file + NCGR_HEADER_SIZE + 4u, 8u + CHAR_HEADER_SIZE + PAYLOAD_SIZE);
 
@@ -54,7 +58,8 @@ int main(int argc, char **argv)
 
     BW_TEST_SETUP(argc, argv);
     for (i = 0; i < PAYLOAD_SIZE; i++) {
-        packed4[i] = (u8)(((i & 0x0Fu) << 4) | ((15u - i) & 0x0Fu));
+        /* Each tile has a distinct pair of literal palette indices. */
+        packed4[i] = (u8)(0x21u + (i / 32u) * 0x22u);
         pixels8[i] = (u8)(i ^ 0xA5u);
     }
 
@@ -63,16 +68,14 @@ int main(int argc, char **argv)
     BW_CHECK_EQ("sentinel 4bpp dimensions retained", ncgr.sentinel_dims, 1);
     BW_CHECK_EQ("sentinel NCGR avoids giant pixel canvas", ncgr.pixels == NULL, 1);
     for (i = 0; i < 64; i++) {
-        expected4[i] = (i & 1u) ? (u8)(packed4[i / 2u] >> 4)
-                                : (u8)(packed4[i / 2u] & 0x0Fu);
+        expected4[i] = (i & 1u) ? 2u : 1u;
     }
     g2d_ncgr_block(&ncgr, 0, out);
     BW_CHECK_EQ("sentinel 4bpp low-nibble-first decode",
                 memcmp(out, expected4, sizeof expected4), 0);
     g2d_ncgr_block(&ncgr, 3, out);
     for (i = 0; i < 64; i++) {
-        expected4[i] = (i & 1u) ? (u8)(packed4[96u + i / 2u] >> 4)
-                                : (u8)(packed4[96u + i / 2u] & 0x0Fu);
+        expected4[i] = (i & 1u) ? 8u : 7u;
     }
     BW_CHECK_EQ("sentinel 4bpp tile offset", memcmp(out, expected4, sizeof expected4), 0);
     g2d_ncgr_free(&ncgr);
@@ -86,6 +89,15 @@ int main(int argc, char **argv)
     ncgr.tile_data_size = 127;
     g2d_ncgr_block(&ncgr, 1, out);
     BW_CHECK_EQ("partial trailing tile is transparent", memcmp(out, zero, sizeof out), 0);
+    g2d_ncgr_free(&ncgr);
+
+    /* Preserve the existing dimensioned-sheet path with the same payload. */
+    make_ncgr(file, G2D_NCGR_FMT_4BPP, packed4);
+    put16(file + 24, 2);
+    put16(file + 26, 2);
+    BW_CHECK_EQ("dimensioned NCGR parses", g2d_ncgr_parse(&ncgr, file, sizeof file), 0);
+    g2d_ncgr_block(&ncgr, 3, out);
+    BW_CHECK_EQ("dimensioned bottom-right tile preserved", memcmp(out, expected4, sizeof out), 0);
     g2d_ncgr_free(&ncgr);
 
     BW_REPORT("test_ncgr_blocks");
