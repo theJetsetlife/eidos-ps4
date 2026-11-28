@@ -1758,6 +1758,25 @@ clean, and records Orbis 12.508.041 and the seven-shader manifest. ELF SHA-256:
 `7258a9defd9e48fad8862ab761cda5557616d07543836f186e27aaf4d63bc7d4`.
 The FPKG is 23,920,640 bytes, SHA-256
 `5bcd23180013bd92a54275e39244c6cd833f7e67604e0b8a9726a4564220ef2b`; all 29
-package checks and `verify_fpkg` passed. FTP upload was attempted twice after
-the endpoint stopped accepting connections; this candidate remains local and
-has not been physically run.
+package checks and `verify_fpkg` passed. FTP upload initially failed while
+the endpoint was down; the later retry and read-back are recorded below.
+
+# 2026-11-28 — Snapshot candidate upload and latest console log
+
+After the FTP endpoint returned, uploaded the `229a6a7` diagnostic FPKG as
+`/data/eidos/Eidos-PS4-01.00-229a6a7-snapshot-diagnostic.pkg`, downloaded it
+back, and verified byte equality. Its SHA-256 is
+`5bcd23180013bd92a54275e39244c6cd833f7e67604e0b8a9726a4564220ef2b`.
+
+Fetched the latest FTP log (12,938 bytes, SHA-256
+`9e31e7cde3a53daa66d018a3fdd8b2762185178d881d9e4c0441bee11393c3e1`). It
+records another successful ROM import and 18 profiling intervals through
+engine frame 10,800. Wall averages span 16.65–27.96 ms; software raster
+averages reach 16.58 ms with a recorded maximum of 23.38 ms. G3D, snapshot,
+GL draw, upload, and render counters remain zero. SaveData mount again fails
+with `0x809f000f`; save sync calls report `errno 9`. The log has no build
+provenance or `--g3d-snapshot-flat` line, so it cannot be attributed to
+`229a6a7`; these measurements are from an unidentified earlier build, not
+evidence about the new overlay. It ends at frame 10,800 with no clean-exit
+marker; the ending alone cannot distinguish a still-running app from a hang
+or crash.
