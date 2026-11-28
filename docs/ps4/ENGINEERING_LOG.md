@@ -1751,3 +1751,13 @@ performance optimization. The provenance generator now refreshes Git
 revision and dirty state on each build, avoiding configure-time stale revision
 metadata. Official optimized Orbis compilation and linking succeeded; no
 physical run or screenshot has confirmed the overlay yet.
+
+Built a clean `229a6a7` optimized ELF and GoldHEN FPKG after committing the
+diagnostic. The generated provenance says the Eidos and Aletheia trees are
+clean, and records Orbis 12.508.041 and the seven-shader manifest. ELF SHA-256:
+`7258a9defd9e48fad8862ab761cda5557616d07543836f186e27aaf4d63bc7d4`.
+The FPKG is 23,920,640 bytes, SHA-256
+`5bcd23180013bd92a54275e39244c6cd833f7e67604e0b8a9726a4564220ef2b`; all 29
+package checks and `verify_fpkg` passed. FTP upload was attempted twice after
+the endpoint stopped accepting connections; this candidate remains local and
+has not been physically run.
